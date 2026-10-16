@@ -36,6 +36,7 @@ A página abre em **Launch**. Outra tela abre uma seção com `store.openSetting
 |---|---|---|
 | Launch | sempre | Cartão "Launch does nothing?" (abre a checagem, [support.md](support.md)); **Several accounts at once**: `General.EnableMultiRbx`, `ReserveSingletonEvent` (Windows), `AutoCloseRobloxForMultiRbx` (vinha de Misc); **Time between accounts**: `AsyncJoin`, `AccountJoinDelay`, `WaitForGameJoin` (Windows); **Before each launch**: `CheckModerationBeforeLaunch`, `WarnOnOnlineJoin`, `AutoCloseLastProcess` e `ShuffleJobId` (os dois vinham de Misc) |
 | Keep in game | sempre | `General.BottingEnabled` (Auto Rejoin) + linha "Auto Rejoin options" com botão **Open AFK Mode**; "Reconnect accounts that drop" **sem interruptor** — mostra se o padrão `General.AutoReconnect` está ligado e tem o botão **Change it on the Session page** (Windows); `General.KeepPcAwake`, `Afk.ShakeToStop` (Windows) |
+| Notifications | sempre | Avisos no Discord por webhook (`Webhook.*`, desligado por padrão), com o botão **Send test message** — ver [webhook.md](webhook.md) |
 | Accounts | sempre | **Account list**: `ShowPresence`, `PresenceUpdateRate` (vinha de Misc), `WrapLongNames`, `DisableAgingAlert`, `DisableImages`, `AutoCookieRefresh`; **Login browser**: `Login.PersistentProfile`, `Login.StealthMode`, `Login.ManualBinaryPath` e o cartão do navegador embutido |
 | Privacy & security | sempre | **Hidden names**: `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `ShowAccountNameOnWindow` (Windows); **Account file**: botão "Change Encryption Method" (vinha de Misc), `WarnOnCopyCredential`; **Password screen**: `LockOnInactivity`, `LockAfterMinutes`, "Stay signed in on this computer" (os três vinham de Misc), `RestrictedBackgroundStyle` |
 | Updates | sempre | `CheckForUpdates`, `UpdaterReleaseChannel`, `UpdaterFeatureChannel` e o cartão "Manual Update Check" |
@@ -78,6 +79,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `WaitForGameJoin` | `true` | "Start the next account once the previous one is in the game". Multi-launch no Windows: passa para a próxima conta quando o log diz que a anterior entrou no jogo (nunca antes de 8 s, no máximo 20 s ou o delay, se maior); sem log achado, vale o `AccountJoinDelay`. Ver [multi-launch.md](multi-launch.md). |
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |
 | `HideUsernames` | `false` | Mascara nomes na lista. |
+| `AccountListView` | — (`list`) | Lista de contas em linhas (`list`) ou em grade de cards (`cards`); botão de grade/lista na toolbar. Ver [ui-layout.md](ui-layout.md#lista-de-contas). |
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |
 | `WrapLongNames` | `false` | Ligado, o alias/username quebra em mais de uma linha na linha da conta em vez de truncar (o alias vai até 240 caracteres). |
 | `ShowAvatarsWhenHidden` | — (false) | Comportamento com nomes ocultos. |
@@ -114,7 +116,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ThemeWindowsNavbar` | `true` | Barra de título do Windows segue o tema. |
 | `ThemeWindowsNavbarAutoEnabledV1` | `true` | Marcador de migração (força `ThemeWindowsNavbar=true` uma vez). |
 | `RestrictedBackgroundStyle` | `warp` | Fundo animado da tela de senha: `bubbles`, `warp`, `warpLegacy`, `waves`. |
-| `InterfaceScale` | — (`auto`) | Tamanho da interface (zoom nativo do WebView): `auto` cresce com a janela grande (100–200%, ex.: 170% num 4K maximizado) e encolhe em monitor pequeno (80–100%); a opção mostra o valor de agora ("Automatic (170%)"). Ou fixo `110`/`100`/`90`/`80`, que vence o automático. Vale na hora, sem sair da página. Ver [ui-layout.md](ui-layout.md#tamanho-da-interface). |
+| `InterfaceScale` | — (`auto`) | Tamanho da interface (zoom nativo do WebView): `auto` cresce com a janela grande (100–200%, ex.: 170% num 4K maximizado) e encolhe em monitor pequeno (80–100%); a opção mostra o valor de agora ("Automatic (170%)"). Ou fixo, qualquer inteiro de `80` a `200` (a lista tem 80–200%, o campo ao lado aceita o valor exato), que vence o automático. Vale na hora, sem sair da página. Ver [ui-layout.md](ui-layout.md#tamanho-da-interface). |
 | `BottingEnabled` | `false` | Habilita ferramentas de Auto Rejoin. |
 | `BottingUseSharedClientProfile` | `true` | Os perfis Main/Alt (`BottingPlayer*`/`BottingBot*`) herdam o Normal. |
 | `BottingAutoShareLaunchFields` | `true` | **Ignorada desde 03/10/2026**: o Auto Rejoin não tem mais os campos Place/Job/Data para sincronizar com a sidebar (o servidor é onde as contas estão ou um jogo dos Favoritos). Saiu da aba Miscellaneous; a chave fica no INI sem efeito. |
@@ -227,9 +229,28 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 |---|---|---|
 | `AfterReconnect` | `false` | Toca a gravação da conta na vaga After auto-reconnect quando a reconexão automática a devolve ao jogo (uma vez, só nela). |
 | `AfterReconnectDelaySeconds` | `30` | Quanto tempo a conta fica no jogo antes de a gravação tocar (5–3600 s). |
+| `AfterLaunch` | `false` | "Play after a launch": toca a gravação da conta na vaga After launch depois de **qualquer** launch do app (uma conta, lote, preset, Auto Rejoin, web server), uma vez, quando ela fica o tempo no jogo. O relançamento da reconexão automática não conta (toca a vaga dela). Ver [recordings.md](recordings.md#depois-do-launch). |
+| `AfterLaunchDelaySeconds` | `30` | Quanto tempo a conta fica no jogo, depois do launch, antes de a gravação tocar (5–3600 s). |
 
-A biblioteca de gravações e qual vale para cada conta em cada vaga (global e por conta) ficam em `RAMRecordings.json`, não no INI. Nenhuma chave do INI mudou com as duas vagas.
+A biblioteca de gravações e qual vale para cada conta em cada vaga (global e por conta) ficam em `RAMRecordings.json`, não no INI. Nenhuma chave do INI mudou com as duas vagas; a terceira vaga (After launch) trouxe `AfterLaunch` e `AfterLaunchDelaySeconds`.
 | `WaitForFullscreen` | `true` | "Wait while a fullscreen window is in front": com um vídeo ou outro jogo em tela cheia na frente, o ciclo espera em vez de tirar o foco, até 5 min além da hora da conta. Só `"false"` desliga. |
+
+### `[Webhook]` — detalhes em [webhook.md](webhook.md)
+
+Seção Settings › **Notifications**. Avisos no Discord, **desligados** por padrão (os avisos saem do PC).
+
+| Chave | Default | Significado |
+|---|---|---|
+| `Enabled` | `false` | "Send notifications to Discord": liga o envio. |
+| `Url` | `""` | URL do webhook. Só grava vazio ou `https://discord.com/api/webhooks/<id>/<token>` (também `discordapp.com`, `ptb.`, `canary.`, `/api/v10/`) — a tela confere e o `update_setting` recusa o resto. **Fica em texto puro** no INI (é um segredo: quem tem posta no canal); nunca vai para log nem mensagem de erro. |
+| `Mention` | `""` | "Text before each message (optional)", até 100 caracteres (ex.: `@everyone`, `<@&id do cargo>`). É a única parte da mensagem que pode mencionar alguém. |
+| `NotifyDropped` | `true` | Conta caiu / cliente fechou sem sair do jogo (com o motivo). |
+| `NotifyReconnectFailed` | `true` | A reconexão automática desistiu (ou parou por ban, sessão expirada, sem destino). |
+| `NotifyNotResponding` | `true` | A janela ficou "Não respondendo" por 30 s. |
+| `NotifyReconnected` | `false` | A reconexão automática devolveu a conta ao jogo. |
+| `NotifyWrongAccount` | `true` | O cliente de uma conta entrou logado em outra conta do Roblox (a fila para; o cliente fica aberto). |
+| `NotifyLaunchFailed` | `false` | O launch de uma conta falhou (auth ticket ou abrir o cliente). |
+| `MaskNames` | `false` | "Hide account names in messages": nome mascarado como no "Names hidden" (usa `General.HiddenNameLetters`), sem foto nem link do perfil. Desligado (padrão desde 15/10/2026), vai Alias ou Username com foto e link. Substituiu o `HideNames` (ligado), nunca publicado. |
 
 ### `[Generator]` / `[BloxGen]`
 

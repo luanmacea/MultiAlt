@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../test-utils/tauriMo
 vi.mock("@tauri-apps/api/event", async () => (await import("../test-utils/tauriMocks")).tauriEventMock());
 vi.mock("../hooks/usePrompt", async () => (await import("../test-utils/promptMocks")).promptModuleMock());
 
-import { ChooseGameScreen } from "./ChooseGameScreen";
+import { ChooseGameScreen, resetLaunchesPreparingForTests } from "./ChooseGameScreen";
 import { saveRecentGames } from "./server-list/types";
 import { defaultSettings, makeAccount, setStore } from "../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
@@ -69,6 +69,7 @@ function joinButton(): HTMLButtonElement {
 beforeEach(() => {
   resetTauriMocks();
   resetPromptMocks();
+  resetLaunchesPreparingForTests();
   localStorage.clear();
 });
 
@@ -328,6 +329,108 @@ describe("ChooseGameScreen — FollowTab, join by following", () => {
   });
 });
 
+/**
+ * "Wait until they're in a game": jogador fora de jogo vira uma espera que
+ * consulta a presença a cada 30 s e lança as contas uma vez quando dá.
+ */
+describe("ChooseGameScreen — FollowTab, wait for the player", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function presenceCalls() {
+    return invokeMock.mock.calls.filter((call) => call[0] === "get_presence").length;
+  }
+
+  async function followOffline(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    const buttons = screen.getAllByRole("button", { name: "Follow" });
+    await user.click(buttons[buttons.length - 1]);
+    return await screen.findByRole("button", { name: "Wait until they're in a game" });
+  }
+
+  it("offers to wait, keeps watching across tabs and stops on Cancel", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return [{ userId: 42, userPresenceType: 0 }];
+      return undefined;
+    });
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+      settings: withJoinByFollowing(true),
+    });
+    render(<ChooseGameScreen />);
+    await user.click(screen.getByRole("button", { name: "Follow" }));
+
+    await user.click(await followOffline(user));
+    expect(screen.getByTestId("follow-wait-status")).toHaveTextContent("Watching Builderman… (checks every 30 s)");
+
+    // Trocar de aba não para a espera.
+    await user.click(screen.getByRole("button", { name: "Favorites" }));
+    const before = presenceCalls();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(presenceCalls()).toBe(before + 1);
+    await user.click(screen.getByRole("button", { name: "Follow" }));
+    expect(screen.getByTestId("follow-wait-status")).toBeInTheDocument();
+
+    await user.click(within(screen.getByTestId("follow-wait-status")).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("follow-wait-status")).toBeNull();
+    const afterCancel = presenceCalls();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(presenceCalls()).toBe(afterCancel);
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+  });
+
+  it("launches every selected account once when the player joins a game, then stops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    let type = 0;
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return [{ userId: 42, userPresenceType: type, rootPlaceId: 606849621, placeId: 111, gameId: null }];
+      return undefined;
+    });
+    const store = await renderFollowTab([ACCOUNT_A, ACCOUNT_B], true);
+
+    await user.click(await followOffline(user));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+
+    type = 2;
+    await vi.advanceTimersByTimeAsync(30_000);
+    await waitFor(() => expect(store.launchMultiple).toHaveBeenCalledTimes(1));
+    expect(store.launchMultiple).toHaveBeenCalledWith(
+      [1001, 1002],
+      expect.objectContaining({ placeId: "606849621", jobId: "", followUserId: 42 })
+    );
+
+    const calls = presenceCalls();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(presenceCalls()).toBe(calls);
+    expect(store.launchMultiple).toHaveBeenCalledTimes(1);
+  });
+
+  it("closing Choose Game stops the wait", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return [{ userId: 42, userPresenceType: 0 }];
+      return undefined;
+    });
+    await renderFollowTab([ACCOUNT_A], true);
+    await user.click(await followOffline(user));
+    cleanup();
+    const calls = presenceCalls();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(presenceCalls()).toBe(calls);
+  });
+});
+
 describe("ChooseGameScreen — FollowTab", () => {
   /** O botão "Follow" do formulário (o primeiro com esse nome é a aba). */
   function followButton(): HTMLButtonElement {
@@ -531,12 +634,116 @@ describe("ChooseGameScreen — Recent tab", () => {
         expect.objectContaining({ placeId: "606849621" })
       )
     );
-    // Lançou: volta sozinho para a lista de contas (pedido do dono, 12/10/2026),
-    // que agora mostra o estado de cada conta ao vivo. Antes ia para a Session
-    // e a Choose Game ficava aberta por baixo, voltando ao clicar em Contas.
+    // Lançou: vai para a Sessão, onde a preparação e a fila aparecem (pedido
+    // do dono, 15/10/2026). A Escolher jogo fecha junto — o problema de 12/10
+    // era ela ficar aberta por baixo e reabrir com o lote anterior.
     expect(store.setChooseGameOpen).toHaveBeenCalledWith(false);
-    expect(store.setActivePage).toHaveBeenCalledWith("accounts");
-    expect(store.setActivePage).not.toHaveBeenCalledWith("session");
+    expect(store.setActivePage).toHaveBeenCalledWith("session");
+  });
+
+  /**
+   * Relato do dono (15/10/2026): o clique em Entrar não respondia por alguns
+   * segundos (conferindo presença, escolhendo servidor); o segundo clique
+   * abria a mesma conta de novo e o Roblox derrubava uma (erro 276).
+   */
+  it("goes to the Session right on the click and shows the preparation", async () => {
+    saveRecentGames([{ placeId: 606849621, name: "Jailbreak", iconUrl: "icon.png", lastPlayed: Date.now() }]);
+    let releasePick: (v: unknown) => void = () => {};
+    setInvokeHandler((cmd) => (cmd === "pick_server" ? new Promise((r) => (releasePick = r)) : undefined));
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+    });
+    render(<ChooseGameScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "Recent" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Join Game" }));
+
+    // Ainda procurando o servidor: a tela já foi para a Sessão.
+    await waitFor(() => expect(store.setActivePage).toHaveBeenCalledWith("session"));
+    expect(store.setChooseGameOpen).toHaveBeenCalledWith(false);
+    await waitFor(() =>
+      expect(store.setLaunchPreparing).toHaveBeenCalledWith({ userIds: [1001, 1002], step: "server" })
+    );
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+
+    releasePick({ jobId: "job-picked", regionFallback: false });
+    await waitFor(() => expect(store.launchMultiple).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(store.setLaunchPreparing).toHaveBeenLastCalledWith(null));
+  });
+
+  it("a second click while the launch is still being prepared does not open the accounts again", async () => {
+    saveRecentGames([{ placeId: 606849621, name: "Jailbreak", iconUrl: "icon.png", lastPlayed: Date.now() }]);
+    let releasePick: (v: unknown) => void = () => {};
+    setInvokeHandler((cmd) => (cmd === "pick_server" ? new Promise((r) => (releasePick = r)) : undefined));
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+    });
+    render(<ChooseGameScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "Recent" }));
+    const join = await screen.findByRole("button", { name: "Join Game" });
+    await userEvent.click(join);
+    await userEvent.click(join);
+
+    expect(store.addToast).toHaveBeenCalledWith("This launch is already starting");
+    releasePick({ jobId: "job-picked", regionFallback: false });
+    await waitFor(() => expect(store.launchMultiple).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(store.setLaunchPreparing).toHaveBeenLastCalledWith(null));
+  });
+
+  /**
+   * Entrada rápida (Favoritos/Jogos/Recentes) com UMA conta: nada de procurar
+   * servidor — o Roblox escolhe na hora (pedido do dono, 15/10/2026: era aqui
+   * que o clique demorava).
+   */
+  it("a quick join with one account goes straight in without searching for a server", async () => {
+    saveRecentGames([{ placeId: 606849621, name: "Jailbreak", iconUrl: "icon.png", lastPlayed: Date.now() }]);
+    const store = setStore({
+      accounts: [ACCOUNT_A],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [ACCOUNT_A],
+      serverPreference: "bestfit",
+      serverRegionFilter: "BR",
+    });
+    render(<ChooseGameScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "Recent" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Join Game" }));
+
+    await waitFor(() =>
+      expect(store.joinServer).toHaveBeenCalledWith(1001, expect.objectContaining({ placeId: "606849621", jobId: "" }))
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith("pick_server", expect.anything());
+  });
+
+  /** Várias contas na entrada rápida: só o mesmo servidor com vaga, sem os filtros da aba Servidores. */
+  it("a quick join with several accounts only looks for one server that fits them all, ignoring the Servers filters", async () => {
+    saveRecentGames([{ placeId: 606849621, name: "Jailbreak", iconUrl: "icon.png", lastPlayed: Date.now() }]);
+    setInvokeHandler((cmd) => (cmd === "pick_server" ? { jobId: "job-fit", regionFallback: false } : undefined));
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+      serverPreference: "random",
+      serverRegionFilter: "BR",
+    });
+    render(<ChooseGameScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "Recent" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Join Game" }));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        "pick_server",
+        expect.objectContaining({ preference: "bestfit", countryCode: null, accounts: 2 })
+      )
+    );
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith(
+        [1001, 1002],
+        expect.objectContaining({ jobId: "job-fit" })
+      )
+    );
   });
 });
 

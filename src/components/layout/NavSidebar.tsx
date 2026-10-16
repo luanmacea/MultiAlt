@@ -12,6 +12,7 @@ import {
   Settings,
   Shirt,
   Sparkles,
+  Star,
   TerminalSquare,
   Users,
   UsersRound,
@@ -23,6 +24,7 @@ import { useTr } from "../../i18n/text";
 import { ENABLE_GROUPS, ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
 import { Tooltip } from "../ui/Tooltip";
 import { FeedbackDialog } from "../dialogs/FeedbackDialog";
+import { StarPromptCard, openRepoForStar } from "./StarPromptCard";
 
 /**
  * Barra lateral de navegação. Substitui os botões de ícone da Toolbar, que só
@@ -264,6 +266,24 @@ export function NavSidebar() {
     </button>
   );
 
+  // Estrela no GitHub (pedido do dono, 15/10/2026): o projeto é open source e
+  // a estrela ajuda a manter os updates. Fixo no rodapé; o cartão que pede
+  // (StarPromptCard) só aparece depois de uns dias de uso.
+  const starLabel = t("Star on GitHub");
+  const starButton = (
+    <button
+      type="button"
+      onClick={openRepoForStar}
+      aria-label={starLabel}
+      className={`flex items-center rounded-lg text-[13px] text-[var(--panel-muted)] hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)] transition-colors outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] ${
+        collapsed ? "w-10 h-10 justify-center" : "w-full h-9 gap-3 px-2.5"
+      }`}
+    >
+      <Star size={17} strokeWidth={1.6} aria-hidden="true" className="shrink-0 text-amber-400" />
+      <span className={collapsed ? "sr-only" : "truncate"}>{starLabel}</span>
+    </button>
+  );
+
   const collapseLabel = collapsed ? t("Expand sidebar") : t("Collapse sidebar");
   const CollapseIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
   const collapseButton = (
@@ -297,6 +317,7 @@ export function NavSidebar() {
       </div>
 
       <div className="shrink-0 border-t theme-border py-2 px-2.5">
+        {collapsed ? null : <StarPromptCard />}
         <ul className="mb-0.5 space-y-0.5">
           <li className={collapsed ? "flex justify-center" : undefined}>
             {collapsed ? (
@@ -305,6 +326,15 @@ export function NavSidebar() {
               </Tooltip>
             ) : (
               discordButton
+            )}
+          </li>
+          <li className={collapsed ? "flex justify-center" : undefined}>
+            {collapsed ? (
+              <Tooltip content={starLabel} side="right" delayMs={200}>
+                {starButton}
+              </Tooltip>
+            ) : (
+              starButton
             )}
           </li>
           <li className={collapsed ? "flex justify-center" : undefined}>

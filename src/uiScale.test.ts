@@ -111,6 +111,29 @@ describe("normalizeUiScaleSetting", () => {
     expect(normalizeUiScaleSetting("banana")).toBe("auto");
   });
 
+  /**
+   * Monitor muito grande (pedido do dono, 14/10/2026): 110% era o teto fixo e
+   * sobrava tela vazia. Hoje vai a 200%, com qualquer valor inteiro de 80 a
+   * 200 (o "personalizado").
+   */
+  it("aceita valores grandes e personalizados entre 80 e 200", () => {
+    expect(normalizeUiScaleSetting("150")).toBe("150");
+    expect(normalizeUiScaleSetting("140")).toBe("140");
+    expect(normalizeUiScaleSetting("137")).toBe("137");
+    expect(normalizeUiScaleSetting("200")).toBe("200");
+    expect(normalizeUiScaleSetting("80")).toBe("80");
+    expect(normalizeUiScaleSetting("201")).toBe("auto");
+    expect(normalizeUiScaleSetting("79")).toBe("auto");
+    expect(normalizeUiScaleSetting("12.5")).toBe("auto");
+    expect(resolveUiScale("150", null)).toBe(1.5);
+    expect(resolveUiScale(normalizeUiScaleSetting("137"), null)).toBe(1.37);
+  });
+
+  it("as opções da lista chegam a 200%", () => {
+    expect(UI_SCALE_SETTINGS).toContain("150");
+    expect(UI_SCALE_SETTINGS).toContain("200");
+  });
+
   it("aceita maiúsculas e espaços do INI editado à mão", () => {
     expect(normalizeUiScaleSetting(" AUTO ")).toBe("auto");
     expect(normalizeUiScaleSetting(" 90 ")).toBe("90");

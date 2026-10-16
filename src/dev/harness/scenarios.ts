@@ -82,9 +82,11 @@ let harnessGameLists: Record<string, unknown[]> | null = null;
 type HarnessSlot = { defaultId: string | null; accounts: Record<string, string | null> };
 
 /** O `RAMRecordings.json` do harness, em memória (começa vazio; o cenário `recordings` enche). */
-const harnessRecordings: Record<string, unknown> & { afterReconnect: HarnessSlot; antiAfk: HarnessSlot } = {
+type HarnessSlotName = "afterReconnect" | "afterLaunch" | "antiAfk";
+const harnessRecordings: Record<string, unknown> & Record<HarnessSlotName, HarnessSlot> = {
   recordings: [],
   afterReconnect: { defaultId: null, accounts: {} },
+  afterLaunch: { defaultId: null, accounts: {} },
   antiAfk: { defaultId: null, accounts: {} },
   keys: ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5", "Shift", "Up", "Down", "Left", "Right"],
 };
@@ -167,7 +169,7 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "delete_recording": {
       const list = harnessRecordings.recordings as { id: string }[];
       harnessRecordings.recordings = list.filter((r) => r.id !== args?.id);
-      for (const slot of ["afterReconnect", "antiAfk"] as const) {
+      for (const slot of ["afterReconnect", "afterLaunch", "antiAfk"] as const) {
         const choices = harnessRecordings[slot];
         harnessRecordings[slot] = {
           defaultId: choices.defaultId === args?.id ? null : choices.defaultId,
@@ -178,7 +180,7 @@ const baseHandler: InvokeHandler = (cmd, args) => {
       return true;
     }
     case "set_default_recording": {
-      const slot = args?.slot as "afterReconnect" | "antiAfk";
+      const slot = args?.slot as HarnessSlotName;
       harnessRecordings[slot] = { ...harnessRecordings[slot], defaultId: (args?.id as string | null) ?? null };
       harnessEmit("recordings-changed", null);
       return null;
@@ -186,7 +188,7 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "set_account_recording": {
       // O mesmo contrato do backend: herdar tira a conta do mapa, "none" grava
       // `null`, a própria grava o id.
-      const slot = args?.slot as "afterReconnect" | "antiAfk";
+      const slot = args?.slot as HarnessSlotName;
       const choice = args?.choice as { kind: "inherit" | "none" | "recording"; id?: string };
       const accounts = { ...harnessRecordings[slot].accounts };
       const key = String(args?.userId);
@@ -392,7 +394,11 @@ function emitRealPlaceScan(
 // ─── AFK mode ────────────────────────────────────────────────────────────────
 
 /** A lista fechada de `AFK_KEYS` (`commands/afk.rs`), na ordem em que o backend a entrega. */
-const AFK_KEYS = ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5"];
+const AFK_KEYS = [
+  "Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5",
+  // Os pares de setas que se anulam (`AFK_KEY_PAIRS`).
+  "Right+Left", "Up+Down",
+];
 
 /** `AfkSendError::message()`, por código. A tela escolhe a frase pelo código. */
 const AFK_SEND_ERRORS = {
@@ -1872,6 +1878,16 @@ const SCENARIOS: Record<string, () => void> = {
           index === 1
             ? []
             : [
+                ...Array.from({ length: index === 0 ? 9 : 0 }, (_, i) => ({
+                  userId: 9000 + i,
+                  name: `buddy${i}`,
+                  displayName: `Buddy ${i}`,
+                  presenceType: 2,
+                  lastLocation: ["Jailbreak", "Blox Fruits", "Pet Simulator 99! [BLOOD MOON]", "Conquer The World WW2"][i % 4],
+                  placeId: 606849621,
+                  rootPlaceId: 606849621,
+                  gameId: `job-buddy-${i}`,
+                })),
                 {
                   userId: 7000 + index,
                   name: `friend${index}`,
@@ -1913,6 +1929,47 @@ const SCENARIOS: Record<string, () => void> = {
    * minimizar/fechar está por cima do texto. O cenário só entrega os dados que o
    * backend entregaria.
    */
+  /**
+   * Aba Recentes da Escolher jogo com os jogos de cada conta. Cada leitura de
+   * conta demora um tempo diferente (a 2ª é a mais lenta e a 3ª falha), como
+   * na rede: quem tem que mostrar cada conta assim que ela volta, na ordem da
+   * seleção, é a UI. Selecione 3+ contas, abra Escolher jogo > Recentes.
+   */
+  "recent-games-accounts"() {
+    const NAMES = [
+      "Tower Incremental", "Racket Rivals", "Turbo Soccer", "PORTALS", "ROB IT", "Total Conquest",
+      "Sniper Arena", "RIVALS", "Scam Together", "Saber Arena", "LONGSHOT", "Huss Valley",
+    ];
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_recent_games_for_accounts") {
+        const ids = ((args.userIds as number[]) || []).filter((id) => id > 0);
+        const userId = ids[0] ?? 0;
+        const delay = userId % 3 === 2 ? 2600 : 500 + (userId % 4) * 300;
+        return new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve(
+                ids.map((id) =>
+                  id % 3 === 0
+                    ? { userId: id, games: [], error: "Failed to read recent games (status 401)" }
+                    : {
+                        userId: id,
+                        error: null,
+                        games: NAMES.slice(0, 6 + (id % 5)).map((name, i) => {
+                          const placeId = 100_000 + id * 100 + i;
+                          return { placeId, universeId: placeId, name, iconUrl: iconForGame(placeId, name) };
+                        }),
+                      }
+                )
+              ),
+            delay
+          )
+        );
+      }
+      return baseHandler(cmd, args);
+    });
+  },
+
   "vault-key-warning-locked"() {
     setInvokeHandler((cmd, args) => {
       switch (cmd) {
@@ -2263,7 +2320,8 @@ const SCENARIOS: Record<string, () => void> = {
    * memória o que a chave e o lote gravam.
    *
    * Sessão de agora de cada linha do "Em jogo" (`get_current_sessions`): jogo,
-   * servidor público/privado (a 4ª, do site, sem tipo) e tempo em jogo. Quem
+   * servidor público/privado (a 4ª, do site, sem tipo) e tempo em jogo. Cada
+   * servidor traz a região e há quanto tempo está no ar (`health.server`). Quem
    * cai perde a sessão, e a 1ª ganha uma nova ao voltar (com
    * `session-history-changed`, como o backend). Com `&accounts=9`, três contas
    * a mais jogam sem cair — uma num jogo de nome comprido, outra num place sem
@@ -2292,12 +2350,13 @@ const SCENARIOS: Record<string, () => void> = {
       pid: 8200 + i,
       adopted: i === 3,
       drop: null as Drop | null,
+      wrongAccountUserId: null as number | null,
     }));
     // Com `&accounts=9` (ou mais), da 7ª à 9ª conta jogam sem cair: é onde se
     // vê a sessão de agora inteira (jogo, servidor, tempo em jogo). A 6ª fica
     // de fora (o cliente fechou e a reconexão desistiu, abaixo).
     accounts.slice(6, 9).forEach((a, i) => {
-      rows.push({ userId: a.UserID, pid: 8300 + i, adopted: false, drop: null });
+      rows.push({ userId: a.UserID, pid: 8300 + i, adopted: false, drop: null, wrongAccountUserId: null });
     });
     // Sessão de agora (`get_current_sessions`): onde e desde quando, como o
     // observador do histórico guarda. Nome comprido para ver o corte; um place
@@ -2365,6 +2424,20 @@ const SCENARIOS: Record<string, () => void> = {
       });
       harnessEmit("session-history-changed", { userIds: [rows[0].userId] });
     }, 15_000);
+    // A 7ª (com `&accounts=7` ou mais) entrou como outra conta do Roblox: o
+    // log mostrou outro `userid` (commands/client_health.rs). O backend manda
+    // o evento uma vez — com a fila parada, se havia uma — e o dado segue no
+    // polling; o cliente continua aberto.
+    setTimeout(() => {
+      const row = rows[5];
+      if (!row) return;
+      row.wrongAccountUserId = 98765432;
+      harnessEmit("roblox-client-wrong-account", {
+        userId: row.userId,
+        loggedUserId: row.wrongAccountUserId,
+        queueStopped: false,
+      });
+    }, 5_000);
     // A 5ª trava: a janela fica "Não respondendo" (o backend só avisa depois
     // de 30 s; aqui chega em 6 s para não esperar).
     let hungUserId: number | null = null;
@@ -2504,6 +2577,18 @@ const SCENARIOS: Record<string, () => void> = {
       const trimmed = base > limitMb || index === 5;
       return { memoryMb, limitMb, over: memoryMb > limitMb, trimmedAtMs: trimmed ? started : null };
     };
+    // Servidor de cada cliente, como o monitor tira do log (`UDMUX Address` →
+    // região pela geolocalização com cache; `Server Prefix` → quando subiu).
+    // O servidor dividido do Jailbreak está em Miami há 3 h; o privado da 2ª
+    // ainda não tem região (consulta em andamento), só o tempo no ar; o resto
+    // é de São Paulo. Quem caiu não tem sessão, então o grupo não aparece.
+    const serverOf = (userId: number) => {
+      const session = sessionOf.get(userId);
+      if (!session) return null;
+      if (session.jobId === SHARED_JAILBREAK_JOB) return { region: "Miami, US", startedAtMs: started - 3 * 3_600_000 };
+      if (session.privateServer) return { region: null, startedAtMs: started - 25 * 60_000 };
+      return { region: "São Paulo, BR", startedAtMs: started - 52 * 3_600_000 };
+    };
     setInvokeHandler((cmd, args) => {
       if (cmd === "get_running_instances") {
         return rows.map((row, index) => ({
@@ -2519,6 +2604,8 @@ const SCENARIOS: Record<string, () => void> = {
             windowTitle: `${row.userId} — Roblox`,
             notResponding: row.userId === hungUserId,
             inGame: !row.drop,
+            wrongAccountUserId: row.wrongAccountUserId,
+            server: serverOf(row.userId),
           },
         }));
       }
@@ -2626,7 +2713,12 @@ const SCENARIOS: Record<string, () => void> = {
       ClickX: "50",
       ClickY: "50",
     };
-    settings.Recordings = { AfterReconnect: "true", AfterReconnectDelaySeconds: "45" };
+    settings.Recordings = {
+      AfterReconnect: "true",
+      AfterReconnectDelaySeconds: "45",
+      AfterLaunch: "true",
+      AfterLaunchDelaySeconds: "20",
+    };
     settings.General = { ...settings.General, EnableMultiRbx: "true", BottingEnabled: "true" };
     if (params.get("recs") !== "0") {
       const now = Date.now();
@@ -2672,6 +2764,11 @@ const SCENARIOS: Record<string, () => void> = {
       harnessRecordings.afterReconnect = {
         defaultId: "rec-walk",
         accounts: overrides ? { [id(3)]: null } : {},
+      };
+      // Depois do launch: a mesma "Walk to the spot" só para a 4ª conta.
+      harnessRecordings.afterLaunch = {
+        defaultId: null,
+        accounts: overrides ? { [id(4)]: "rec-walk" } : {},
       };
       harnessRecordings.antiAfk = {
         defaultId: "rec-jump",

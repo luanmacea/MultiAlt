@@ -15,6 +15,7 @@ import { Toggle } from "../ui/Toggle";
 import { Select } from "../ui/Select";
 import { GameBadge } from "../ui/GameBadge";
 import { loadFavorites, parsePlaceIdInput } from "../server-list/types";
+import { collectGroupNames, parseGroupName } from "../../types";
 import type { LaunchPreset, LaunchPresetView, PresetSchedule } from "../../types";
 import {
   EMPTY_SCHEDULE,
@@ -23,6 +24,7 @@ import {
   formatNextRun,
   matchingTarget,
   newPresetDraft,
+  presetAccountIds,
   presetDayToJsDay,
   presetFieldProblem,
   type PresetField,
@@ -225,8 +227,9 @@ function PresetRow({
   // `setClosing` re-renderizar o botão desabilitado.
   const closingRef = useRef(false);
 
-  const known = new Set(store.accounts.map((a) => a.UserID));
-  const present = preset.userIds.filter((id) => known.has(id));
+  // Preset de grupo: quem está no grupo agora; contas fixas: as que ainda existem.
+  const present = presetAccountIds(preset, store.accounts);
+  const groupName = preset.group ? parseGroupName(preset.group).displayName : null;
   const gameName = identity?.name ?? preset.gameName ?? t("Place {{placeId}}", { placeId: preset.placeId });
   const server = preset.vipName
     ? t("VIP: {{name}}", { name: preset.vipName })
@@ -298,6 +301,7 @@ function PresetRow({
           <div className="text-[13px] font-medium text-[var(--panel-fg)] truncate">{preset.name}</div>
           <div className="text-[12px] theme-muted truncate">
             {[
+              groupName ? t("Group {{name}}", { name: groupName }) : null,
               present.length === 1 ? t("1 account") : t("{{count}} accounts", { count: present.length }),
               gameName,
               server,
@@ -305,7 +309,12 @@ function PresetRow({
               .filter(Boolean)
               .join(" · ")}
           </div>
-          {present.length < preset.userIds.length && (
+          {groupName && present.length === 0 && (
+            <div className="text-[11px] text-amber-400 mt-0.5">
+              {t("Group {{name}} has no accounts", { name: groupName })}
+            </div>
+          )}
+          {!preset.group && present.length < preset.userIds.length && (
             <div className="text-[11px] text-amber-400 mt-0.5">
               {t("{{count}} account(s) of this preset are no longer in the app", {
                 count: preset.userIds.length - present.length,
@@ -389,8 +398,23 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
   const dirty = JSON.stringify({ draft, placeText, targetKey }) !== initialSnapshot;
 
   const knownIds = useMemo(() => new Set(store.accounts.map((a) => a.UserID)), [store.accounts]);
-  const presentCount = draft.userIds.filter((id) => knownIds.has(id)).length;
-  const missingCount = draft.userIds.length - presentCount;
+  // Preset de grupo (ideia 42): `group` não nulo. As contas saem do grupo a
+  // cada launch; a lista fixa fica no rascunho só para voltar a ela.
+  const groupMode = draft.group != null;
+  const groupNames = useMemo(() => collectGroupNames(store.accounts), [store.accounts]);
+  const presentCount = presetAccountIds(draft, store.accounts).length;
+  const missingCount = groupMode ? 0 : draft.userIds.length - draft.userIds.filter((id) => knownIds.has(id)).length;
+  const groupOptions = useMemo(() => {
+    const options = groupNames.map((g) => ({
+      value: g,
+      label: `${parseGroupName(g).displayName} (${store.accounts.filter((a) => (a.Group || "Default") === g).length})`,
+    }));
+    // Grupo do preset renomeado/esvaziado: continua na lista, marcado.
+    if (draft.group && !groupNames.includes(draft.group)) {
+      options.unshift({ value: draft.group, label: `${parseGroupName(draft.group).displayName} (0)` });
+    }
+    return options;
+  }, [groupNames, store.accounts, draft.group]);
 
   // Preset novo: o primeiro campo a preencher é o Nome.
   useEffect(() => {
@@ -412,7 +436,8 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
     let target: HTMLElement | null = null;
     if (fieldError.field === "name") target = nameRef.current;
     else if (fieldError.field === "accounts")
-      target = accountsRef.current?.querySelector<HTMLElement>("input, button") ?? null;
+      // Grupo: o seletor de grupo (os botões All/None somem nesse modo).
+      target = accountsRef.current?.querySelector<HTMLElement>(groupMode ? "button" : "input, button") ?? null;
     else if (fieldError.field === "game")
       target = placeRef.current ?? gameRef.current?.querySelector<HTMLElement>("button") ?? null;
     else if (s.openEnabled && fieldError.message === "Pick a time to open.") target = openTimeRef.current;
@@ -457,11 +482,15 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
     if (saving) return;
     const toSave: LaunchPreset = {
       ...resolved,
+      // Preset de grupo não guarda lista fixa (o backend também a descarta).
+      userIds: groupMode ? [] : resolved.userIds,
+      group: groupMode ? draft.group : null,
       schedule: schedule.openEnabled || schedule.closeEnabled ? schedule : null,
     };
     const problem = presetFieldProblem(toSave, {
       placeText: chosen ? undefined : placeText,
       knownUserIds: knownIds,
+      accounts: store.accounts,
     });
     if (problem) {
       setError(null);
@@ -562,19 +591,57 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
             <span className="text-[12px] theme-label font-medium">
               {t("Accounts ({{count}})", { count: presentCount })}
             </span>
-            <div className="flex gap-2 text-[11px]">
-              <button
-                className="theme-muted hover:text-[var(--panel-fg)]"
-                onClick={() => setDraft((d) => ({ ...d, userIds: store.accounts.map((a) => a.UserID) }))}
-              >
-                {t("preset-accounts-all")}
-              </button>
-              <button className="theme-muted hover:text-[var(--panel-fg)]" onClick={() => setDraft((d) => ({ ...d, userIds: [] }))}>
-                {t("preset-accounts-none")}
-              </button>
-            </div>
+            {!groupMode && (
+              <div className="flex gap-2 text-[11px]">
+                <button
+                  className="theme-muted hover:text-[var(--panel-fg)]"
+                  onClick={() => setDraft((d) => ({ ...d, userIds: store.accounts.map((a) => a.UserID) }))}
+                >
+                  {t("preset-accounts-all")}
+                </button>
+                <button className="theme-muted hover:text-[var(--panel-fg)]" onClick={() => setDraft((d) => ({ ...d, userIds: [] }))}>
+                  {t("preset-accounts-none")}
+                </button>
+              </div>
+            )}
           </div>
-          {missingCount > 0 && (
+          <div role="radiogroup" aria-label={t("Which accounts")} className="flex flex-wrap gap-x-4 gap-y-1 mb-1.5 text-[12px]">
+            <label className="flex items-center gap-1.5 cursor-pointer text-[var(--panel-fg)]">
+              <input
+                type="radio"
+                name="preset-account-mode"
+                checked={!groupMode}
+                onChange={() => setDraft((d) => ({ ...d, group: null }))}
+              />
+              {t("These accounts")}
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer text-[var(--panel-fg)]">
+              <input
+                type="radio"
+                name="preset-account-mode"
+                checked={groupMode}
+                disabled={groupOptions.length === 0}
+                onChange={() => setDraft((d) => ({ ...d, group: d.group ?? groupOptions[0]?.value ?? "" }))}
+              />
+              {t("Every account in a group")}
+            </label>
+          </div>
+          {groupMode && (
+            <div>
+              <Select
+                value={draft.group ?? ""}
+                options={groupOptions}
+                onChange={(g) => setDraft((d) => ({ ...d, group: g }))}
+                className="w-full"
+                ariaLabel="Group"
+              />
+              {errorFor("accounts")}
+              <p className="text-[11px] theme-muted mt-1">
+                {t("Whoever is in the group at launch time goes, in the account list's order. Accounts that join or leave later are picked up next time.")}
+              </p>
+            </div>
+          )}
+          {!groupMode && missingCount > 0 && (
             <div className="flex items-center justify-between gap-2 mb-1.5 text-[11px]">
               <span className="text-amber-400">
                 {t("{{count}} account(s) of this preset are no longer in the app", { count: missingCount })}
@@ -587,20 +654,24 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
               </button>
             </div>
           )}
-          <div className="max-h-[150px] overflow-y-auto rounded-lg border theme-border divide-y divide-[var(--border-color)]">
-            {store.accounts.map((a) => (
-              <label key={a.UserID} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px] cursor-pointer hover:bg-[var(--panel-soft)]">
-                <input
-                  type="checkbox"
-                  checked={draft.userIds.includes(a.UserID)}
-                  onChange={() => toggleAccount(a.UserID)}
-                />
-                <span className="truncate text-[var(--panel-fg)]">{accountLabel(a, store)}</span>
-              </label>
-            ))}
-          </div>
-          {errorFor("accounts")}
-          <p className="text-[11px] theme-muted mt-1">{t("They open one at a time, in this list's order.")}</p>
+          {!groupMode && (
+            <>
+              <div className="max-h-[150px] overflow-y-auto rounded-lg border theme-border divide-y divide-[var(--border-color)]">
+                {store.accounts.map((a) => (
+                  <label key={a.UserID} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px] cursor-pointer hover:bg-[var(--panel-soft)]">
+                    <input
+                      type="checkbox"
+                      checked={draft.userIds.includes(a.UserID)}
+                      onChange={() => toggleAccount(a.UserID)}
+                    />
+                    <span className="truncate text-[var(--panel-fg)]">{accountLabel(a, store)}</span>
+                  </label>
+                ))}
+              </div>
+              {errorFor("accounts")}
+              <p className="text-[11px] theme-muted mt-1">{t("They open one at a time, in this list's order.")}</p>
+            </>
+          )}
         </div>
 
         <div ref={gameRef}>

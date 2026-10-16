@@ -8,7 +8,7 @@
 
 **Decisões de arquitetura relevantes:**
 - Divisão clara IPC: frontend (React) só fala com o backend via comandos Tauri (`src-tauri/src/commands/*`), não acessa arquivos nem rede por conta própria. As exceções que existem estão listadas em `docs/architecture.md` ("Exceções à regra") — notas de release do updater em `api.github.com`, `ram.http`/`ram.ws` dos scripts, Google Fonts e `localStorage` — e não se cria outra.
-- Estado de contas/settings no backend usa stores com `Mutex<_>` gerenciados pelo Tauri (`tauri::State`), persistidos em arquivo (o `AccountData.json` é encriptado com sodiumoxide: com a senha do usuário, ou com a chave do aparelho do `AccountData.key` ao lado. Duas exceções em texto puro: o caminho degradado em que a chave não pôde ser criada — grava JSON puro e avisa na faixa — e o `AccountData.json.bak` que a migração deixa. Ver `docs/features/accounts.md`; settings em INI, scripts/versões em JSON).
+- Estado de contas/settings no backend usa stores com `Mutex<_>` gerenciados pelo Tauri (`tauri::State`), persistidos em arquivo (o `AccountData.json` é encriptado com argon2 + `crypto_secretbox` (desde que o libsodium saiu por causa do antivírus): com a senha do usuário, ou com a chave do aparelho do `AccountData.key` ao lado. Duas exceções em texto puro: o caminho degradado em que a chave não pôde ser criada — grava JSON puro e avisa na faixa — e o `AccountData.json.bak` que a migração deixa. Ver `docs/features/accounts.md`; settings em INI, scripts/versões em JSON).
 - Existe um servidor HTTP local opcional (feature `webserver`, baseado em axum) e um servidor WebSocket (feature `nexus`) para integração com scripts Lua externos (Nexus.lua) — ambos atrás de feature flags no Cargo, só na edição completa (feature `full`, que liga toda feature opcional); a distribuição de avatares em lote também (feature `avatar-batch`, hoje nas duas edições via a feature `standard` — tirá-la da padrão é um interruptor; ver `docs/features/avatars.md`). O volume ao vivo por cliente (feature `live-audio`, COM de áudio) também vai **nas duas edições** (entra pelo `standard`; o `full` o pega via `standard`) — ver `docs/features/performance.md`.
 - Lógica específica de OS isolada em `platform/windows/` e `platform/macos/` para manter o resto do backend portável.
 - "Isolamento pré-launch" (cache wipe, limpeza de registro, MAC rotation) existe deliberadamente para uma conta não herdar sessão/cache/fingerprint da anterior — é tratado como feature central, não hack pontual. Mas ele **só roda com nenhum cliente Roblox aberto**: com cliente aberto é pulado inteiro (inclusive o spoof), para não fechar as outras contas. Não separa contas que rodam juntas (`docs/features/isolation.md`).
@@ -76,7 +76,7 @@ Limites do push automático: **nunca** `--force`/`--force-with-lease` e nunca re
 ### a) Stack tecnológico
 
 - **Frontend:** React 19, TypeScript, Vite 6, Tailwind CSS 4, lucide-react (ícones), react-i18next (i18n)
-- **Backend:** Rust (edition 2021), Tauri 2 (engine Wry), tokio (async, full), reqwest (HTTP client), axum (HTTP server, feature opcional), tokio-tungstenite (WebSocket), serde/serde_json, sodiumoxide (criptografia de contas), windows-sys (APIs Win32)
+- **Backend:** Rust (edition 2021), Tauri 2 (engine Wry), tokio (async, full), reqwest (HTTP client), axum (HTTP server, feature opcional), tokio-tungstenite (WebSocket), serde/serde_json, argon2 + crypto_secretbox (criptografia de contas; substituíram o sodiumoxide), windows-sys (APIs Win32)
 - **Plugins Tauri:** autostart, updater, process, window-state, single-instance
 - **Gerenciador de pacotes:** Bun (frontend), Cargo (backend)
 
@@ -147,7 +147,7 @@ src-tauri/src/                - Backend Rust
   webview_recovery.rs         - Safe mode de vídeo do WebView2 (janela em branco)
   data/
     accounts.rs, accounts/    - Store de contas: model, persistência encriptada, comandos add/remove/update
-    crypto.rs                 - Init de criptografia (sodiumoxide) — tocar com cuidado, afeta formato do arquivo de contas
+    crypto.rs                 - Criptografia (argon2 + crypto_secretbox) — tocar com cuidado, afeta formato do arquivo de contas
     vault_key.rs              - Chave do aparelho (AccountData.key) — tocar com cuidado: errada, tranca o usuário fora das contas
     settings.rs, settings/    - Settings: parsing INI (RAMSettings.ini), defaults, tema, pasta de dados (paths.rs)
     scripts.rs                - Store de scripts custom do usuário

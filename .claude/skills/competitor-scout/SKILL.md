@@ -35,6 +35,29 @@ Esta skill **não implementa nada** no MultiAlt. Ela pesquisa, avalia e document
 6. **Arquivo de ideias só recebe o que passou nas etapas 3–5.** O resto vai na
    seção "Descartados" com o motivo de uma linha.
 
+## Etapa 0 — passada repetida (a partir da segunda)
+
+1. **`git pull` na `develop` do MultiAlt e ler a seção "Situação de cada ideia"**
+   do `docs/ideias-de-outros-gerenciadores.md`: o que está feito ou descartado
+   não volta, salvo motivo novo e concreto. O app muda rápido entre passadas.
+2. **Atualizar os clones sem hooks**, guardando o commit antigo para ver só o
+   delta:
+   ```bash
+   G="git -c core.hooksPath=/dev/null -c core.symlinks=false -c submodule.recurse=false"
+   old=$($G -C <pasta> rev-parse HEAD); $G -C <pasta> fetch -q --depth=60 origin
+   echo "$old" > _notas/.old_<pasta>; $G -C <pasta> reset -q --hard FETCH_HEAD
+   ```
+   O agente lê `git log/diff <old>..HEAD` e acrescenta "## Passada <data>" na nota.
+3. **Forks do RAM original:** filtrar os que têm commits próprios com
+   `/repos/ic3w0lf22/Roblox-Account-Manager/compare/master...<dono>:<repo>:master`
+   (`ahead_by`), clonar com `--depth 45` e analisar só o diff contra o HEAD do
+   clone `ic3w0lf22__Roblox-Account-Manager`. Correção de bug do RAM pode valer
+   para nós: o MultiAlt reescreveu o mesmo programa (assim saiu o bug dos campos
+   da conta em 14/10/2026).
+4. Instruções comuns dos agentes num arquivo `_notas/_INSTRUCOES-passada<N>.md`,
+   e o prompt de cada agente só aponta para ele e lista o lote — prompt com
+   marcador de lote por preencher já fez agente rodar vazio.
+
 ## Etapa 1 — achar repositórios
 
 Busca pela API pública (sem `gh`; limite de 10 buscas/minuto sem token):
@@ -45,7 +68,11 @@ curl -s "https://api.github.com/search/repositories?q=<termo>&per_page=100&sort=
 
 Termos: `roblox account manager`, `roblox-account-manager`, `roblox alt manager`,
 `roblox multi account`, `roblox multi instance`, `roblox account launcher`,
-`roblox anti afk`, `roblox bootstrapper`, `multi roblox`. Ver também os **forks**
+`roblox anti afk`, `roblox bootstrapper`, `multi roblox`, `roblox multiple instances`,
+`roblox account switcher`, `roblox alt launcher`, `roblox multi client`,
+`roblox farm manager`, `roblox session manager`, `rbx account manager`,
+`roblox auto rejoin`, `roblox account tool`. No Windows, Python com saída UTF-8:
+`python -I -X utf8` (sem isso, emoji na descrição derruba o script). Ver também os **forks**
 do `ic3w0lf22/Roblox-Account-Manager` com commits próprios
 (`/repos/ic3w0lf22/Roblox-Account-Manager/forks?sort=newest`).
 
@@ -66,6 +93,10 @@ Repositório de isca é comum nesse nicho. **Não clonar** (só listar em
   encurtado/Mega/Mediafire, ou usa senha de zip.
 - Ferramenta de **checker/combolist, cookie logger, "hack accounts", bypass de
   key system, trade bot** — fora do escopo e/ou abuso.
+- **Nome de produto conhecido com dono de nome aleatório** e descrição de SEO
+  ("Bloxstrap v2.11.4 is the bootstrapper: bloxstrap roblox, bloxstrap fast
+  flags…", "Fishstrap-Roblox" de `Haemoglobinopathyredfox8677`). O original tem
+  dono estável (`bloxstraplabs/bloxstrap`).
 
 ## Etapa 3 — estudar cada repositório (só leitura)
 
@@ -138,6 +169,11 @@ Um agente por lote de ~5–6 repositórios, em paralelo. Cada agente recebe esta
 regras (principalmente a nº 1), lê só o lote dele, grava a nota em `_notas/` e
 **não edita** o MultiAlt. A consolidação, o cruzamento final com o MultiAlt e a
 escrita do documento ficam com quem disparou os agentes.
+
+**Achado de agente sobre o nosso código vale só depois de conferido** por quem
+consolida (abrir o arquivo nosso e ver a lacuna). Bug confirmado do MultiAlt não
+é corrigido aqui: vira sugestão de tarefa (`spawn_task`) para o chat de código e
+fica listado em "Bugs do MultiAlt achados" no documento.
 
 ## Entrega
 

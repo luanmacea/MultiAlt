@@ -21,6 +21,8 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 
 ### Preferência no launch
 
+> **Não vale na entrada rápida** (desde 15/10/2026, pedido do dono): o "Join Game" de Favorites, Games e Recent não usa a preferência nem o país. Uma conta entra direto (o Roblox escolhe o servidor, na hora — era a demora do clique); várias contas usam só o `bestfit` sem país, para caírem juntas. A preferência abaixo segue valendo para os outros caminhos sem servidor escolhido. Ver [ui-layout.md](ui-layout.md).
+
 1. O usuário escolhe a preferência na aba **Servers** da Choose Game e, se quiser, um país.
 
    | Preferência | O que escolhe |
@@ -37,11 +39,14 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 
 ### Região
 
-1. A lista de servidores **não** traz região. Para cada servidor: `join-game-instance` → `joinScript.MachineAddress` (o IP da máquina) → geolocalização (`ipwho.is`, com `ip-api.com` de reserva).
+1. A lista de servidores **não** traz região. Para cada servidor: `join-game-instance` → endereço do servidor → geolocalização (`ipwho.is`, com `ip-api.com` de reserva).
+   - **O endereço é o público do UDMUX.** Quase todo servidor fica atrás do proxy UDMUX do Roblox: o `joinScript.MachineAddress` é o IP **interno** da máquina (`10.x`) e o público vem em `joinScript.UdmuxEndpoints[].Address` — o cliente registra os dois (`UDMUX Address = 128.116.86.33 … | RCC Server Address = 10.33.5.69`). Até 14/10/2026 o app geolocalizava o `MachineAddress` e a coluna Region mostrava o IP interno em todos os servidores (confirmado nos logs reais do dono). Hoje `join_script_address` prefere o primeiro endereço público do UDMUX, depois o `MachineAddress` se for público.
+   - **IP privado/reservado nunca é geolocalizado** (`is_public_ip`: 10/8, 172.16/12, 192.168/16, CGNAT, loopback, link-local, documentação, IPv6 local). Sem endereço público, a região fica desconhecida (o rótulo vira o IP) e a entrada continua permitida — o join aceitou.
 2. Na aba Servers isso só acontece quando o usuário clica **Check servers** ("Verificar servidores"; antes "Load regions"), em lotes de 10.
    - **Permissão vem junto.** O `join-game-instance` é um pedido de entrada, e a resposta já diz se a conta da consulta (a primeira selecionada) pode entrar: `status` 12 é o "Unauthorized" do Roblox — o erro 524, *You do not have permission to join this experience* — e vira `denied` no `ServerRegion` ([server_regions.rs](../../src-tauri/src/api/roblox/server_regions.rs)). A linha mostra **Sem permissão** (com a conta e a mensagem do Roblox no title). É pelo código, não pelo texto (a mensagem vem no idioma da conta); servidor cheio (`status` 6) não conta.
    - **Conta por conta.** A permissão costuma ser do **place** (regra de acesso do jogo, teleporte, VC), não do servidor. Então, depois das regiões, as outras contas selecionadas perguntam **uma vez cada** (`check_place_access`, com a mesma pausa), no servidor que respondeu pela primeira, e a tela mostra *Acesso neste place:* com cada conta (pode entrar / sem permissão / não deu para verificar) — mais um aviso quando nenhuma entra. O acesso é reiniciado a cada nova varredura (o place pode ter mudado).
    - **O Entrar continua ativo.** A recusa é a resposta para uma conta; desativar o botão impedia o dono de testar com as outras (relato de 28/09/2026: sub-places do Life Sentence que não aceitam entrada direta, e as alts descobrindo o 524 tentando entrar).
+   - **Na página Session, a região vem do log** (desde 15/10/2026), sem chamada nenhuma à API do Roblox: o monitor de saúde lê a linha `UDMUX Address = <ip>` de cada join do cliente e pede a região desse IP ao mesmo `lookup_ip_region` (cache em memória e no `ServerRegionCache.json`; só IP público — o interno nem vira evento). Até 2 consultas novas por passada, em segundo plano; falha espera 10 min para perguntar de novo. O rótulo usa o `General.ServerRegionFormat`. Ver [history.md](history.md#região-e-tempo-no-ar-do-servidor).
 3. Com filtro de país no launch, `pick_server` percorre os candidatos **na ordem da preferência** e para no primeiro que bate.
 
 ## Varredura da lista (aba Servers)

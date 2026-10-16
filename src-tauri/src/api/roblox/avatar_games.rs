@@ -236,6 +236,88 @@ pub async fn get_servers_page(
     response.json().await.map_err(|e| format!("Failed to parse servers: {}", e))
 }
 
+/// Dono de um servidor privado, como a API devolve.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateServerOwner {
+    pub id: i64,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "displayName", default)]
+    pub display_name: Option<String>,
+}
+
+/// Um servidor privado que a conta pode acessar.
+///
+/// Diferente de [`ServerData`]: servidor privado sem ninguém dentro vem com
+/// `id` (Job ID) nulo e sem `playing`, e o que importa para entrar é o
+/// `accessCode`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateServerData {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "vipServerId", default)]
+    pub vip_server_id: Option<i64>,
+    #[serde(rename = "accessCode", default)]
+    pub access_code: Option<String>,
+    #[serde(rename = "maxPlayers", default)]
+    pub max_players: i32,
+    #[serde(default)]
+    pub playing: i32,
+    #[serde(default)]
+    pub owner: Option<PrivateServerOwner>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateServersResponse {
+    #[serde(default)]
+    pub data: Vec<PrivateServerData>,
+    #[serde(rename = "nextPageCursor", default)]
+    pub next_page_cursor: Option<String>,
+}
+
+/// Servidores privados de um place que **esta conta** pode acessar
+/// (`GET games/v1/games/{place}/private-servers`, com o cookie dela).
+///
+/// Só leitura: quem chama passa o cookie sem `run_with_session_retry` (o
+/// refresh derrubaria as sessões abertas da conta).
+pub async fn get_private_servers(
+    place_id: i64,
+    cursor: Option<&str>,
+    security_token: &str,
+) -> Result<PrivateServersResponse, String> {
+    let client = http_client::client();
+    let mut url = format!(
+        "{}/v1/games/{}/private-servers?sortOrder=Asc&limit=25",
+        endpoints::host("games"),
+        place_id
+    );
+    if let Some(c) = cursor.filter(|c| !c.is_empty()) {
+        url.push_str(&format!("&cursor={}", urlencoding::encode(c)));
+    }
+
+    let response = send_with_retry(|| {
+        client
+            .get(&url)
+            .header(COOKIE, cookie_header(security_token))
+            .header("Accept", "application/json")
+    })
+    .await?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Failed to get private servers (status {})",
+            response.status().as_u16()
+        ));
+    }
+
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse private servers: {}", e))
+}
+
 pub async fn join_game_instance(
     security_token: &str,
     place_id: i64,
@@ -1037,5 +1119,114 @@ mod avatar_games_extra_tests {
             .await
             .expect("places")
             .is_empty());
+    }
+}
+
+/// Servidores privados de um place que a conta pode acessar
+/// (`games/v1/games/{place}/private-servers`), lidos com o cookie da conta.
+#[cfg(test)]
+mod private_servers_list_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server};
+    use wiremock::matchers::{header, method, path, query_param};
+    use wiremock::{Mock, ResponseTemplate};
+
+    #[tokio::test]
+    async fn lists_the_private_servers_with_owner_and_access_code() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games/7100/private-servers")))
+            .and(header("cookie", cookie_of("ps-list")))
+            .and(query_param("limit", "25"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {
+                        "id": "job-running",
+                        "name": "Base",
+                        "vipServerId": 991,
+                        "accessCode": "aaaa-bbbb-cccc-dddd-eeee",
+                        "maxPlayers": 12,
+                        "playing": 3,
+                        "owner": { "id": 55, "name": "owner55", "displayName": "Owner" }
+                    },
+                    {
+                        // Sem ninguém dentro a API manda `id` nulo e sem `playing`.
+                        "id": null,
+                        "name": "Empty",
+                        "vipServerId": 992,
+                        "accessCode": "ffff-gggg-hhhh-iiii-jjjj",
+                        "maxPlayers": 8
+                    }
+                ],
+                "nextPageCursor": "next-1"
+            })))
+            .mount(server)
+            .await;
+
+        let page = get_private_servers(7100, None, "ps-list").await.expect("page");
+        assert_eq!(page.next_page_cursor.as_deref(), Some("next-1"));
+        assert_eq!(page.data.len(), 2);
+        assert_eq!(page.data[0].name.as_deref(), Some("Base"));
+        assert_eq!(page.data[0].access_code.as_deref(), Some("aaaa-bbbb-cccc-dddd-eeee"));
+        assert_eq!(page.data[0].vip_server_id, Some(991));
+        assert_eq!(page.data[0].playing, 3);
+        let owner = page.data[0].owner.as_ref().expect("owner");
+        assert_eq!(owner.id, 55);
+        assert_eq!(owner.display_name.as_deref(), Some("Owner"));
+        assert!(page.data[1].id.is_none());
+        assert_eq!(page.data[1].playing, 0);
+        assert!(page.data[1].owner.is_none());
+    }
+
+    #[tokio::test]
+    async fn passes_the_cursor_for_the_next_page() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games/7101/private-servers")))
+            .and(query_param("cursor", "abc"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [],
+                "nextPageCursor": null
+            })))
+            .mount(server)
+            .await;
+
+        let page = get_private_servers(7101, Some("abc"), "ps-cursor").await.expect("page");
+        assert!(page.data.is_empty());
+        assert!(page.next_page_cursor.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_refused_read_reports_the_status() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games/7102/private-servers")))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_private_servers(7102, None, "ps-401").await.unwrap_err(),
+            "Failed to get private servers (status 401)"
+        );
+    }
+
+    /// O JSON que vai para a tela usa as chaves em camelCase.
+    #[test]
+    fn serializes_for_the_frontend_in_camel_case() {
+        let entry = PrivateServerData {
+            id: None,
+            name: Some("X".into()),
+            vip_server_id: Some(1),
+            access_code: Some("a-b-c-d-e".into()),
+            max_players: 8,
+            playing: 0,
+            owner: Some(PrivateServerOwner { id: 2, name: Some("n".into()), display_name: None }),
+        };
+        let json = serde_json::to_value(&entry).expect("json");
+        assert_eq!(json["accessCode"], "a-b-c-d-e");
+        assert_eq!(json["vipServerId"], 1);
+        assert_eq!(json["maxPlayers"], 8);
+        assert_eq!(json["owner"]["id"], 2);
     }
 }

@@ -133,11 +133,11 @@ export function normalizeServerPreference(value: string | undefined): ServerPref
 import { applyThemeCssVariables, normalizeTheme, DEFAULT_THEME } from "./theme";
 import i18n, { normalizeLanguage } from "./i18n";
 import { REPO_URL } from "./repo";
-import { isLaunchAlreadyActiveError } from "./utils/robloxErrors";
+import { isLaunchAlreadyActiveError, launchErrorText } from "./utils/robloxErrors";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import { accountLabel, maskAccountName } from "./utils/accountName";
-import { clientHealthLabel } from "./utils/clientHealth";
+import { clientHealthLabel, wrongAccountToast } from "./utils/clientHealth";
 import { autoReconnectLabel } from "./utils/autoReconnect";
 import {
   EMPTY_AWAY_DIGEST,
@@ -156,6 +156,7 @@ import {
   getUpdaterSkipVersionKey,
 } from "./updaterChannels";
 import { addRecentJob, recordRecentGame } from "./components/server-list/types";
+import { presetAccountIds } from "./utils/presets";
 
 interface PresenceEntry {
   userId?: number;
@@ -179,6 +180,17 @@ interface RunningInstanceEntry {
 interface OptimizationWarningPayload {
   pid?: number;
   message?: string;
+}
+
+/**
+ * O launch foi pedido mas a fila ainda não existe: a tela está conferindo se a
+ * conta já está online e escolhendo o servidor (preferência de servidor). A
+ * Sessão mostra isto para o clique ter resposta na hora (relato do dono,
+ * 15/10/2026: clicar em Entrar não mostrava nada por alguns segundos).
+ */
+export interface LaunchPreparing {
+  userIds: number[];
+  step: "checking" | "server" | "starting";
 }
 
 interface LaunchProgressState {
@@ -225,7 +237,23 @@ export interface Toast {
   id: number;
   message: string;
   tone: ToastTone;
+  /** Botão no próprio toast (hoje só o "Undo" da remoção de contas). */
+  action?: ToastAction;
 }
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
+export interface ToastOptions {
+  action?: ToastAction;
+  /** Quanto o toast fica na tela; o padrão é 2,5 s. */
+  durationMs?: number;
+}
+
+/** Quanto tempo o "Undo" da remoção fica oferecido. */
+export const UNDO_REMOVE_TOAST_MS = 10_000;
 
 export interface BottingAccountStatus {
   userId: number;
@@ -429,6 +457,12 @@ export interface StoreValue {
    */
   addAccountByCookie: (cookie: string, password?: string) => Promise<void>;
   removeAccounts: (userIds: number[]) => Promise<void>;
+  /**
+   * Devolve o lote removido de `batchId` (o "Undo" do toast). Só em memória.
+   * Cada toast leva o id do seu lote: um Undo antigo não desfaz uma remoção mais
+   * nova.
+   */
+  undoRemoveAccounts: (batchId: number) => Promise<void>;
   updateAccount: (account: Account) => Promise<void>;
 
   selectedIds: Set<number>;
@@ -548,6 +582,8 @@ export interface StoreValue {
 
   /** Fila de launch do lote atual (Painel de Sessão). */
   launchQueue: LaunchQueuePayload | null;
+  launchPreparing: LaunchPreparing | null;
+  setLaunchPreparing: (value: LaunchPreparing | null) => void;
   /**
    * Make Friends em andamento: uma entrada por conta, com o estado de cada uma.
    * Vem inteiro do backend (`friend-link-state`) — a tela que remonta no meio
@@ -648,6 +684,12 @@ export interface StoreValue {
   refreshCookie: (userId: number) => Promise<boolean>;
   moveToGroup: (userIds: number[], group: string) => Promise<void>;
   sortGroupAlphabetically: (groupKey: string) => void;
+  /**
+   * Renomeia o grupo `from` (ou junta-o a `to`, se já existir): contas e
+   * `General.GroupOrder` no backend, estado colapsado aqui. `Default` não se
+   * renomeia. Devolve `true` quando renomeou.
+   */
+  renameGroup: (from: string, to: string) => Promise<boolean>;
   reorderAccounts: (draggedUserId: number, targetUserId: number) => Promise<void>;
   joiningAccounts: Set<number>;
   launchProgress: LaunchProgressState | null;
@@ -668,7 +710,8 @@ export interface StoreValue {
   reorderGroups: (draggedKey: string, targetKey: string) => Promise<void>;
 
   toasts: Toast[];
-  addToast: (msg: string, tone?: ToastTone) => void;
+  addToast: (msg: string, tone?: ToastTone, options?: ToastOptions) => void;
+  dismissToast: (id: number) => void;
   actionStatus: ActionStatusState | null;
   modal: { title: string; content: string } | null;
   showModal: (title: string, content: string) => void;
@@ -740,6 +783,8 @@ export interface StoreValue {
 
   accountUtilsOpen: boolean;
   setAccountUtilsOpen: (open: boolean) => void;
+  bulkCredentialsOpen: boolean;
+  setBulkCredentialsOpen: (open: boolean) => void;
   accountFieldsOpen: boolean;
   setAccountFieldsOpen: (open: boolean) => void;
   importDialogOpen: boolean;
@@ -932,22 +977,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [needsPassword, setNeedsPassword] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [appLocked, setAppLocked] = useState(false);
-  const lockApp = useCallback(() => setAppLocked(true), []);
-  const unlockApp = useCallback(async (password: string): Promise<string | null> => {
-    try {
-      await invoke("verify_app_password", { password });
-      setAppLocked(false);
-      return null;
-    } catch (e) {
-      // Sem senha não há o que conferir (não deveria acontecer: a opção só
-      // vale com senha). Destrancar é melhor que prender a pessoa para sempre.
-      if (String(e).includes("No app password is set")) {
-        setAppLocked(false);
-        return null;
-      }
-      return String(e);
-    }
+  // O backend também precisa saber que a tela trancou: o launch pela bandeja
+  // roda nele e não passa pela sobreposição de bloqueio (que é só do frontend),
+  // então sem este aviso qualquer um no PC abriria um preset com o app trancado.
+  const setBackendAppLocked = useCallback((locked: boolean) => {
+    void invoke("set_app_locked", { locked }).catch(() => {});
   }, []);
+  const lockApp = useCallback(() => {
+    setAppLocked(true);
+    setBackendAppLocked(true);
+  }, [setBackendAppLocked]);
+  const unlockApp = useCallback(
+    async (password: string): Promise<string | null> => {
+      try {
+        await invoke("verify_app_password", { password });
+        setAppLocked(false);
+        setBackendAppLocked(false);
+        return null;
+      } catch (e) {
+        // Sem senha não há o que conferir (não deveria acontecer: a opção só
+        // vale com senha). Destrancar é melhor que prender a pessoa para sempre.
+        if (String(e).includes("No app password is set")) {
+          setAppLocked(false);
+          setBackendAppLocked(false);
+          return null;
+        }
+        return String(e);
+      }
+    },
+    [setBackendAppLocked]
+  );
   const [encryptionSetupOpen, setEncryptionSetupOpen] = useState(false);
   const [encryptionSetupMode, setEncryptionSetupMode] = useState<"firstRun" | "settings">("firstRun");
   const [accountsEncrypted, setAccountsEncrypted] = useState<boolean | null>(null);
@@ -983,6 +1042,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const setScriptsOpen = useCallback((open: boolean) => togglePage("scripts", open), [togglePage]);
   const [serverListOpen, setServerListOpen] = useState(false);
   const [accountUtilsOpen, setAccountUtilsOpen] = useState(false);
+  const [bulkCredentialsOpen, setBulkCredentialsOpen] = useState(false);
   const [accountFieldsOpen, setAccountFieldsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importDialogTab, setImportDialogTab] = useState<"cookie" | "userpass" | "legacy">("cookie");
@@ -1058,6 +1118,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   } | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [joiningAccounts, setJoiningAccounts] = useState<Set<number>>(new Set());
+  const [launchPreparing, setLaunchPreparing] = useState<LaunchPreparing | null>(null);
   const [launchProgress, setLaunchProgress] = useState<LaunchProgressState | null>(null);
   const [launchLogs, setLaunchLogs] = useState<LaunchLogEntry[]>([]);
   const launchLogIdRef = useRef(0);
@@ -1323,7 +1384,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * O tom é deduzido de `msg` (não do texto localizado) porque o catálogo
    * garante que a tradução preserva o marcador — ver `src/i18n/locales.test.ts`.
    */
-  const addToast = useCallback((msg: string, tone?: ToastTone) => {
+  const addToast = useCallback((msg: string, tone?: ToastTone, options?: ToastOptions) => {
     // `msg` is usually an i18n key, but some call sites pass an already-localized string (interpolated).
     const localized = i18n.exists(msg) ? tr(msg) : msg;
     const id = ++toastIdRef.current;
@@ -1331,10 +1392,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // sabe o tom da sua mensagem passa explicito e vence o texto. Sem isso,
     // "Aviso de copia de credencial desligado" — que e confirmacao de ajuste —
     // saia pintado de ambar so por conter a palavra "aviso".
-    setToasts((prev) => [...prev, { id, message: localized, tone: tone ?? toneFromMessage(msg) }]);
+    const toast: Toast = { id, message: localized, tone: tone ?? toneFromMessage(msg) };
+    if (options?.action) toast.action = options.action;
+    setToasts((prev) => [...prev, toast]);
     // Remover por `id`, não por posição: dois toasts com vidas sobrepostas
     // fariam o `slice(1)` derrubar o vizinho errado.
-    setTimeout(() => setToasts((prev) => prev.filter((toast) => toast.id !== id)), 2500);
+    setTimeout(
+      () => setToasts((prev) => prev.filter((item) => item.id !== id)),
+      options?.durationMs ?? 2500
+    );
+  }, []);
+
+  /** Tira um toast da fila antes da hora (o clique no botão dele). */
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
   function clearLaunchTimeout() {
@@ -1522,20 +1593,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Remove o lote numa chamada só (`remove_accounts`): o backend guarda o lote
+   * em memória e o toast oferece "Undo" por `UNDO_REMOVE_TOAST_MS`. Antes era um
+   * `remove_account` por conta e a remoção só voltava restaurando um backup
+   * inteiro.
+   */
   async function removeAccounts(userIds: number[]) {
     try {
-      for (const id of userIds) {
-        await invoke("remove_account", { userId: id });
-      }
+      const result = await invoke<{ batchId: number; count: number }>("remove_accounts", {
+        userIds,
+      });
       setSelectedIds((prev) => {
         const next = new Set(prev);
         userIds.forEach((id) => next.delete(id));
         return next;
       });
       await loadAccounts();
-      addToast(tr("Removed {{count}} account(s)", { count: userIds.length }));
+      const count = result?.count ?? userIds.length;
+      // O backend só guarda **um** lote. Um Undo pendente de uma remoção
+      // anterior já não desfaz aquele lote (foi substituído por este), então o
+      // botão dele viraria "expirou": tira esse toast da tela para não enganar.
+      // Hoje só o toast de remoção carrega `action`.
+      setToasts((prev) => prev.filter((t) => !t.action));
+      addToast(tr("Removed {{count}} account(s)", { count }), undefined, {
+        durationMs: UNDO_REMOVE_TOAST_MS,
+        action: { label: tr("Undo"), run: () => void undoRemoveAccounts(result.batchId) },
+      });
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  async function undoRemoveAccounts(batchId: number) {
+    try {
+      const restored = await invoke<number>("undo_remove_accounts", { batchId });
+      await loadAccounts();
+      if (typeof restored === "number" && restored > 0) {
+        addToast(tr("Restored {{count}} account(s)", { count: restored }), "success");
+      } else {
+        // Lote já desfeito, contas re-adicionadas, ou o app reiniciou (o lote
+        // vive só em memória).
+        addToast(tr("Nothing to undo"), "info");
+      }
+    } catch (e) {
+      // Lote substituído por uma remoção mais nova (clicou num Undo antigo): o
+      // backend recusa em vez de desfazer o lote errado. Vira aviso, não erro
+      // de tela — nada deu errado de verdade.
+      await loadAccounts().catch(() => {});
+      addToast(tr("This undo expired because of a newer removal"), "info");
     }
   }
 
@@ -1602,6 +1708,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     }
     addToast(tr("Moved to {{group}}", { group: parseGroupName(group).displayName }));
+  }
+
+  async function renameGroup(from: string, to: string): Promise<boolean> {
+    const name = to.trim();
+    if (!name || name === from || from === "Default" || from === "__all__") return false;
+    try {
+      const result = await invoke<{ renamed: number; groupOrder: string | null }>("rename_group", {
+        from,
+        to: name,
+      });
+      const groupOrder = result?.groupOrder;
+      if (typeof groupOrder === "string") {
+        setSettings((prev) => ({
+          ...(prev || {}),
+          General: { ...(prev?.General || {}), GroupOrder: groupOrder },
+        }));
+      }
+      // O colapsado é só da tela (não vai para o INI): o grupo renomeado
+      // continua fechado se estava.
+      setCollapsedGroups((prev) => {
+        if (!prev.has(from)) return prev;
+        const next = new Set(prev);
+        next.delete(from);
+        next.add(name);
+        return next;
+      });
+      await loadAccounts();
+      addToast(tr("Renamed group to {{group}}", { group: parseGroupName(name).displayName }), "success");
+      return true;
+    } catch (e) {
+      setError(String(e));
+      return false;
+    }
   }
 
   function sortGroupAlphabetically(groupKey: string) {
@@ -1762,7 +1901,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         "success"
       );
     } else {
-      addToast(tr("Already waiting in the launch queue"));
+      addToast(tr("This account is already opening or was just opened"));
     }
   }
 
@@ -1872,8 +2011,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         reportLaunchAlreadyActive();
         return "refused";
       }
-      setError(String(e));
-      setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
+      setError(launchErrorText(e, tr));
+      setActionStatusMessage(tr("Launch failed: {{error}}", { error: launchErrorText(e, tr) }), "error", 5000);
       return "failed";
     }
 
@@ -1895,15 +2034,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * mesmo retorno visual do lote e os recentes.
    */
   async function launchPreset(preset: LaunchPresetView): Promise<LaunchAttempt> {
-    const total = preset.userIds.length;
+    // Preset de grupo: quem está no grupo agora (o backend resolve igual).
+    const userIds = presetAccountIds(preset, accountsRef.current);
+    const total = userIds.length;
     clearLaunchTimeout();
-    setLaunchProgress({ mode: "multi", current: 0, total, userId: preset.userIds[0] ?? null });
+    setLaunchProgress({ mode: "multi", current: 0, total, userId: userIds[0] ?? null });
     const launchingLine = tr("Launching {{count}} accounts...", { count: total });
     setActionStatusMessage(launchingLine, "info", 5000);
     try {
       await invoke<number>("launch_preset", { id: preset.id });
       await loadAccounts();
-      void recordRecentGame(preset.placeId, preset.userIds[0] ?? null, parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
+      void recordRecentGame(preset.placeId, userIds[0] ?? null, parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
       setPresetsRevision((n) => n + 1);
       return "started";
     } catch (e) {
@@ -1914,8 +2055,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         reportLaunchAlreadyActive();
         return "refused";
       }
-      setError(String(e));
-      setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
+      setError(launchErrorText(e, tr));
+      setActionStatusMessage(tr("Launch failed: {{error}}", { error: launchErrorText(e, tr) }), "error", 5000);
       return "failed";
     }
   }
@@ -2005,8 +2146,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         reportLaunchAlreadyActive();
         throw e;
       }
-      setError(String(e));
-      setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
+      setError(launchErrorText(e, tr));
+      setActionStatusMessage(tr("Launch failed: {{error}}", { error: launchErrorText(e, tr) }), "error", 5000);
       throw e;
     }
   }
@@ -2995,8 +3136,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const name = accountLabel(acct, nameMaskingRef.current, userId);
         addToast(tr("{{name}} in Roblox — {{status}}", { name, status: status.label }), "warn");
       }),
+      // O cliente que o app abriu entrou como outra conta (commands/client_health.rs):
+      // o backend já parou a fila (só quem esperava a vez) e não fechou nada.
+      listen<{ userId: number; loggedUserId: number; queueStopped: boolean }>("roblox-client-wrong-account", (e) => {
+        const { userId, loggedUserId, queueStopped } = e.payload;
+        void refreshRunningRef.current();
+        const acct = accountsRef.current.find((a) => a.UserID === userId);
+        const name = accountLabel(acct, nameMaskingRef.current, userId);
+        addToast(wrongAccountToast(name, loggedUserId, queueStopped === true, tr), "warn");
+      }),
       // Presets (ideia 13). O resultado de quem clicou já aparece onde o clique
-      // foi; o que vem do horário precisa de um toast, porque ninguém clicou.
+      // foi; o que vem do horário precisa de um toast, porque ninguém clicou. A
+      // bandeja não cai aqui: ela traz a janela à frente e roda o launch normal
+      // (evento `tray-launch-preset`), então o resultado aparece como o do botão.
       listen<LaunchPresetEvent>("launch-preset", (e) => {
         const p = e.payload;
         setPresetsRevision((n) => n + 1);
@@ -3681,6 +3833,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     saveAccounts,
     addAccountByCookie,
     removeAccounts,
+    undoRemoveAccounts,
     updateAccount,
     selectedIds,
     selectedAccount,
@@ -3797,9 +3950,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     refreshCookie,
     moveToGroup,
     sortGroupAlphabetically,
+    renameGroup,
     reorderAccounts,
     reorderGroups,
     joiningAccounts,
+    launchPreparing,
+    setLaunchPreparing,
     launchProgress,
     launchLogs,
     clearLaunchLogs,
@@ -3809,6 +3965,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setGroupDragState,
     toasts,
     addToast,
+    dismissToast,
     actionStatus,
     modal,
     showModal,
@@ -3848,6 +4005,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setServerListOpen,
     accountUtilsOpen,
     setAccountUtilsOpen,
+    bulkCredentialsOpen,
+    setBulkCredentialsOpen,
     accountFieldsOpen,
     setAccountFieldsOpen,
     importDialogOpen,

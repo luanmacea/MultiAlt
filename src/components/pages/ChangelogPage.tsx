@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useTranslation } from "react-i18next";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Star } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import { REPO_URL } from "../../repo";
@@ -15,6 +15,7 @@ import {
 import { ReleaseNotesMarkdown } from "../ReleaseNotesMarkdown";
 import { ReleaseKindBadge } from "../ReleaseKindBadge";
 import { PageShell } from "./PageShell";
+import { openRepoForStar } from "../layout/StarPromptCard";
 
 /**
  * Página "What's new" (Novidades): o que cada atualização mudou, da mais nova
@@ -123,6 +124,24 @@ function ChangelogPageBody({ onLeave }: { onLeave: () => void }) {
       tour="changelog"
     >
       <div className="@container mx-auto w-full max-w-[880px]">
+        {/* Pedido de estrela (15/10/2026): quem lê as novidades é quem mais
+            aproveita os updates. Uma linha, sem bloquear nada. */}
+        <div
+          data-testid="changelog-star"
+          className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border theme-border bg-[var(--panel-soft)] px-3 py-2"
+        >
+          <Star size={14} strokeWidth={2} fill="currentColor" aria-hidden="true" className="shrink-0 text-amber-400" />
+          <p className="min-w-0 flex-1 text-[12px] leading-snug text-[var(--panel-muted)]">
+            {t("MultiAlt is free and open source. If an update helped you, a star on GitHub helps keep them coming.")}
+          </p>
+          <button
+            type="button"
+            onClick={openRepoForStar}
+            className="shrink-0 rounded-md bg-amber-500/90 hover:bg-amber-400 px-2.5 py-1 text-[12px] font-semibold text-black transition-colors"
+          >
+            {t("Star on GitHub")}
+          </button>
+        </div>
         {state.kind === "loading" ? <ChangelogSkeleton label={t("Loading the update history…")} /> : null}
 
         {state.kind === "error" ? (

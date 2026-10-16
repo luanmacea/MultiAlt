@@ -104,6 +104,7 @@ que** a conta caiu. Só lê: o log (aberto só para leitura) e a lista de proces
   sem queda e **sem o app tê-lo fechado** (`kill_process` anota o PID —
   `was_terminated_by_app`). Sem log achado não chuta nada.
 - **Histórico de sessões:** a cada passada o monitor entrega também onde cada cliente está (place, Job ID do último `Joining game`), se caiu, se saiu e se terminou (`session_snapshots`), e o histórico grava o que mudou — ver [history.md](history.md).
+- **Servidor do join:** `UDMUX Address = <ip>` (só IP público) e `Server Prefix: …_<AAAAMMDDTHHMMSSZ>_RCC_…` viram `ServerAddress`/`ServerStarted` e vão para o destino do join — a região e o tempo no ar que a Sessão mostra (ver [history.md](history.md#região-e-tempo-no-ar-do-servidor)).
 - **O que sai:** `health` em `get_running_instances` (Sessão e painel da conta),
   o evento `roblox-client-health` (toast) e uma linha no Console
   (`step: "client"`, ex.: "Caiu: perdeu a conexão (código 277)").
@@ -114,6 +115,32 @@ que** a conta caiu. Só lê: o log (aberto só para leitura) e a lista de proces
   `client_log_real_probe` (`#[ignore]`, só leitura) não acha nenhuma queda falsa
   neles. Os logs só tinham o código 285; os outros códigos vêm do enum
   `ConnectionError` do Roblox e dos concorrentes e precisam de teste real.
+
+## Conta errada no cliente
+
+O mesmo monitor confere **com que conta** cada cliente que o app abriu entrou no
+jogo: a linha `[FLog::GameJoinLoadTime] Report game_join_loadtime: ...,
+userid:<conta>,` (presente em todos os logs do 0.743 do dono; o teleporte repete
+a linha e vale a última). O parser é o mesmo da varredura de clientes do site —
+`game_join_user_id` em [roblox_log.rs](../../src-tauri/src/roblox_log.rs),
+testes `roblox_log_line_tests` — e o classificador o devolve como `JoinedAs`.
+
+- `userid` ≠ conta lançada (`wrong_account`, testes `client_wrong_account_tests`)
+  → `health.wrongAccountUserId` em `get_running_instances`, o evento
+  `roblox-client-wrong-account` (`{userId, loggedUserId, queueStopped}`) **uma
+  vez** por conta vista e uma linha no Console ("Entrou como outra conta do
+  Roblox (usuário N)").
+- **A fila de launch para** como o Stop da Sessão (`launch_queue_cancel_all_queued`):
+  só quem ainda espera a vez é cancelado; a conta em andamento termina e quem
+  já entrou continua. Não existe "pausa" na fila — retomar é lançar de novo.
+- **Nunca fecha o cliente** — ele pode ser a conta principal de quem usa o app.
+  A Sessão mostra um aviso no topo e na linha da conta ("Opened as a different
+  Roblox account (user N)"), e o toast diz "<conta> opened as a different Roblox
+  account (user N). The launch queue was paused." (a 2ª frase só quando havia
+  fila parada).
+- **Cliente do site nunca conta:** ele foi reconhecido justamente por essa
+  linha, e a identificação manual é decisão da pessoa.
+- Não usa o `challengedByGcs` do log.
 
 ## Nome da conta na janela
 

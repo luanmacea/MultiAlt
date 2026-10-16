@@ -5,11 +5,13 @@ import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
+vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { GroupSection } from "./GroupSection";
 import { AccountChip } from "./AccountChip";
-import { groupAccounts, makeAccount, setStore } from "../../test-utils/renderWithStore";
+import { defaultSettings, groupAccounts, makeAccount, setStore } from "../../test-utils/renderWithStore";
 import type { StoreValue } from "../../store";
+import { confirmMock, promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
 
 const ACCOUNTS = [
   makeAccount({ UserID: 11, Username: "ann", Group: "Alts" }),
@@ -51,6 +53,28 @@ describe("GroupSection", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.getByText("ann")).toBeInTheDocument();
     expect(screen.getByText("bob")).toBeInTheDocument();
+  });
+
+  /**
+   * Visão em cards (General.AccountListView=cards, pedido do dono em
+   * 14/10/2026): a mesma conta, com o mesmo clique de seleção e o mesmo
+   * `data-account-row` que a seleção por caixa procura.
+   */
+  it("draws the accounts as cards when the list view is cards, and a click still selects", async () => {
+    const settings = defaultSettings();
+    const { store } = renderGroup({ settings: { ...settings, General: { ...settings.General, AccountListView: "cards" } } });
+    const cards = document.querySelectorAll("[data-account-row='true']");
+    expect(cards).toHaveLength(2);
+    expect(cards[0].className).toContain("rounded-xl");
+    await userEvent.click(screen.getByText("ann"));
+    expect(store.handleSelect).toHaveBeenCalledWith(11, expect.anything());
+  });
+
+  it("keeps the rows when the list view was never set", () => {
+    renderGroup();
+    const rows = document.querySelectorAll("[data-account-row='true']");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].className).not.toContain("rounded-xl");
   });
 
   it("toggles the group when the header is clicked", async () => {
@@ -269,5 +293,28 @@ describe("AccountChip", () => {
     render(<AccountChip account={aliased} onRemove={vi.fn()} />);
     expect(screen.getByText("Carlito")).toBeInTheDocument();
     expect(screen.queryByText("carl")).not.toBeInTheDocument();
+  });
+});
+
+/** Renomear pelo cabeçalho: o mesmo fluxo do menu de contexto, sem abrir o grupo. */
+describe("GroupSection — rename", () => {
+  afterEach(resetPromptMocks);
+
+  it("renames from the pencil without collapsing the group", async () => {
+    promptAnswers.prompt = "Bots";
+    const { store, onToggle } = renderGroup();
+    await userEvent.click(within(header()).getByRole("button", { name: "Rename group" }));
+    expect(promptMock.mock.calls[0][1]).toBe("Alts");
+    await vi.waitFor(() => expect(store.renameGroup).toHaveBeenCalledWith("Alts", "Bots"));
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it("has no pencil on the Default group", () => {
+    const plain = [makeAccount({ UserID: 21, Username: "cy", Group: "" })];
+    const def = groupAccounts(plain)[0];
+    setStore({ accounts: [...ACCOUNTS, ...plain] });
+    render(<GroupSection group={def} collapsed={false} onToggle={vi.fn()} onDrop={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Rename group" })).not.toBeInTheDocument();
   });
 });

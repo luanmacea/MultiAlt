@@ -814,6 +814,8 @@ static RECONNECT_LAST_VIEWS: std::sync::LazyLock<std::sync::Mutex<Vec<ReconnectE
     std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
 
 fn publish_reconnect(app: &tauri::AppHandle, notices: &[ReconnectNotice]) {
+    // Aviso no Discord: reconectou / desistiu (desligado por padrão; só fila).
+    webhook_after_reconnect(app, notices);
     for notice in notices {
         // A conta relançada toca a gravação dela quando ficar o tempo
         // configurado no jogo (commands/recordings.rs).
@@ -959,7 +961,7 @@ pub(crate) fn reconnect_is_guarding() -> bool {
 pub(crate) fn reconnect_after_health_tick(app: &tauri::AppHandle, notices: &[HealthNotice]) {
     // Antes das saídas cedo abaixo: a gravação espera a conta ficar no jogo
     // mesmo depois de a reconexão já ter dado a conta por reconectada.
-    recording_after_reconnect_tick(app);
+    recording_after_join_tick(app);
     let tracked = platform::windows::tracker().get_all();
     let has_work = with_reconnect_book(|book| !book.entries.is_empty())
         || notices.iter().any(|n| matches!(n, HealthNotice::Dropped { .. }));
@@ -1012,7 +1014,7 @@ pub(crate) fn reconnect_after_health_tick(app: &tauri::AppHandle, notices: &[Hea
                     out.push(n);
                 }
             }
-            HealthNotice::NotResponding { .. } => {}
+            HealthNotice::NotResponding { .. } | HealthNotice::WrongAccount { .. } => {}
         }
     }
 
@@ -1737,6 +1739,7 @@ mod auto_reconnect_target_tests {
         JoinedDestination {
             place_id,
             job_id: job.map(String::from),
+            ..JoinedDestination::default()
         }
     }
 

@@ -4,6 +4,7 @@ import {
   formatNextRun,
   matchingTarget,
   newPresetDraft,
+  presetAccountIds,
   presetDayToJsDay,
   presetFieldProblem,
   presetProblem,
@@ -122,5 +123,40 @@ describe("presets — próximo horário", () => {
   it("the backend's day (0 = Monday) maps to the JS day (0 = Sunday)", () => {
     expect(presetDayToJsDay(0)).toBe(1);
     expect(presetDayToJsDay(6)).toBe(0);
+  });
+});
+
+describe("presets — preset de grupo (ideia 42)", () => {
+  const accounts = [
+    { UserID: 5, Group: "Alts" },
+    { UserID: 2, Group: "Main" },
+    { UserID: 9, Group: "Alts" },
+    { UserID: 4, Group: "" },
+  ];
+  const base = { ...newPresetDraft([2, 99]), name: "Farm", placeId: 1 };
+
+  it("a group preset takes whoever is in the group now, in list order", () => {
+    expect(presetAccountIds({ ...base, group: "Alts" }, accounts)).toEqual([5, 9]);
+    // Sem grupo na conta = "Default", como a lista agrupa.
+    expect(presetAccountIds({ ...base, group: "Default" }, accounts)).toEqual([4]);
+    expect(presetAccountIds({ ...base, group: "alts" }, accounts)).toEqual([]);
+  });
+
+  it("a fixed preset keeps its accounts still in the app, in its order", () => {
+    expect(presetAccountIds(base, accounts)).toEqual([2]);
+    expect(presetAccountIds({ ...base, group: null }, accounts)).toEqual([2]);
+  });
+
+  it("a group preset needs a group with accounts, not a fixed list", () => {
+    const grouped = { ...base, userIds: [], group: "Alts" };
+    expect(presetFieldProblem(grouped, { accounts })).toBeNull();
+    expect(presetFieldProblem({ ...grouped, group: "  " }, { accounts })).toEqual({
+      field: "accounts",
+      message: "Pick a group.",
+    });
+    expect(presetFieldProblem({ ...grouped, group: "Gone" }, { accounts })).toEqual({
+      field: "accounts",
+      message: "That group has no accounts.",
+    });
   });
 });

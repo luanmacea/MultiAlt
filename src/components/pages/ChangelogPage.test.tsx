@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
+vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 const getVersionMock = vi.fn<() => Promise<string>>();
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: () => getVersionMock() }));
 
@@ -13,6 +14,7 @@ import { resetReleaseHistoryCache } from "../../releaseNotes";
 import i18n, { DEFAULT_LANGUAGE } from "../../i18n/index";
 import type { StoreValue } from "../../store";
 import { walkTour } from "../../test-utils/tourHelpers";
+import { invokeMock } from "../../test-utils/tauriMocks";
 
 function release(tag: string, publishedAt: string, items: string[]) {
   return {
@@ -66,6 +68,15 @@ afterEach(async () => {
 });
 
 describe("ChangelogPage", () => {
+  /** Pedido de estrela no GitHub (15/10/2026): uma linha no topo, sem bloquear a página. */
+  it("asks for a GitHub star at the top and opens the repository", async () => {
+    renderPage();
+    const line = screen.getByTestId("changelog-star");
+    expect(line).toHaveTextContent("free and open source");
+    await userEvent.click(within(line).getByRole("button", { name: "Star on GitHub" }));
+    expect(invokeMock).toHaveBeenCalledWith("open_repo_url");
+  });
+
   it("does not ask GitHub for anything until the page is opened", () => {
     renderPage(false);
     expect(fetchMock).not.toHaveBeenCalled();

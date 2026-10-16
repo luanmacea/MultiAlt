@@ -28,7 +28,7 @@
 // Importados aqui (e não no topo de `windows.rs`) porque só este arquivo usa.
 use windows_sys::Win32::Foundation::{
     DuplicateHandle, GetLastError, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS,
-    ERROR_FILE_NOT_FOUND,
+    ERROR_FILE_NOT_FOUND, ERROR_INVALID_HANDLE,
 };
 use windows_sys::Win32::System::Threading::{
     CreateEventW, GetCurrentProcess, OpenEventW, EVENT_MODIFY_STATE, PROCESS_DUP_HANDLE,
@@ -264,17 +264,27 @@ fn handle_object_name(handle: HANDLE) -> Option<String> {
     Some(String::from_utf16_lossy(slice))
 }
 
+/// Resultado de uma varredura: handles fechados e processos do Roblox que nem
+/// puderam ser abertos (`OpenProcess` negado — tipicamente um cliente rodando
+/// como administrador, que um app sem elevação não alcança). Antes esses eram
+/// pulados em silêncio.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SingletonCloseReport {
+    pub closed: usize,
+    pub unreachable: usize,
+}
+
 /// Fecha, dentro de `pid`, os handles de evento cujo nome termina em `suffix`.
-/// Devolve quantos foram fechados (0 se o processo nem pôde ser aberto).
+/// Devolve quantos foram fechados, ou `None` se o processo nem pôde ser aberto.
 fn close_singleton_events_in_process(
     pid: u32,
     suffix: &str,
     snapshot: &[SystemHandleEntryEx],
     event_type_index: u16,
-) -> usize {
+) -> Option<usize> {
     let target = unsafe { OpenProcess(PROCESS_DUP_HANDLE, 0, pid) };
     if target.is_null() {
-        return 0;
+        return None;
     }
     let this_process = unsafe { GetCurrentProcess() };
     let pid_key = pid as usize;
@@ -330,56 +340,113 @@ fn close_singleton_events_in_process(
     }
 
     unsafe { CloseHandle(target) };
-    closed
+    Some(closed)
 }
 
 /// Varre os `pids` indicados e fecha os eventos cujo nome termina em `suffix`.
-fn close_singleton_events_for_pids(pids: &[u32], suffix: &str) -> usize {
+fn close_singleton_events_for_pids(pids: &[u32], suffix: &str) -> SingletonCloseReport {
+    let mut report = SingletonCloseReport::default();
     if pids.is_empty() || suffix.is_empty() {
-        return 0;
+        return report;
     }
     let Some((snapshot, event_type_index)) = snapshot_with_event_type_index() else {
-        return 0;
+        return report;
     };
     if snapshot.is_empty() {
-        return 0;
+        return report;
     }
-    pids.iter()
-        .map(|pid| close_singleton_events_in_process(*pid, suffix, &snapshot, event_type_index))
-        .sum()
+    for pid in pids {
+        match close_singleton_events_in_process(*pid, suffix, &snapshot, event_type_index) {
+            Some(closed) => report.closed += closed,
+            None => report.unreachable += 1,
+        }
+    }
+    report
 }
 
-/// Fecha o `ROBLOX_singletonEvent` de todos os clientes Roblox abertos e
-/// devolve quantos handles foram fechados.
+/// Carência de um cliente recém-aberto antes de fechar o handle dele: logo na
+/// subida ele ainda está montando a instância única, e fechar o Event nessa
+/// hora pode fazê-lo sair. Com o `AccountJoinDelay` padrão (8 s) isso quase
+/// nunca espera.
+const YOUNG_CLIENT_GRACE: Duration = Duration::from_secs(5);
+
+/// Quanto esperar até o cliente mais novo (`created_ms`, hora de criação de
+/// cada processo) ter `YOUNG_CLIENT_GRACE` de vida. Nunca mais que a carência.
+fn singleton_close_wait(now_ms: i64, created_ms: &[Option<i64>]) -> Duration {
+    let grace_ms = YOUNG_CLIENT_GRACE.as_millis() as i64;
+    let wait_ms = created_ms
+        .iter()
+        .flatten()
+        .map(|created| (grace_ms - (now_ms - created)).clamp(0, grace_ms))
+        .max()
+        .unwrap_or(0);
+    Duration::from_millis(wait_ms as u64)
+}
+
+/// Fecha o `ROBLOX_singletonEvent` de todos os clientes Roblox abertos.
+/// Devolve quantos handles foram fechados e quantos clientes não puderam ser
+/// abertos para isso.
 ///
 /// Os clientes **não** são fechados: eles seguem rodando, apenas deixam de
 /// segurar o nome que faz a próxima instância desistir. É a etapa que permite
 /// entrar com outras contas depois que o usuário já abriu o jogo pelo site.
-pub fn close_roblox_singleton_handles() -> usize {
+pub fn close_roblox_singleton_handles() -> SingletonCloseReport {
     let pids = find_roblox_pids_all();
     if pids.is_empty() {
-        return 0;
+        return SingletonCloseReport::default();
     }
-    let closed = close_singleton_events_for_pids(&pids, ROBLOX_SINGLETON_EVENT);
-    if closed > 0 {
+    let os = WindowsExternalClientOs;
+    let created: Vec<Option<i64>> = pids.iter().map(|pid| os.process_created_ms(*pid)).collect();
+    let wait = singleton_close_wait(os.now_ms(), &created);
+    if !wait.is_zero() {
+        std::thread::sleep(wait);
+    }
+    let report = close_singleton_events_for_pids(&pids, ROBLOX_SINGLETON_EVENT);
+    if report.closed > 0 {
         eprintln!(
             "Multi Roblox: {} handle(s) de {} fechado(s) em {} processo(s) Roblox (clientes mantidos abertos)",
-            closed,
+            report.closed,
             ROBLOX_SINGLETON_EVENT,
             pids.len()
         );
     }
-    closed
+    if report.unreachable > 0 {
+        eprintln!(
+            "Multi Roblox: {} processo(s) Roblox não puderam ser abertos para fechar o {} (rodando como administrador?)",
+            report.unreachable, ROBLOX_SINGLETON_EVENT
+        );
+    }
+    report
 }
 
-/// O evento `name` existe nesta sessão? `OpenEventW` sem prefixo abre no mesmo
-/// namespace em que o cliente do Roblox cria o dele. Acesso negado conta como
-/// "existe": o objeto está lá, só não abre para nós.
+/// `OpenEventW` falhou (handle nulo) com `last_error`: esse nome segura um
+/// Event que faz o próximo cliente desistir?
+///
+/// - `ERROR_FILE_NOT_FOUND`: o nome não existe — nada barra.
+/// - `ERROR_INVALID_HANDLE`: o nome existe, mas como objeto de **outro tipo** —
+///   um Mutex, a mesma técnica da nossa própria reserva (`core.rs`) e de outras
+///   ferramentas de multi-instância. Um cliente do Roblox não cria o Event
+///   sobre esse nome, então não há instância antiga para sinalizar: não barra.
+///   (Antes qualquer erro que não fosse "não encontrado" contava como Event
+///   existente, e um Mutex de outra ferramenta com esse nome fazia o app pular
+///   todo segundo launch com "could not be unlocked".)
+/// - `ERROR_ACCESS_DENIED`: existe um Event, de um cliente **elevado**, que não
+///   conseguimos abrir — barra.
+/// - qualquer outro erro: conservador, trata como Event existente — barra.
+fn open_event_failure_blocks(last_error: u32) -> bool {
+    !matches!(last_error, ERROR_FILE_NOT_FOUND | ERROR_INVALID_HANDLE)
+}
+
+/// Existe, nesta sessão, um `ROBLOX_singletonEvent` (um Event de verdade) que
+/// faz o próximo cliente desistir? `OpenEventW` sem prefixo abre no mesmo
+/// namespace em que o cliente do Roblox cria o dele. Um objeto de outro tipo
+/// com o mesmo nome (um Mutex — a nossa reserva ou a de outra ferramenta) **não**
+/// conta: ver [`open_event_failure_blocks`].
 fn named_event_exists(name: &str) -> bool {
     let wide = encode_wide(name);
     let handle = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, wide.as_ptr()) };
     if handle.is_null() {
-        return unsafe { GetLastError() } != ERROR_FILE_NOT_FOUND;
+        return open_event_failure_blocks(unsafe { GetLastError() });
     }
     unsafe { CloseHandle(handle) };
     true
@@ -417,6 +484,21 @@ mod singleton_event_tests {
     #[test]
     fn without_a_size_hint_the_snapshot_doubles() {
         assert_eq!(next_handle_snapshot_size(0, 1024 * 1024), Some(2 * 1024 * 1024));
+    }
+
+    #[test]
+    fn a_wrong_type_object_of_the_same_name_does_not_block_the_next_client() {
+        // Nome livre: `OpenEventW` dá ERROR_FILE_NOT_FOUND — nada barra.
+        assert!(!open_event_failure_blocks(ERROR_FILE_NOT_FOUND));
+        // Nome ocupado por um objeto de outro tipo (um Mutex: a nossa reserva ou
+        // a de outra ferramenta de multi-instância): ERROR_INVALID_HANDLE. Não é
+        // um Event de cliente, então não barra — antes barrava e o app pulava
+        // todo segundo launch.
+        assert!(!open_event_failure_blocks(ERROR_INVALID_HANDLE));
+        // Event de um cliente elevado que não conseguimos abrir: barra.
+        assert!(open_event_failure_blocks(windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED));
+        // Qualquer outro erro: conservador, trata como Event existente.
+        assert!(open_event_failure_blocks(1_u32)); // ERROR_INVALID_FUNCTION
     }
 
     struct OwnedEvent(HANDLE);
@@ -549,7 +631,7 @@ mod singleton_event_tests {
         let mut event = create_named_event(name).expect("CreateEventW falhou");
         assert!(named_event_exists(name), "o evento devia existir antes");
 
-        let closed = close_singleton_events_for_pids(&[self_pid()], name);
+        let closed = close_singleton_events_for_pids(&[self_pid()], name).closed;
         assert_eq!(closed, 1, "devia ter fechado exatamente um handle");
         event.forget();
 
@@ -572,7 +654,7 @@ mod singleton_event_tests {
         let _prefixed_event = create_named_event(prefixed).expect("CreateEventW falhou");
         let _other_event = create_named_event(other).expect("CreateEventW falhou");
 
-        let closed = close_singleton_events_for_pids(&[self_pid()], target);
+        let closed = close_singleton_events_for_pids(&[self_pid()], target).closed;
         assert_eq!(closed, 1, "só o nome exato podia ter sido fechado");
         target_event.forget();
 
@@ -605,7 +687,7 @@ mod singleton_event_tests {
         let _event = create_named_event(name).expect("CreateEventW falhou");
 
         let roblox_pids = find_roblox_pids_all();
-        let closed = close_singleton_events_for_pids(&roblox_pids, name);
+        let closed = close_singleton_events_for_pids(&roblox_pids, name).closed;
         assert_eq!(
             closed, 0,
             "nenhum processo Roblox segura um evento com esse nome"
@@ -618,7 +700,23 @@ mod singleton_event_tests {
 
     #[test]
     fn closing_is_a_no_op_without_pids_or_suffix() {
-        assert_eq!(close_singleton_events_for_pids(&[], ROBLOX_SINGLETON_EVENT), 0);
-        assert_eq!(close_singleton_events_for_pids(&[self_pid()], ""), 0);
+        assert_eq!(
+            close_singleton_events_for_pids(&[], ROBLOX_SINGLETON_EVENT),
+            SingletonCloseReport::default()
+        );
+        assert_eq!(
+            close_singleton_events_for_pids(&[self_pid()], ""),
+            SingletonCloseReport::default()
+        );
+    }
+
+    /// Processo que não abre (Roblox como administrador, ou já saiu) era
+    /// pulado em silêncio; agora entra na conta, para a mensagem dizer o motivo.
+    #[test]
+    fn a_process_that_cannot_be_opened_is_counted() {
+        // pid 0 (System Idle) nunca abre com PROCESS_DUP_HANDLE.
+        let report = close_singleton_events_for_pids(&[0], "RAMTest_unreachable_singletonEvent");
+        assert_eq!(report.closed, 0);
+        assert_eq!(report.unreachable, 1);
     }
 }

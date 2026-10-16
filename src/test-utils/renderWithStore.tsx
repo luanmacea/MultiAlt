@@ -157,6 +157,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     saveAccounts: vi.fn(async () => {}),
     addAccountByCookie: vi.fn(async () => {}),
     removeAccounts: vi.fn(async () => {}),
+    undoRemoveAccounts: vi.fn(async () => {}),
     updateAccount: vi.fn(async () => {}),
 
     selectedIds,
@@ -279,8 +280,11 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     refreshCookie: vi.fn(async () => true),
     moveToGroup: vi.fn(async () => {}),
     sortGroupAlphabetically: vi.fn(),
+    renameGroup: vi.fn(async () => true),
     reorderAccounts: vi.fn(async () => {}),
     joiningAccounts: new Set<number>(),
+    launchPreparing: null,
+    setLaunchPreparing: vi.fn(),
     launchProgress: null,
     launchLogs: [],
     clearLaunchLogs: vi.fn(),
@@ -293,6 +297,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
 
     toasts: [],
     addToast: vi.fn(),
+    dismissToast: vi.fn(),
     actionStatus: null,
     modal: null,
     showModal: vi.fn(),
@@ -333,6 +338,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
 
     accountUtilsOpen: false,
     setAccountUtilsOpen: vi.fn(),
+    bulkCredentialsOpen: false,
+    setBulkCredentialsOpen: vi.fn(),
     accountFieldsOpen: false,
     setAccountFieldsOpen: vi.fn(),
     importDialogOpen: false,

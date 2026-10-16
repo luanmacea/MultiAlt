@@ -14,7 +14,7 @@
 //   estava fechado (ou o PC dormindo) na hora, aquela vez não acontece.
 
 use data::launch_presets::{
-    due_actions, next_close_after, next_open_after, LaunchPreset, PresetAction,
+    due_actions, next_close_after, next_open_after, resolve_preset_accounts, LaunchPreset, PresetAction,
 };
 
 /// De quanto em quanto tempo o agendador olha o relógio.
@@ -206,19 +206,28 @@ fn get_launch_presets(store: tauri::State<'_, LaunchPresetStore>) -> Result<Vec<
 
 #[tauri::command]
 fn save_launch_preset(
+    app: tauri::AppHandle,
     store: tauri::State<'_, LaunchPresetStore>,
     preset: LaunchPreset,
 ) -> Result<LaunchPreset, String> {
-    store.upsert(preset, chrono::Utc::now().timestamp_millis())
+    let saved = store.upsert(preset, chrono::Utc::now().timestamp_millis())?;
+    // O submenu "Launch preset" da bandeja segue a lista.
+    refresh_tray_menu(&app);
+    Ok(saved)
 }
 
 #[tauri::command]
-fn delete_launch_preset(store: tauri::State<'_, LaunchPresetStore>, id: String) -> Result<bool, String> {
+fn delete_launch_preset(
+    app: tauri::AppHandle,
+    store: tauri::State<'_, LaunchPresetStore>,
+    id: String,
+) -> Result<bool, String> {
     let deleted = store.delete(&id)?;
     // Esquece a execução: um preset apagado não fecha mais nada.
     if let Ok(mut runs) = PRESET_RUNS.lock() {
         runs.remove(&id);
     }
+    refresh_tray_menu(&app);
     Ok(deleted)
 }
 
@@ -238,16 +247,15 @@ fn arrange_after_preset(app: &tauri::AppHandle) {
 
 /// Abre o preset pela fila normal e anota quais clientes ele abriu.
 async fn run_launch_preset(app: &tauri::AppHandle, preset: &LaunchPreset) -> Result<usize, String> {
-    let known: HashSet<i64> = app
-        .state::<AccountStore>()
-        .get_all()?
-        .into_iter()
-        .map(|a| a.user_id)
+    // Contas fixas que ainda existem, ou quem está no grupo agora (ideia 42).
+    // Só essas entram na execução — e "fechar" só mexe no que ela abriu.
+    let accounts = app.state::<AccountStore>().get_all()?;
+    // Grupo vazio = "Default", como a lista agrupa (`a.Group || "Default"`).
+    let roster: Vec<(i64, &str)> = accounts
+        .iter()
+        .map(|a| (a.user_id, if a.group.is_empty() { "Default" } else { a.group.as_str() }))
         .collect();
-    let user_ids: Vec<i64> = preset.user_ids.iter().copied().filter(|id| known.contains(id)).collect();
-    if user_ids.is_empty() {
-        return Err("None of this preset's accounts are in the app anymore.".into());
-    }
+    let user_ids = resolve_preset_accounts(preset, &roster)?;
 
     let before = preset_tracked_clients();
     #[cfg(target_os = "windows")]
@@ -318,12 +326,31 @@ async fn close_preset_run(preset_id: &str) -> usize {
     closed
 }
 
+/// De onde veio a ação do preset. (A bandeja não lança direto: ela traz a
+/// janela à frente e manda a tela rodar o launch — ver commands/tray.rs.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PresetTrigger {
+    /// Botão da tela: quem clicou já vê o resultado lá.
+    Button,
+    /// Horário do agendador: ninguém clicou, vira toast.
+    Schedule,
+}
+
+impl PresetTrigger {
+    fn source(self) -> &'static str {
+        match self {
+            PresetTrigger::Button => "button",
+            PresetTrigger::Schedule => "schedule",
+        }
+    }
+}
+
 /// Linha no Console (sem conta: é do preset) e evento para a tela.
 fn emit_preset_outcome(
     app: &tauri::AppHandle,
     preset: &LaunchPreset,
     action: PresetAction,
-    scheduled: bool,
+    trigger: PresetTrigger,
     outcome: &Result<usize, String>,
 ) {
     let (level, message) = match (action, outcome) {
@@ -339,7 +366,8 @@ fn emit_preset_outcome(
             "presetId": preset.id,
             "name": preset.name,
             "action": match action { PresetAction::Open => "open", PresetAction::Close => "close" },
-            "scheduled": scheduled,
+            "scheduled": trigger == PresetTrigger::Schedule,
+            "source": trigger.source(),
             "ok": outcome.is_ok(),
             "count": outcome.as_ref().ok().copied().unwrap_or(0),
             "error": outcome.as_ref().err(),
@@ -347,18 +375,25 @@ fn emit_preset_outcome(
     );
 }
 
-#[tauri::command]
-async fn launch_preset(app: tauri::AppHandle, id: String) -> Result<usize, String> {
-    let preset = app
-        .state::<LaunchPresetStore>()
-        .get(&id)?
-        .ok_or_else(|| "This preset no longer exists.".to_string())?;
-    let outcome = run_launch_preset(&app, &preset).await;
-    // A recusa "launch em andamento" já vira aviso na tela de quem clicou.
-    if !matches!(&outcome, Err(e) if e == LAUNCH_ALREADY_ACTIVE) {
-        emit_preset_outcome(&app, &preset, PresetAction::Open, false, &outcome);
+/// O launch de um preset pelo id (o botão da tela; a bandeja delega a este
+/// caminho via o frontend). O agendador usa `run_launch_preset` direto.
+async fn launch_preset_with(app: &tauri::AppHandle, id: &str, trigger: PresetTrigger) -> Result<usize, String> {
+    let preset = match app.state::<LaunchPresetStore>().get(id)? {
+        Some(preset) => preset,
+        None => return Err("This preset no longer exists.".to_string()),
+    };
+    let outcome = run_launch_preset(app, &preset).await;
+    // A recusa "launch em andamento" já vira aviso na tela de quem clicou; da
+    // bandeja ninguém está olhando, então ela vai para o evento também.
+    if trigger != PresetTrigger::Button || !matches!(&outcome, Err(e) if e == LAUNCH_ALREADY_ACTIVE) {
+        emit_preset_outcome(app, &preset, PresetAction::Open, trigger, &outcome);
     }
     outcome
+}
+
+#[tauri::command]
+async fn launch_preset(app: tauri::AppHandle, id: String) -> Result<usize, String> {
+    launch_preset_with(&app, &id, PresetTrigger::Button).await
 }
 
 #[tauri::command]
@@ -368,7 +403,7 @@ async fn close_preset_clients(app: tauri::AppHandle, id: String) -> Result<usize
         .get(&id)?
         .ok_or_else(|| "This preset no longer exists.".to_string())?;
     let closed = close_preset_run(&id).await;
-    emit_preset_outcome(&app, &preset, PresetAction::Close, false, &Ok(closed));
+    emit_preset_outcome(&app, &preset, PresetAction::Close, PresetTrigger::Button, &Ok(closed));
     Ok(closed)
 }
 
@@ -388,7 +423,7 @@ async fn run_scheduled_preset_action(app: &tauri::AppHandle, preset_id: &str, ac
                     _ => break outcome,
                 }
             };
-            emit_preset_outcome(app, &preset, PresetAction::Open, true, &outcome);
+            emit_preset_outcome(app, &preset, PresetAction::Open, PresetTrigger::Schedule, &outcome);
         }
         PresetAction::Close => {
             // Sem cliente desta execução aberto, a hora de fechar não faz nada
@@ -397,7 +432,7 @@ async fn run_scheduled_preset_action(app: &tauri::AppHandle, preset_id: &str, ac
                 return;
             }
             let closed = close_preset_run(preset_id).await;
-            emit_preset_outcome(app, &preset, PresetAction::Close, true, &Ok(closed));
+            emit_preset_outcome(app, &preset, PresetAction::Close, PresetTrigger::Schedule, &Ok(closed));
         }
     }
 }
@@ -464,6 +499,21 @@ mod launch_preset_run_tests {
     fn a_website_client_is_never_the_runs() {
         let after = vec![(1, 100, true)];
         assert!(clients_opened_by_run(&[], &after, &[1]).is_empty());
+    }
+
+    #[test]
+    fn a_group_run_owns_only_the_clients_of_the_members_it_resolved() {
+        // Preset do grupo "Alts": no launch, o grupo tinha 1 e 3. A conta 2
+        // (outro grupo) abriu ao mesmo tempo por outro caminho — não é dele.
+        let preset = LaunchPreset { group: Some("Alts".into()), place_id: 1, ..Default::default() };
+        let roster = [(1, "Alts"), (2, "Main"), (3, "Alts")];
+        let resolved = resolve_preset_accounts(&preset, &roster).unwrap();
+        let after = vec![(1, 101, false), (2, 201, false), (3, 301, false)];
+        let run = clients_opened_by_run(&[], &after, &resolved);
+        assert_eq!(run, vec![client(1, 101), client(3, 301)]);
+        // Depois a conta 3 sai do grupo: o cliente que a execução abriu
+        // continua sendo dela; nenhum outro entra.
+        assert_eq!(preset_clients_still_open(&run, &after), vec![client(1, 101), client(3, 301)]);
     }
 
     #[test]

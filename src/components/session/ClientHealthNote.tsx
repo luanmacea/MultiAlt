@@ -1,7 +1,7 @@
-import { Hourglass, WifiOff } from "lucide-react";
+import { Hourglass, UserX, WifiOff } from "lucide-react";
 import { useTr } from "../../i18n/text";
 import type { ClientHealth } from "../../types";
-import { clientHealthLabel } from "../../utils/clientHealth";
+import { clientHealthLabel, wrongAccountLabel } from "../../utils/clientHealth";
 
 /**
  * Aviso curto ao lado do nome da conta (Sessão → Em jogo e painel da conta):
@@ -37,6 +37,27 @@ export function ClientHealthNote({
     >
       <Icon size={11} strokeWidth={1.75} className={`shrink-0${wrap ? " mt-[2px]" : ""}`} aria-hidden="true" />
       <span className={wrap ? "line-clamp-3 break-words" : "truncate"}>{info.label}</span>
+    </span>
+  );
+}
+
+/**
+ * O cliente que o app abriu entrou como outra conta do Roblox (o `userid` do
+ * log não é o da conta). Fica até o cliente fechar: o app não o fecha — pode
+ * ser a conta principal de quem usa.
+ */
+export function WrongAccountNote({ health }: { health: ClientHealth | null | undefined }) {
+  const t = useTr();
+  const label = wrongAccountLabel(health, t);
+  if (!label) return null;
+  return (
+    <span
+      data-testid="client-wrong-account-note"
+      className="inline-flex items-start gap-1 min-w-0 text-red-400"
+      title={t("The client stays open. Check which account is logged in to it.")}
+    >
+      <UserX size={11} strokeWidth={1.75} className="shrink-0 mt-[2px]" aria-hidden="true" />
+      <span className="line-clamp-3 break-words">{label}</span>
     </span>
   );
 }

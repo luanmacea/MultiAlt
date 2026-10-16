@@ -30,7 +30,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [development.md](development.md) — setup, comandos, features do Cargo, i18n, convenções, passo a passo para novo comando Tauri.
 - [mapa-da-interface.md](mapa-da-interface.md) — onde fica cada funcionalidade na tela e para que serve, em português.
 - [ux-checkup.md](ux-checkup.md) — revisão de usabilidade de setembro/2026: 131 achados triados por prioridade.
-- [ideias-de-outros-gerenciadores.md](ideias-de-outros-gerenciadores.md) — funcionalidades de 48 gerenciadores open source que valem a pena trazer, com origem, licença e cuidados de segurança (skill `/competitor-scout`).
+- [ideias-de-outros-gerenciadores.md](ideias-de-outros-gerenciadores.md) — funcionalidades de 89 gerenciadores open source (duas passadas, 09 e 14/10/2026) que valem a pena trazer, com origem, licença e cuidados de segurança (skill `/competitor-scout`).
 - [plano-ideias.md](plano-ideias.md) — em que ordem e em quais versões as ideias entram (pacotes por tema), e as respostas às dúvidas do dono sobre cada uma.
 - [../site/README.md](../site/README.md) — site de divulgação (HTML estático no GitHub Pages): como roda, como publica e de onde vêm os links de download.
 
@@ -45,7 +45,8 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 ### Launch e automação
 - [features/launch.md](features/launch.md) — lançamento de uma conta.
 - [features/multi-launch.md](features/multi-launch.md) — lançamento de várias contas / multi-Roblox.
-- [features/presets.md](features/presets.md) — presets de launch (contas → jogo/servidor num clique) e horário de abrir/fechar, que fecha só o que o preset abriu.
+- [features/presets.md](features/presets.md) — presets de launch (contas → jogo/servidor num clique, ou todas as contas de um grupo), horário de abrir/fechar que fecha só o que o preset abriu, e o submenu da bandeja.
+- [features/webhook.md](features/webhook.md) — avisos no Discord por webhook (desligado por padrão): queda, reconexão, janela travada, launch que falhou; nomes mascarados, fila com lote e limite do Discord.
 - [features/external-clients.md](features/external-clients.md) — clientes abertos pelo site (ou antes de o app abrir) reconhecidos pelo log do Roblox; identificação manual.
 - [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico) e a tela do **Modo AFK**, que junta Auto Rejoin e cliques AFK em abas.
 - [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.

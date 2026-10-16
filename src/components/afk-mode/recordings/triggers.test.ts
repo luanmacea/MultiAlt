@@ -37,7 +37,9 @@ describe("gatilhos das gravações", () => {
       intervalSeconds: 150,
       afterReconnect: true,
       delaySeconds: 45,
-      globalNames: { antiAfk: "Farm loop", afterReconnect: "Jump" },
+      afterLaunch: false,
+      launchDelaySeconds: 30,
+      globalNames: { antiAfk: "Farm loop", afterReconnect: "Jump", afterLaunch: null },
       // 11 e 22 no anti-AFK, 33 ("nenhuma") na reconexão; 11 conta uma vez.
       ownCount: 3,
     });
@@ -49,7 +51,9 @@ describe("gatilhos das gravações", () => {
       intervalSeconds: 600,
       afterReconnect: false,
       delaySeconds: 30,
-      globalNames: { antiAfk: null, afterReconnect: null },
+      afterLaunch: false,
+      launchDelaySeconds: 30,
+      globalNames: { antiAfk: null, afterReconnect: null, afterLaunch: null },
       ownCount: 0,
     });
   });
@@ -63,6 +67,22 @@ describe("gatilhos das gravações", () => {
   it("o tempo depois da reconexão fica entre 5 s e 1 h, como no backend", () => {
     expect(recordingTriggers(null, { Recordings: { AfterReconnectDelaySeconds: "1" } }).delaySeconds).toBe(5);
     expect(recordingTriggers(null, { Recordings: { AfterReconnectDelaySeconds: "99999" } }).delaySeconds).toBe(3600);
+  });
+
+  /** Ideia 52: a gravação depois de um launch, com a chave e a vaga dela. */
+  it("lê o gatilho depois do launch, a vaga dele e o tempo entre 5 s e 1 h", () => {
+    const out = recordingTriggers(
+      payload({ afterLaunch: { defaultId: "b", accounts: { "44": null } } }),
+      { Recordings: { AfterLaunch: "true", AfterLaunchDelaySeconds: "20" } }
+    );
+    expect(out.afterLaunch).toBe(true);
+    expect(out.launchDelaySeconds).toBe(20);
+    expect(out.globalNames.afterLaunch).toBe("Jump");
+    // A reconexão não muda com a chave do launch.
+    expect(out.afterReconnect).toBe(false);
+    expect(out.ownCount).toBe(1);
+    expect(recordingTriggers(null, { Recordings: { AfterLaunchDelaySeconds: "0" } }).launchDelaySeconds).toBe(5);
+    expect(recordingTriggers(null, { Recordings: { AfterLaunchDelaySeconds: "99999" } }).launchDelaySeconds).toBe(3600);
   });
 
   it("o intervalo aparece em minutos e segundos", () => {

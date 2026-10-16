@@ -74,11 +74,13 @@ export function aspectDiffers(sourceAspect: number | undefined, width: number, h
 }
 
 /**
- * As duas vagas de gravação (pedido do dono, 11/10/2026): a que toca depois da
- * reconexão automática (posicionar o personagem) e a que o Modo AFK repete
- * (uma ação em outro lugar). A ordem é a das colunas da tela.
+ * As vagas de gravação (pedido do dono, 11/10/2026): a que toca depois da
+ * reconexão automática (posicionar o personagem), a que toca depois de um
+ * launch do app (ideia 52, 15/10/2026 — normal, preset, Auto Rejoin) e a que o
+ * Modo AFK repete (uma ação em outro lugar). A ordem é a das colunas da tela:
+ * "After launch" fica ao lado de "After auto-reconnect".
  */
-export const RECORDING_SLOTS = ["afterReconnect", "antiAfk"] as const;
+export const RECORDING_SLOTS = ["afterReconnect", "afterLaunch", "antiAfk"] as const;
 export type RecordingSlot = (typeof RECORDING_SLOTS)[number];
 
 /** Quem toca o quê numa vaga. */
@@ -93,6 +95,8 @@ export interface RecordingSlotChoices {
 export interface RecordingsPayload {
   recordings: Recording[];
   afterReconnect: RecordingSlotChoices;
+  /** Opcional: dublê de antes da vaga nova não manda (`slotChoices` trata como vazia). */
+  afterLaunch?: RecordingSlotChoices;
   antiAfk: RecordingSlotChoices;
   /** A lista fechada de teclas, na ordem do backend. */
   keys: string[];

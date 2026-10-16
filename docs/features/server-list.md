@@ -38,6 +38,17 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 5. **Load Region**: `invoke("get_server_regions", { userId, placeId: teleportPlaceId || placeId, jobIds: [id] })` — o **backend** faz o `join-game-instance` para pegar o IP da máquina, geolocaliza esse IP e guarda em cache (memória + `ServerRegionCache.json`) — ver [server-choice.md](server-choice.md); a tela mostra o `label` devolvido, ou o `error`. Era um `fetch` do frontend direto ao `ipapi.co`, que quebrou (o frontend não fala com a rede, e o serviço passou a exigir desafio do Cloudflare).
 6. **Find player**: `lookup_user` → headshot 48x48 do alvo → percorre páginas de servidores públicos pedindo headshots dos `playerTokens` via `batch_thumbnails` → compara URLs; ao achar, filtra a tabela para aquele servidor.
 
+### Servidores privados da conta (na aba Servers)
+
+Desde 15/10/2026 as duas abas Servers — a da Choose Game ([servers/ServersTab.tsx](../../src/components/servers/ServersTab.tsx)) e a do diálogo Server List ([server-list/ServersTab.tsx](../../src/components/server-list/ServersTab.tsx)) — têm, acima da lista pública, a seção **"Private servers"** ([PrivateServersSection.tsx](../../src/components/servers/PrivateServersSection.tsx)): os servidores privados daquele place que **cada conta selecionada** pode acessar. Antes era preciso ter salvo o link do VIP nos Favoritos.
+
+- **De onde vem:** comando `get_private_servers(userId, placeId, cursor)` ([account_api.rs](../../src-tauri/src/commands/account_api.rs)) → `GET games/v1/games/{place}/private-servers?sortOrder=Asc&limit=25` com o cookie **daquela conta** ([avatar_games.rs](../../src-tauri/src/api/roblox/avatar_games.rs), `get_private_servers`). Cada item traz nome, dono (`owner`), `playing`/`maxPlayers`, `vipServerId` e `accessCode`; servidor vazio vem com Job ID nulo. Não é o `get_servers(..., "VIP")` antigo do RAM (`servers/VIP`): o endpoint documentado para "os privados que o usuário acessa" é o `private-servers`. **Não conferido contra a API de verdade** (sem rede nos testes): se ele mudar, a seção mostra o erro de cada conta e a lista pública segue.
+- **Só leitura, sem refresh de sessão** (`read_without_refresh`): cookie vencido vira o erro daquela conta, na seção dela.
+- **Fechada por padrão**, e lembra se foi aberta (`localStorage`, `ram_private_servers_open`): cada conta custa uma chamada. Aberta, pede **uma conta por vez**, na ordem da seleção, 400 ms depois de o Place ID parar de mudar; o ícone de recarregar pede de novo. Paginação por conta com **Load more**. Sem nada: *No private servers for this account in this game*.
+- **Entrar:** pelo caminho VIP de sempre — na Choose Game `launchAll(contas, place, "", …, { joinVip: true, linkCode: accessCode })` (que vira `vip:<accessCode>` no `launch_multiple`, e o `resolve_private_join` reconhece o formato de access code); no Server List, o mesmo `VIP:<accessCode>` do duplo clique. Vão só as contas selecionadas **cuja lista tem aquele servidor** (mesmo `vipServerId`) — o botão vira *Join with N* quando não são todas. Servidor sem `accessCode` não tem Join.
+- **Nomes:** o dono que é uma das contas do usuário aparece com a máscara de nomes; os outros, com o nome do Roblox.
+- Testes: `private_servers_list_tests`, `private_servers_command_tests` (Rust) e `PrivateServersSection.test.tsx` (suíte `servers`).
+
 ### Aba Games
 
 1. Sem termo: `search_games("")` usa `explore-api/v1/get-sorts` (sorts de descoberta). Com termo: `search-api/omni-search`, filtrando `contentType === "Game"`. Debounce de 400 ms.
@@ -69,9 +80,10 @@ A aba Games guarda a última lista e a busca que a produziu num cache de memóri
 Na aba Recentes da Choose Game, a lista acima vira a seção **"Abertos pelo MultiAlt"** (`RecentGamesList` com `fill={false}`: ocupa só a altura dela e a aba inteira rola), e embaixo vem **"Jogados recentemente por cada conta"** ([AccountRecentGames.tsx](../../src/components/server-list/AccountRecentGames.tsx)), uma seção por conta escolhida — como a aba Amigos mostra os amigos de cada conta. Pedido do dono.
 
 - **De onde vem:** o "Continuar" da página inicial do Roblox — `POST apis/discovery-api/omni-recommendation` com `{"pageType":"Home","sessionId":<uuid>}` e o cookie da conta; a faixa com `topicId` **100000003** (o `topic` vem traduzido: "Continue", "Continuar"…). Cada item é um **universo**; `GET games/v1/games?universeIds=` dá nome e `rootPlaceId` (sem cookie, um pedido para todas as contas) e o lote de imagens (`GameIcon`, 150x150) dá o ícone. Medido em 13/10/2026 com contas de teste. São jogos em que a conta entrou **de qualquer lugar** (app, site, celular).
-- **Comando:** `get_recent_games_for_accounts(userIds)` ([commands/recent_games.rs](../../src-tauri/src/commands/recent_games.rs)) — uma conta por vez, 250 ms entre elas, até 10 jogos por conta, na ordem do Roblox. **Só leitura, sem refresh de sessão**: cookie vencido vira o erro **daquela conta**, na seção dela.
-- A tela guarda o resultado por **1 minuto** na sessão (trocar de aba e voltar não pede de novo); o botão de atualizar pede na hora.
-- As linhas têm as ações da lista de cima: clicar abre os servidores, e os botões são servidores, favoritar e "Join Game".
+- **Comando:** `get_recent_games_for_accounts(userIds)` ([commands/recent_games.rs](../../src-tauri/src/commands/recent_games.rs)) — até 10 jogos por conta, na ordem do Roblox. **Só leitura, sem refresh de sessão**: cookie vencido vira o erro **daquela conta**, na seção dela.
+- **Uma chamada por conta, a que volta já aparece** (pedido do dono, 14/10/2026 — antes era uma chamada para todas e a tela esperava a última). A tela pede `userIds: [id]` para cada conta, até `RECENT_GAMES_CONCURRENCY` (3) ao mesmo tempo. Todas as fileiras aparecem desde o início, **na ordem da seleção** (não na de chegada): a que ainda não voltou mostra lugares vazios do tamanho dos cards (`account-recent-pending-<id>`).
+- A tela guarda o resultado **de cada conta** por **1 minuto** na sessão (trocar de aba e voltar não pede de novo); o botão de atualizar pede todas na hora, mantendo o que está na tela até cada uma voltar.
+- **Fileiras de cards** ([CardRail.tsx](../../src/components/ui/CardRail.tsx) + [GameCard.tsx](../../src/components/server-list/GameCard.tsx)), como o "Continue →" do site do Roblox: uma fileira por conta e outra para "Abertos pelo MultiAlt" (`RecentGamesList` com `layout="rail"`; no Server List e no popover continua `list`, onde a largura é pouca). Os cards têm as ações da lista de cima: clicar abre os servidores, e os botões são servidores, favoritar e "Join Game".
 - Testes: `recent_games_parse_tests`, `recent_games_http_tests`, `recent_games_command_tests` (Rust) e `AccountRecentGames.test.tsx`, na suíte `friends`.
 
 #### Servidores recentes (Job IDs)
@@ -153,7 +165,7 @@ O comando `parse_private_server_link_code(userId, placeId, linkCode)` ([private_
 
 - Aceitos como alvo privado: `vip:<código>` (ou `VIP:`), URL com `privateServerLinkCode=`, `linkCode=`, share link Roblox (`share?code=...&type=Server`), código de share de 32 hex, ou access code no formato `xxxx-xxxx-xxxx-xxxx-xxxx`.
 - `get_servers` usa `limit=100` para públicos e `25` para `VIP`, sempre `sortOrder=Asc`; o cookie só é enviado se `userId` for passado.
-- A aba Servers só lista servidores **públicos** (`serverType: "Public"`).
+- A lista principal da aba Servers é só de servidores **públicos** (`serverType: "Public"`); os privados ficam na seção própria acima dela (ver [Servidores privados da conta](#servidores-privados-da-conta-na-aba-servers)).
 - Load Region e Find Player exigem Place ID; Load Region também exige uma conta selecionada.
 - Favoritos: um favorito por `placeId` ("Already in favorites"); nome customizado é obrigatório.
 - Migração: favorito antigo com `privateServer` (string única) é convertido em `vipServers: [{ name: "VIP", link }]` ao carregar; ao adicionar VIP o campo antigo é removido.

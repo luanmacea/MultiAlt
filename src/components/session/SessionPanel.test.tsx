@@ -120,6 +120,19 @@ function unidentified(
 afterEach(cleanup);
 
 describe("SessionPanel — rendering", () => {
+  /** Clique em Entrar: antes da fila existir, a Sessão já diz o que está acontecendo. */
+  it("shows the launch preparation before the queue exists", () => {
+    renderPanel({ launchQueue: null, launchPreparing: { userIds: [1, 2], step: "server" } });
+    expect(screen.getByTestId("launch-preparing")).toHaveTextContent(
+      "Preparing to open 2 account(s): choosing the best server..."
+    );
+  });
+
+  it("shows nothing about preparation when no launch is being prepared", () => {
+    renderPanel({ launchQueue: null, launchPreparing: null });
+    expect(screen.queryByTestId("launch-preparing")).not.toBeInTheDocument();
+  });
+
   it("lists the launch queue and the running clients", () => {
     renderPanel({
       launchQueue: queue([entry(1, "launching"), entry(2, "queued"), entry(3, "done")]),
@@ -990,6 +1003,28 @@ describe("SessionPanel — quedas lidas do log", () => {
       clientHealth: new Map([[1, health(null)]]),
     });
     expect(screen.queryByTestId("client-health-note")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("client-wrong-account-note")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-wrong-account")).not.toBeInTheDocument();
+  });
+
+  it("warns at the top and on the row when a client opened as a different account, and keeps its buttons", () => {
+    renderPanel({
+      launchedByProgram: new Set([1, 2]),
+      clientHealth: new Map([
+        [1, health(null)],
+        [2, { ...health(null), inGame: true, wrongAccountUserId: 98765 }],
+      ]),
+    });
+    const banner = screen.getByTestId("session-wrong-account");
+    expect(banner).toHaveAttribute("role", "alert");
+    expect(banner).toHaveTextContent("Bravo Alt opened as a different Roblox account (user 98765).");
+    const row = screen.getByTestId("session-running-2");
+    expect(within(row).getByTestId("client-wrong-account-note")).toHaveTextContent(
+      "Opened as a different Roblox account (user 98765)"
+    );
+    // Só aviso: a linha da conta certa não ganha nada, e nenhum cliente é fechado.
+    expect(within(screen.getByTestId("session-running-1")).queryByTestId("client-wrong-account-note")).toBeNull();
+    expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
   });
 
   it("a website client also shows its drop (display only, it keeps the same buttons)", () => {
@@ -1649,6 +1684,31 @@ describe("SessionPanel — sessão atual", () => {
     expect(first.getByTestId("session-time-1")).toHaveTextContent("12m");
     expect(first.getByText("Playing")).toBeInTheDocument();
     expect(within(screen.getByTestId("session-running-2")).getByTestId("session-time-2")).toHaveTextContent("1h 05m");
+  });
+
+  it("shows each server's region and how long it has been up, from the client log", async () => {
+    const health = (server: ClientHealth["server"]): ClientHealth => ({
+      pid: 1,
+      logFound: true,
+      drop: null,
+      inGame: true,
+      server,
+    });
+    renderRunning([current(1), current(2, { privateServer: true, jobId: "vip-2" }), current(3, { jobId: "job-3" })], {
+      clientHealth: new Map([
+        [1, health({ region: "Miami, US", startedAtMs: Date.now() - 3 * 60 * MIN - 5 * MIN })],
+        // Região ainda sendo descoberta: só o tempo no ar.
+        [2, health({ region: null, startedAtMs: Date.now() - 25 * MIN })],
+        // O log ainda não disse nada do servidor.
+        [3, health(null)],
+      ]),
+    });
+    const publicServer = within(await screen.findByTestId("session-server-job-1"));
+    expect(publicServer.getByTestId("session-server-info")).toHaveTextContent("Miami, US · server up for 3 h");
+    expect(within(screen.getByTestId("session-server-vip-2")).getByTestId("session-server-info")).toHaveTextContent(
+      "server up for 25 min"
+    );
+    expect(within(screen.getByTestId("session-server-job-3")).queryByTestId("session-server-info")).toBeNull();
   });
 
   it("falls back to the Place ID while the game name is unknown, with the full name in a tooltip", async () => {

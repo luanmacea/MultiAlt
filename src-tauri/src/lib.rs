@@ -6,6 +6,7 @@ mod data;
 #[cfg(feature = "nexus")]
 mod nexus;
 mod platform;
+mod roblox_log;
 #[cfg(target_os = "windows")]
 mod webview_recovery;
 
@@ -40,6 +41,8 @@ include!("commands/botting.rs");
 include!("commands/generators.rs");
 include!("commands/launch.rs");
 include!("commands/launch_presets.rs");
+include!("commands/tray.rs");
+include!("commands/webhook.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
@@ -460,6 +463,9 @@ pub fn run() {
             // Horários dos presets de launch: só com o app aberto, sem
             // recuperar o que passou — ver commands/launch_presets.rs.
             start_preset_scheduler(app.handle().clone());
+            // Avisos no Discord (desligados por padrão): a fila que manda —
+            // ver commands/webhook.rs.
+            start_webhook_dispatcher(app.handle().clone());
             // Otimização que segue o foco: o laço só age com a opção ligada.
             #[cfg(target_os = "windows")]
             start_focus_follow_loop(app.handle().clone());
@@ -467,29 +473,17 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             start_settings_restore_loop(app.handle().clone());
 
-            let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&show, &quit]).build()?;
+            // Show, "Launch preset" (os presets, só pelo nome) e Quit — ver
+            // commands/tray.rs. O submenu é refeito quando os presets mudam.
+            let menu = build_tray_menu(app.handle())?;
 
-            let _tray = TrayIconBuilder::new()
+            let _tray = TrayIconBuilder::with_id(TRAY_ID)
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("MultiAlt")
                 .menu(&menu)
-                .on_menu_event(
-                    |app: &AppHandle<Wry>, event: MenuEvent| match event.id().as_ref() {
-                        "show" => {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.unminimize();
-                                let _ = w.set_focus();
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
-                    },
-                )
+                .on_menu_event(|app: &AppHandle<Wry>, event: MenuEvent| {
+                    handle_tray_menu_event(app, event.id().as_ref())
+                })
                 .on_tray_icon_event(|tray: &TrayIcon<Wry>, event: TrayIconEvent| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -554,6 +548,9 @@ pub fn run() {
             data::accounts::save_accounts,
             data::accounts::add_account,
             data::accounts::remove_account,
+            data::accounts::remove_accounts,
+            data::accounts::undo_remove_accounts,
+            data::accounts::rename_group,
             data::accounts::update_account,
             data::accounts::unlock_accounts,
             data::accounts::try_remembered_unlock,
@@ -566,6 +563,7 @@ pub fn run() {
             data::accounts::verify_app_password,
             data::accounts::reorder_accounts,
             data::accounts::import_old_account_data,
+            data::accounts::export_accounts_with_password,
             data::scripts::get_scripts,
             data::scripts::save_script,
             data::scripts::delete_script,
@@ -643,6 +641,7 @@ pub fn run() {
             get_outfit_details,
             get_place_details,
             get_servers,
+            get_private_servers,
             join_game_instance,
             join_game,
             search_games,
@@ -685,6 +684,8 @@ pub fn run() {
             delete_launch_preset,
             launch_preset,
             close_preset_clients,
+            set_app_locked,
+            send_test_webhook,
             get_session_history,
             get_current_sessions,
             save_history_export,

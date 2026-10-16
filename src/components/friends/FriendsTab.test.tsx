@@ -146,7 +146,7 @@ describe("FriendsTab — grouping", () => {
     await waitFor(() => expect(callsFor("batched_get_avatar_headshots")).toHaveLength(1));
     expect(callsFor("batched_get_avatar_headshots")[0][1]).toMatchObject({
       userIds: [7001, 7002],
-      size: "48x48",
+      size: "150x150",
     });
   });
 });

@@ -85,25 +85,18 @@ pub fn parse_roblox_log_header(text: &str) -> Option<RobloxLogHeader> {
     })
 }
 
-/// Dígitos logo depois de `marker` (o primeiro, se o marcador repetir).
-fn digits_after(line: &str, marker: &str) -> Option<i64> {
-    let start = line.find(marker)? + marker.len();
-    let digits: String = line[start..]
-        .chars()
-        .take_while(|c| c.is_ascii_digit())
-        .collect();
-    let value: i64 = digits.parse().ok()?;
-    (value > 0).then_some(value)
-}
+// O parser das linhas é o mesmo da saúde dos clientes do app
+// (src-tauri/src/roblox_log.rs).
+use crate::roblox_log::{digits_after, game_join_place_id, game_join_user_id, GAME_JOIN_LOAD_TIME_MARKER};
 
 impl RobloxLogIdentity {
     /// Aplica uma linha: o que ela disser substitui o que se sabia.
     pub fn absorb_line(&mut self, line: &str) {
-        if line.contains("[FLog::GameJoinLoadTime]") {
-            if let Some(user_id) = digits_after(line, "userid:") {
+        if line.contains(GAME_JOIN_LOAD_TIME_MARKER) {
+            if let Some(user_id) = game_join_user_id(line) {
                 self.user_id = Some(user_id);
             }
-            if let Some(place_id) = digits_after(line, "placeid:") {
+            if let Some(place_id) = game_join_place_id(line) {
                 self.place_id = Some(place_id);
             }
             return;

@@ -136,6 +136,34 @@ Windows. Testes: `the_current_session_says_where_and_since_when`,
 [SessionPanel.test.tsx](../../src/components/session/SessionPanel.test.tsx). Harness:
 `?scenario=client-drops&accounts=9`, página Session.
 
+### Região e tempo no ar do servidor
+
+O cabeçalho de cada servidor (e a segunda linha de quem está fora do grupo do jogo) mostra
+também **onde fica o servidor e há quanto tempo está no ar**: "Miami, US · server up for 3 h".
+Tudo vem do log do cliente, lido pelo monitor de saúde
+([client_health.rs](../../src-tauri/src/commands/client_health.rs)), em cada join:
+
+| Linha (cliente 0.743) | O que dá |
+|---|---|
+| `[FLog::Network] UDMUX Address = 128.116.21.33, Port = … \| RCC Server Address = 10.x…` | o IP **público** do servidor (o `RCC Server Address` e o `at 10.x` do `Joining game` são internos) |
+| `[FLog::Output] Server Prefix: 0.743.0.7431129_20261014T235657Z_RCC_79c67` | quando o servidor subiu (o carimbo `AAAAMMDDTHHMMSSZ`, UTC) |
+
+- Os dois vão para o `JoinedDestination` do join (um join novo zera os dois até as linhas
+  novas chegarem) e saem em `health.server` (`{region, startedAtMs}`) no `get_running_instances`.
+  O IP fica no backend.
+- **Região:** o IP público passa pelo `lookup_ip_region` com cache (o mesmo da aba Servers —
+  ver [server-choice.md](server-choice.md#região)), em segundo plano; a passada seguinte põe o
+  rótulo formatado por `General.ServerRegionFormat`. IP privado nunca é geolocalizado (o
+  classificador nem o aceita). Geolocalização sem resposta: sem região (só o tempo no ar), e
+  nova tentativa em 10 min. Nenhuma chamada à API do Roblox.
+- **Tempo no ar:** "server up for 25 min / 3 h / 3 d" (`serverUptimeLabel`,
+  [serverUptime.ts](../../src/utils/serverUptime.ts)); carimbo ausente, ilegível (o parser não
+  entra em pânico com linha fora do formato) ou mais de 5 min no futuro: não aparece.
+- Contas no mesmo servidor dividem a informação: o cabeçalho usa a primeira que já sabe.
+- Testes: `roblox_log_line_tests`, `client_server_region_tests`, `serverUptime.test.ts` e
+  "shows each server's region…" em [SessionPanel.test.tsx](../../src/components/session/SessionPanel.test.tsx).
+  Harness: `?scenario=client-drops&accounts=9`.
+
 ## Regras de negócio
 
 - **Privacidade:** o evento só tem `at`, `userId`, `kind`, `placeId`, `jobId`, `dropKind`,

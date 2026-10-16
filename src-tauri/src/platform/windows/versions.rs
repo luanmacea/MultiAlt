@@ -138,24 +138,113 @@ async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, Strin
         .map_err(|e| format!("Could not read response: {}", e))
 }
 
-async fn fetch_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| crate::api::http_client::describe_error(&e))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "HTTP {} for {}",
-            response.status().as_u16(),
-            url
-        ));
+/// Quantas vezes um download da build é tentado e quanto se espera entre as
+/// tentativas (a espera dobra a cada falha).
+#[derive(Debug, Clone, Copy)]
+struct RetryPolicy {
+    attempts: u32,
+    base_delay: Duration,
+}
+
+impl RetryPolicy {
+    /// Espera antes da próxima tentativa, depois de `failures` falhas. `None`
+    /// quando as tentativas acabaram.
+    fn delay_after(&self, failures: u32) -> Option<Duration> {
+        if failures == 0 || failures >= self.attempts {
+            return None;
+        }
+        Some(self.base_delay.saturating_mul(1u32 << (failures - 1).min(16)))
     }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| crate::api::http_client::describe_error(&e))?;
+}
+
+/// Pacote da build (e o manifesto): 4 tentativas, 1 s / 2 s / 4 s entre elas.
+/// Antes era uma só — um 5xx ou um timeout num dos ~30 pacotes abortava a
+/// instalação inteira e o launch caía no instalador do Roblox, que fecha todos
+/// os clientes. Só o CDN do Roblox, só HTTPS, hash conferido a cada tentativa.
+const PACKAGE_RETRY_POLICY: RetryPolicy = RetryPolicy {
+    attempts: 4,
+    base_delay: Duration::from_secs(1),
+};
+
+/// Status que valem outra tentativa: os passageiros. 404/403 dizem que o
+/// arquivo não está lá — repetir só atrasaria o erro (e o fallback do canal
+/// `common` no manifesto).
+fn status_is_retryable(status: u16) -> bool {
+    matches!(status, 408 | 425 | 429) || (500..=599).contains(&status)
+}
+
+/// Uma falha de download e se vale tentar de novo.
+struct FetchFailure {
+    message: String,
+    retryable: bool,
+}
+
+async fn fetch_bytes_once(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, FetchFailure> {
+    let response = client.get(url).send().await.map_err(|e| FetchFailure {
+        message: crate::api::http_client::describe_error(&e),
+        retryable: true,
+    })?;
+    let status = response.status().as_u16();
+    if !response.status().is_success() {
+        return Err(FetchFailure {
+            message: format!("HTTP {} for {}", status, url),
+            retryable: status_is_retryable(status),
+        });
+    }
+    let bytes = response.bytes().await.map_err(|e| FetchFailure {
+        message: crate::api::http_client::describe_error(&e),
+        retryable: true,
+    })?;
     Ok(bytes.to_vec())
+}
+
+/// Baixa `url` com novas tentativas e, havendo hash no manifesto, só aceita
+/// bytes que batem com ele — bytes corrompidos no caminho contam como falha
+/// passageira e são baixados de novo.
+async fn fetch_package_verified(
+    client: &reqwest::Client,
+    url: &str,
+    expected_hash: Option<&str>,
+    policy: &RetryPolicy,
+) -> Result<Vec<u8>, String> {
+    let mut failures = 0u32;
+    loop {
+        let failure = match fetch_bytes_once(client, url).await {
+            Ok(bytes) => match expected_hash {
+                Some(expected) if !verify_hash(&bytes, expected) => FetchFailure {
+                    message: format!(
+                        "Package {} failed integrity check (expected hash {})",
+                        url.rsplit('/').next().unwrap_or(url),
+                        expected
+                    ),
+                    retryable: true,
+                },
+                _ => return Ok(bytes),
+            },
+            Err(failure) => failure,
+        };
+        failures += 1;
+        match policy.delay_after(failures).filter(|_| failure.retryable) {
+            Some(delay) => {
+                eprintln!(
+                    "Roblox build download: {} (attempt {}/{}), retrying",
+                    failure.message, failures, policy.attempts
+                );
+                tokio::time::sleep(delay).await;
+            }
+            None => return Err(failure.message),
+        }
+    }
+}
+
+/// Texto (o manifesto) com as mesmas novas tentativas dos pacotes.
+async fn fetch_text_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+    policy: &RetryPolicy,
+) -> Result<String, String> {
+    let bytes = fetch_package_verified(client, url, None, policy).await?;
+    String::from_utf8(bytes).map_err(|e| format!("Could not read response: {}", e))
 }
 
 pub async fn fetch_remote_catalog() -> Result<RemoteCatalog, String> {
@@ -452,11 +541,16 @@ pub(crate) async fn install_build_to_dir(
     let manifest_name = format!("{}-rbxPkgManifest.txt", version_hash);
 
     let manifest_url = format!("{}{}", base, manifest_name);
-    let manifest_text = match fetch_text(&client, &manifest_url).await {
+    let manifest_text = match fetch_text_with_retry(&client, &manifest_url, &PACKAGE_RETRY_POLICY).await {
         Ok(t) => t,
         Err(_) if !channel.eq_ignore_ascii_case("LIVE") => {
             base = fallback_common_base_url();
-            fetch_text(&client, &format!("{}{}", base, manifest_name)).await?
+            fetch_text_with_retry(
+                &client,
+                &format!("{}{}", base, manifest_name),
+                &PACKAGE_RETRY_POLICY,
+            )
+            .await?
         }
         Err(e) => return Err(e),
     };
@@ -480,15 +574,15 @@ pub(crate) async fn install_build_to_dir(
                      staging: PathBuf| {
         async move {
             let url = format!("{}{}-{}", base, version_hash, entry.filename);
-            let bytes = fetch_bytes(&client, &url).await?;
-            if let Some(expected) = entry.hash.as_deref() {
-                if !verify_hash(&bytes, expected) {
-                    return Err(format!(
-                        "Package {} failed integrity check (expected hash {})",
-                        entry.filename, expected
-                    ));
-                }
-            }
+            // Cada pacote tenta de novo sozinho (com o hash conferido a cada
+            // vez) antes de a instalação inteira desistir.
+            let bytes = fetch_package_verified(
+                &client,
+                &url,
+                entry.hash.as_deref(),
+                &PACKAGE_RETRY_POLICY,
+            )
+            .await?;
             let filename = entry.filename.clone();
             tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
                 let subdir = extract_root_for(&filename).unwrap_or("");
@@ -1290,5 +1384,151 @@ mod win_versions_tests {
         assert!(parse_weao_entries(&serde_json::json!({})).is_empty());
         assert!(parse_weao_entries(&serde_json::Value::Null).is_empty());
         assert!(parse_weao_entries(&serde_json::json!([1, 2, 3])).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod build_download_retry_tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    // Regressão (ideia 29): um pacote que falhava uma vez (timeout, 5xx, bytes
+    // corrompidos no caminho) abortava a instalação inteira da build, e o
+    // launch caía no instalador do Roblox, que fecha todos os clientes.
+
+    fn fast() -> RetryPolicy {
+        RetryPolicy {
+            attempts: 4,
+            base_delay: Duration::from_millis(1),
+        }
+    }
+
+    fn md5_hex(bytes: &[u8]) -> String {
+        use md5::Digest;
+        let mut hasher = md5::Md5::new();
+        hasher.update(bytes);
+        hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    #[test]
+    fn the_package_policy_retries_with_a_growing_backoff() {
+        let policy = PACKAGE_RETRY_POLICY;
+        assert!((3..=5).contains(&policy.attempts));
+        let delays: Vec<Duration> = (1..policy.attempts)
+            .filter_map(|n| policy.delay_after(n))
+            .collect();
+        assert_eq!(delays.len() as u32, policy.attempts - 1);
+        assert!(delays.windows(2).all(|w| w[1] > w[0]), "{delays:?}");
+        assert_eq!(policy.delay_after(policy.attempts), None);
+    }
+
+    #[test]
+    fn only_transient_http_statuses_are_retried() {
+        for status in [408, 425, 429, 500, 502, 503, 504] {
+            assert!(status_is_retryable(status), "{status}");
+        }
+        for status in [400, 401, 403, 404, 410] {
+            assert!(!status_is_retryable(status), "{status}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_package_that_fails_twice_still_installs() {
+        let server = MockServer::start().await;
+        let body = b"zip bytes".to_vec();
+        Mock::given(method("GET"))
+            .and(path("/pkg.zip"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(2)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/pkg.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.clone()))
+            .mount(&server)
+            .await;
+        let client = http_client_versioned().await;
+        let got = fetch_package_verified(
+            &client,
+            &format!("{}/pkg.zip", server.uri()),
+            Some(&md5_hex(&body)),
+            &fast(),
+        )
+        .await
+        .expect("a terceira tentativa devia passar");
+        assert_eq!(got, body);
+        assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn corrupted_bytes_are_downloaded_again() {
+        let server = MockServer::start().await;
+        let body = b"good bytes".to_vec();
+        Mock::given(method("GET"))
+            .and(path("/pkg.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"bad bytes".to_vec()))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/pkg.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.clone()))
+            .mount(&server)
+            .await;
+        let client = http_client_versioned().await;
+        let got = fetch_package_verified(
+            &client,
+            &format!("{}/pkg.zip", server.uri()),
+            Some(&md5_hex(&body)),
+            &fast(),
+        )
+        .await
+        .expect("o hash tem que ser conferido de novo e passar");
+        assert_eq!(got, body);
+    }
+
+    #[tokio::test]
+    async fn a_package_that_never_matches_its_hash_fails_after_the_last_attempt() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/pkg.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"bad".to_vec()))
+            .mount(&server)
+            .await;
+        let client = http_client_versioned().await;
+        let err = fetch_package_verified(
+            &client,
+            &format!("{}/pkg.zip", server.uri()),
+            Some(&md5_hex(b"good")),
+            &fast(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("integrity"), "{err}");
+        assert_eq!(server.received_requests().await.unwrap().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn a_missing_package_is_not_retried() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/pkg.zip"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let client = http_client_versioned().await;
+        let err = fetch_package_verified(&client, &format!("{}/pkg.zip", server.uri()), None, &fast())
+            .await
+            .unwrap_err();
+        assert!(err.contains("404"), "{err}");
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn downloads_stay_on_the_roblox_cdn_over_https() {
+        assert_eq!(CDN_HOST, "https://setup-aws.rbxcdn.com");
     }
 }

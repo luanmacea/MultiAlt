@@ -941,7 +941,7 @@ describe("joinServer", () => {
     });
 
     expect(result.current.toasts.map((toast) => toast.message)).toContain(
-      "Already waiting in the launch queue"
+      "This account is already opening or was just opened"
     );
   });
 
@@ -1434,9 +1434,114 @@ describe("account mutations", () => {
       await result.current.removeAccounts([1]);
     });
 
-    expect(lastArgs("remove_account")).toEqual({ userId: 1 });
+    expect(lastArgs("remove_accounts")).toEqual({ userIds: [1] });
+    expect(invokeCalls("remove_account")).toHaveLength(0);
     expect([...result.current.selectedIds]).toEqual([2]);
     expect(result.current.accounts.map((a) => a.UserID)).toEqual([2]);
+  });
+
+  /**
+   * Remover era definitivo (só voltava restaurando um backup inteiro). O lote
+   * vai numa chamada só e o toast oferece "Undo", que pede o lote de volta.
+   */
+  it("removes a batch in one call and offers Undo on the toast", async () => {
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 }), account({ UserID: 3 })];
+    results.set("remove_accounts", { batchId: 7, count: 2 });
+    const { result } = await renderStore();
+
+    accountsData = [account({ UserID: 2 })];
+    await act(async () => {
+      await result.current.removeAccounts([1, 3]);
+    });
+
+    expect(invokeCalls("remove_accounts")).toHaveLength(1);
+    expect(lastArgs("remove_accounts")).toEqual({ userIds: [1, 3] });
+    const toast = result.current.toasts.find((item) => item.message.includes("Removed 2 account"));
+    expect(toast?.action?.label).toBe("Undo");
+
+    results.set("undo_remove_accounts", 2);
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 }), account({ UserID: 3 })];
+    await act(async () => {
+      toast?.action?.run();
+    });
+
+    await waitFor(() => expect(invokeCalls("undo_remove_accounts")).toHaveLength(1));
+    // O Undo leva o id do **seu** lote, para não desfazer uma remoção mais nova.
+    expect(lastArgs("undo_remove_accounts")).toEqual({ batchId: 7 });
+    await waitFor(() => expect(result.current.accounts.map((a) => a.UserID)).toEqual([1, 2, 3]));
+    expect(result.current.toasts.map((item) => item.message).join(" ")).toContain(
+      "Restored 2 account(s)"
+    );
+  });
+
+  /**
+   * Fix 1: dois lotes removidos em 10 s. O Undo do primeiro toast não pode
+   * desfazer o segundo lote — o backend recusa pelo id, e a tela avisa "expirou"
+   * em vez de restaurar. E iniciar a segunda remoção já tira o Undo da primeira
+   * da tela, para o botão não enganar.
+   */
+  it("expires an older Undo instead of undoing a newer removal", async () => {
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 }), account({ UserID: 3 })];
+    results.set("remove_accounts", { batchId: 1, count: 1 });
+    const { result } = await renderStore();
+
+    accountsData = [account({ UserID: 2 }), account({ UserID: 3 })];
+    await act(async () => {
+      await result.current.removeAccounts([1]);
+    });
+    const firstUndo = result.current.toasts.find((t) => t.action?.label === "Undo");
+    expect(firstUndo).toBeTruthy();
+
+    // Segunda remoção dentro dos 10 s: troca o lote guardado e some com o Undo antigo.
+    results.set("remove_accounts", { batchId: 2, count: 1 });
+    accountsData = [account({ UserID: 3 })];
+    await act(async () => {
+      await result.current.removeAccounts([2]);
+    });
+    const undoToasts = result.current.toasts.filter((t) => t.action?.label === "Undo");
+    expect(undoToasts).toHaveLength(1);
+    expect(result.current.toasts).not.toContain(firstUndo);
+
+    // Clicar no Undo antigo (lote 1): o backend recusa, nada é restaurado.
+    failures.set("undo_remove_accounts", "This removal can no longer be undone.");
+    await act(async () => {
+      firstUndo?.action?.run();
+    });
+    await waitFor(() => expect(invokeCalls("undo_remove_accounts")).toHaveLength(1));
+    expect(lastArgs("undo_remove_accounts")).toEqual({ batchId: 1 });
+    expect(result.current.toasts.map((t) => t.message).join(" ")).toContain("This undo expired");
+    expect(result.current.accounts.map((a) => a.UserID)).toEqual([3]);
+  });
+
+  it("keeps the Undo toast for 10 seconds instead of the usual 2.5", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await result.current.removeAccounts([1]);
+      });
+      const hasUndo = () => result.current.toasts.some((item) => item.action?.label === "Undo");
+      expect(hasUndo()).toBe(true);
+      act(() => vi.advanceTimersByTime(5000));
+      expect(hasUndo()).toBe(true);
+      act(() => vi.advanceTimersByTime(5500));
+      expect(hasUndo()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says so when there is nothing left to undo", async () => {
+    accountsData = [account({ UserID: 1 })];
+    results.set("undo_remove_accounts", 0);
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.undoRemoveAccounts(5);
+    });
+
+    expect(result.current.toasts.map((item) => item.message).join(" ")).toContain("Nothing to undo");
   });
 
   it("updates an account in place", async () => {
@@ -1476,6 +1581,43 @@ describe("account mutations", () => {
 
     expect(result.current.accounts.map((a) => a.UserID)).toEqual([2, 1, 3]);
     expect(lastArgs("reorder_accounts")).toEqual({ userIds: [2, 1, 3] });
+  });
+
+  /**
+   * Renomear grupo: contas e `General.GroupOrder` no backend (um comando só);
+   * o estado colapsado, que mora só na tela, acompanha o nome novo.
+   */
+  it("renames a group through the backend and carries the manual order and collapsed state", async () => {
+    accountsData = [account({ UserID: 1, Group: "Alts" }), account({ UserID: 2, Group: "Farm" })];
+    settingsData = { General: { GroupOrder: '["Farm","Alts"]' } };
+    results.set("rename_group", { renamed: 1, groupOrder: '["Farm","02 Bots"]' });
+    const { result } = await renderStore();
+    act(() => result.current.toggleGroup("Alts"));
+
+    accountsData = [account({ UserID: 1, Group: "02 Bots" }), account({ UserID: 2, Group: "Farm" })];
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.renameGroup("Alts", " 02 Bots ");
+    });
+
+    expect(ok).toBe(true);
+    expect(lastArgs("rename_group")).toEqual({ from: "Alts", to: "02 Bots" });
+    expect(result.current.settings?.General?.GroupOrder).toBe('["Farm","02 Bots"]');
+    expect(result.current.collapsedGroups.has("Alts")).toBe(false);
+    expect(result.current.collapsedGroups.has("02 Bots")).toBe(true);
+    expect(result.current.accounts.map((a) => a.Group)).toEqual(["02 Bots", "Farm"]);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain(
+      "Renamed group to Bots"
+    );
+  });
+
+  it("never asks the backend to rename the Default group", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    await act(async () => {
+      await result.current.renameGroup("Default", "Main");
+    });
+    expect(invokeCalls("rename_group")).toHaveLength(0);
   });
 
   it("leaves a one-account group untouched", async () => {

@@ -9,7 +9,9 @@
   <sub>Windows 10/11 · <a href="https://multialt.pages.dev/pt/">🌐 site</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a> · <a href="https://discord.gg/NPvyWgKbfH">💬 Discord</a></sub>
 </p>
 
-[![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest) [![GitHub stars](https://img.shields.io/github/stars/luanmacea/MultiAlt?style=social)](https://github.com/luanmacea/MultiAlt/stargazers)
+
+**⭐ Curtiu o MultiAlt? [Dê uma estrela no repositório](https://github.com/luanmacea/MultiAlt)** (no canto de cima desta página). Ele é grátis e feito por uma pessoa só, e cada estrela faz mais gente encontrar o app e mantém as atualizações vindo.
 
 **O gerenciador de várias contas Roblox feito para a melhor experiência de uso.** Todas as suas contas Roblox num lugar só, quantos clientes do Roblox você quiser abertos ao mesmo tempo e suas alts sem nunca precisar deslogar — com Auto Rejoin, anti-AFK, busca de servidor, entrada no servidor de amigos, contas criptografadas e muito mais.
 
@@ -132,3 +134,6 @@ Fotos reais, com os nomes das contas ocultos (o app tem um botão para isso). Cl
   <tr><td width="50%"><a href="site/assets/screens/auto-rejoin.png"><img src="site/assets/screens/auto-rejoin.png" alt="Auto Rejoin"></a><br><sub><b>Auto Rejoin</b></sub></td><td width="50%"><a href="site/assets/screens/avatars.png"><img src="site/assets/screens/avatars.png" alt="Avatares"></a><br><sub><b>Avatares</b></sub></td></tr>
   <tr><td width="50%"><a href="site/assets/screens/theme.png"><img src="site/assets/screens/theme.png" alt="Tema"></a><br><sub><b>Tema</b></sub></td><td width="50%"><a href="site/assets/screens/settings.png"><img src="site/assets/screens/settings.png" alt="Configurações"></a><br><sub><b>Configurações</b></sub></td></tr>
 </table>
+
+# Apoie o projeto
+O MultiAlt é grátis, de código aberto e mantido por uma pessoa só. O jeito mais fácil de ajudar: **[⭐ dar uma estrela no repositório](https://github.com/luanmacea/MultiAlt)**, contar para um amigo que joga com alts e mandar bugs ou ideias nas [issues](https://github.com/luanmacea/MultiAlt/issues) ou no [Discord](https://discord.gg/NPvyWgKbfH).

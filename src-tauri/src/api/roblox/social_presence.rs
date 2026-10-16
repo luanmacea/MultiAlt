@@ -50,7 +50,20 @@ pub async fn get_presence_as(
         .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
-        return Err(format!("Failed to get presence (status {})", response.status().as_u16()));
+        let status = response.status().as_u16();
+        // No 429 o `Retry-After` (em segundos) vai junto na mensagem: a espera da
+        // aba Seguir lê esse número e não pergunta de novo antes da hora.
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<u64>().ok());
+        return Err(match retry_after {
+            Some(secs) if status == 429 => {
+                format!("Failed to get presence (status 429, retry after {} s)", secs)
+            }
+            _ => format!("Failed to get presence (status {})", status),
+        });
     }
 
     let body: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse: {}", e))?;
@@ -155,6 +168,41 @@ mod social_presence_extra_tests {
         assert_eq!(
             get_presence(&[4040]).await.unwrap_err(),
             "Failed to get presence (status 503)"
+        );
+    }
+
+    /// 429 com `Retry-After` em segundos: o erro leva a espera pedida, para a
+    /// espera da aba Seguir ("Wait until they're in a game") respeitá-la.
+    #[tokio::test]
+    async fn a_rate_limited_presence_reports_retry_after() {
+        let server = mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [4044] })))
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "90"))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_presence(&[4044]).await.unwrap_err(),
+            "Failed to get presence (status 429, retry after 90 s)"
+        );
+    }
+
+    /// 429 sem `Retry-After` (ou com data HTTP, que não lemos) fica no formato de sempre.
+    #[tokio::test]
+    async fn a_rate_limited_presence_without_retry_after_keeps_the_plain_status() {
+        let server = mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [4045] })))
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "Wed, 21 Oct 2026 07:28:00 GMT"))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_presence(&[4045]).await.unwrap_err(),
+            "Failed to get presence (status 429)"
         );
     }
 

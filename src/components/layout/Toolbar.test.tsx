@@ -56,6 +56,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Toolbar — search and toggles", () => {
+  it("switches the account list to cards and back from the toolbar", async () => {
+    renderToolbar();
+    await userEvent.click(screen.getByRole("button", { name: "Show the accounts as cards" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+        section: "General",
+        key: "AccountListView",
+        value: "cards",
+      })
+    );
+  });
+
   it("writes the search query to the store", async () => {
     const store = renderToolbar();
     await userEvent.type(screen.getByPlaceholderText("Filter accounts..."), "a");

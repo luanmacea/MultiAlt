@@ -52,6 +52,14 @@ pub enum ClientLogEvent {
         message: Option<String>,
     },
     ServerShutdown { code: u32 },
+    /// `[FLog::GameJoinLoadTime] ... userid:<conta>`: com que conta o cliente
+    /// entrou no jogo (ver `roblox_log::game_join_user_id`).
+    JoinedAs { user_id: i64 },
+    /// `UDMUX Address = <ip>, ...`: o IP **público** do servidor em que entrou
+    /// (só vira evento se for público — IP interno nunca é geolocalizado).
+    ServerAddress { address: String },
+    /// `Server Prefix: ..._<AAAAMMDDTHHMMSSZ>_RCC_...`: quando o servidor subiu.
+    ServerStarted { started_at_ms: i64 },
 }
 
 /// Texto depois de `marker`, se houver.
@@ -137,6 +145,18 @@ fn kick_message(line: &str) -> Option<Option<String>> {
 /// Classifica uma linha do log do cliente. Puro: nada aqui guarda a linha
 /// (ela pode trazer ticket, IP e Job ID).
 pub fn classify_log_line(line: &str) -> Option<ClientLogEvent> {
+    if let Some(user_id) = crate::roblox_log::game_join_user_id(line) {
+        return Some(ClientLogEvent::JoinedAs { user_id });
+    }
+    if line.contains("UDMUX Address = ") {
+        return crate::roblox_log::udmux_address(line)
+            .filter(|address| crate::api::roblox::is_public_ip(address))
+            .map(|address| ClientLogEvent::ServerAddress { address });
+    }
+    if line.contains("Server Prefix: ") {
+        return crate::roblox_log::server_started_at_ms(line)
+            .map(|started_at_ms| ClientLogEvent::ServerStarted { started_at_ms });
+    }
     if let Some(rest) = text_after(line, "! Joining game '") {
         let end = rest.find('\'')?;
         let job = &rest[..end];
@@ -201,11 +221,20 @@ impl ClientDrop {
 }
 
 /// Onde a conta entrou por último (`! Joining game '<job>' place <place>`).
-/// A reconexão (commands/reconnect.rs) volta para cá; nunca vai para a tela.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A reconexão (commands/reconnect.rs) volta para cá; place e Job ID nunca vão
+/// para a tela.
+///
+/// O servidor do mesmo join vem nas linhas seguintes: o IP público do proxy
+/// UDMUX (para a região) e o carimbo do `Server Prefix` (há quanto tempo o
+/// servidor está no ar) — ver `ClientServerView`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct JoinedDestination {
     pub place_id: i64,
     pub job_id: Option<String>,
+    /// IP público do servidor (`UDMUX Address`), nunca um interno.
+    pub udmux_address: Option<String>,
+    /// Quando o servidor subiu (ms Unix), pelo `Server Prefix`.
+    pub server_started_ms: Option<i64>,
 }
 
 /// O que o log disse até agora sobre a sessão de um cliente.
@@ -222,6 +251,8 @@ pub struct ClientLogSession {
     place_id: Option<i64>,
     job_id: Option<String>,
     destination: Option<JoinedDestination>,
+    /// A conta com que o cliente entrou no jogo, pelo log (a última vista).
+    logged_user_id: Option<i64>,
 }
 
 impl ClientLogSession {
@@ -236,13 +267,34 @@ impl ClientLogSession {
                 self.left = false;
                 self.joined = true;
                 self.last_teleport_ms = None;
-                if let Some(place_id) = place_id {
-                    self.destination = Some(JoinedDestination {
-                        place_id: *place_id,
-                        job_id: job_id.clone(),
-                    });
+                match (place_id, self.destination.as_mut()) {
+                    (Some(place_id), _) => {
+                        self.destination = Some(JoinedDestination {
+                            place_id: *place_id,
+                            job_id: job_id.clone(),
+                            ..JoinedDestination::default()
+                        });
+                    }
+                    // Servidor novo sem place na linha: o destino fica (é para
+                    // lá que a reconexão volta), o servidor de antes não vale.
+                    (None, Some(destination)) => {
+                        destination.udmux_address = None;
+                        destination.server_started_ms = None;
+                    }
+                    (None, None) => {}
                 }
             }
+            ClientLogEvent::ServerAddress { address } => {
+                if let Some(destination) = self.destination.as_mut() {
+                    destination.udmux_address = Some(address.clone());
+                }
+            }
+            ClientLogEvent::ServerStarted { started_at_ms } => {
+                if let Some(destination) = self.destination.as_mut() {
+                    destination.server_started_ms = Some(*started_at_ms);
+                }
+            }
+            ClientLogEvent::JoinedAs { user_id } => self.logged_user_id = Some(*user_id),
             ClientLogEvent::TeleportStarted => self.last_teleport_ms = Some(now_ms),
             ClientLogEvent::LeftVoluntarily => self.left = true,
             ClientLogEvent::Disconnected { code, reason } => self.note_drop(ClientDrop {
@@ -318,6 +370,11 @@ impl ClientLogSession {
         self.joined && !self.left && self.drop.is_none() && self.pending.is_none()
     }
 
+    /// A conta com que o cliente entrou no jogo, se o log já disse.
+    pub fn logged_user_id(&self) -> Option<i64> {
+        self.logged_user_id
+    }
+
     /// Onde a conta entrou por último, se o log disse.
     pub fn destination(&self) -> Option<&JoinedDestination> {
         self.destination.as_ref()
@@ -347,6 +404,20 @@ fn complete_line_bytes(bytes: &[u8], max: u64) -> usize {
         None if bytes.len() as u64 >= max => bytes.len(),
         None => 0,
     }
+}
+
+/// O cliente que o app abriu para `expected_user_id` entrou no jogo como
+/// **outra** conta? Devolve a conta que o log mostrou (`userid:` da linha
+/// `[FLog::GameJoinLoadTime]`). Acontece quando o Roblox reaproveita a sessão
+/// de outra conta (cookie trocado, login feito à mão no cliente). Cliente
+/// adotado do site nunca conta: ele foi reconhecido justamente por essa linha,
+/// e a identificação manual é decisão da pessoa. Nada aqui fecha o cliente —
+/// ele pode ser a conta principal de quem usa o app.
+pub fn wrong_account(expected_user_id: i64, logged_user_id: Option<i64>, adopted: bool) -> Option<i64> {
+    if adopted || expected_user_id <= 0 {
+        return None;
+    }
+    logged_user_id.filter(|logged| *logged != expected_user_id)
 }
 
 /// Um cliente que o app acompanha, como o tracker diz.
@@ -469,6 +540,8 @@ struct ClientHealthEntry {
     applied_title: Option<String>,
     hung: HungWatch,
     not_responding: bool,
+    /// A conta que o log mostrou, quando é outra (ver `wrong_account`).
+    wrong_account: Option<i64>,
 }
 
 impl ClientHealthEntry {
@@ -486,6 +559,7 @@ impl ClientHealthEntry {
             applied_title: None,
             hung: HungWatch::default(),
             not_responding: false,
+            wrong_account: None,
         }
     }
 
@@ -508,12 +582,123 @@ pub struct ClientHealthView {
     pub not_responding: bool,
     /// Está num jogo agora (o log disse que entrou, e não caiu nem saiu).
     pub in_game: bool,
+    /// O cliente entrou como outra conta do Roblox (a do log). Só clientes que
+    /// o app abriu; o cliente continua aberto.
+    pub wrong_account_user_id: Option<i64>,
+    /// O servidor em que está: região (pelo IP público) e desde quando está no
+    /// ar. `None` enquanto o log não disse nada do servidor.
+    pub server: Option<ClientServerView>,
     /// Onde entrou por último — só para a reconexão, não vai para a tela.
     #[serde(skip)]
     pub destination: Option<JoinedDestination>,
     /// O processo terminou (e o monitor viu).
     #[serde(skip)]
     pub exited: bool,
+}
+
+/// O servidor de um cliente, como a Sessão mostra: a região já formatada por
+/// `General.ServerRegionFormat` (quando a geolocalização respondeu) e quando o
+/// servidor subiu. Nada aqui chama a API do Roblox: tudo vem do log, e a região
+/// da geolocalização com cache (`lookup_ip_region`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientServerView {
+    pub region: Option<String>,
+    pub started_at_ms: Option<i64>,
+}
+
+/// O que se sabe do servidor pelo destino, ainda sem a região.
+pub fn server_view_of(destination: Option<&JoinedDestination>) -> Option<ClientServerView> {
+    let destination = destination?;
+    if destination.udmux_address.is_none() && destination.server_started_ms.is_none() {
+        return None;
+    }
+    Some(ClientServerView {
+        region: None,
+        started_at_ms: destination.server_started_ms,
+    })
+}
+
+/// Região de um IP de servidor, para a Sessão.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ServerRegionLookup {
+    /// Consulta em andamento (desde quando).
+    Pending { since_ms: i64 },
+    Resolved(crate::api::roblox::IpRegion),
+    /// A geolocalização não respondeu: tenta de novo depois de `SERVER_REGION_RETRY_MS`.
+    Failed { at_ms: i64 },
+}
+
+/// Falha na geolocalização: espera isto antes de perguntar de novo pelo IP.
+pub const SERVER_REGION_RETRY_MS: i64 = 10 * 60 * 1000;
+/// Consulta pendurada há mais que isto pode ser refeita (o pedido tem teto de
+/// 10 s por serviço; isto só cobre uma tarefa perdida).
+const SERVER_REGION_PENDING_MAX_MS: i64 = 60_000;
+/// Teto de consultas novas por passada do monitor.
+pub const SERVER_REGION_LOOKUPS_PER_TICK: usize = 2;
+
+/// A geolocalização disse onde fica (e não só devolveu o IP).
+fn region_has_location(region: &crate::api::roblox::IpRegion) -> bool {
+    !region.city.trim().is_empty() || !region.country_code.trim().is_empty()
+}
+
+/// Os IPs de servidor que ainda precisam de região, sem repetir e só públicos.
+pub fn server_addresses_to_locate(
+    views: &HashMap<i64, ClientHealthView>,
+    lookups: &HashMap<String, ServerRegionLookup>,
+    now_ms: i64,
+) -> Vec<String> {
+    let mut wanted: Vec<String> = Vec::new();
+    let mut ids: Vec<&i64> = views.keys().collect();
+    ids.sort();
+    for id in ids {
+        let Some(address) = views[id]
+            .destination
+            .as_ref()
+            .and_then(|d| d.udmux_address.as_deref())
+        else {
+            continue;
+        };
+        if !crate::api::roblox::is_public_ip(address) || wanted.iter().any(|w| w == address) {
+            continue;
+        }
+        let due = match lookups.get(address) {
+            None => true,
+            Some(ServerRegionLookup::Resolved(_)) => false,
+            Some(ServerRegionLookup::Pending { since_ms }) => now_ms - since_ms >= SERVER_REGION_PENDING_MAX_MS,
+            Some(ServerRegionLookup::Failed { at_ms }) => now_ms - at_ms >= SERVER_REGION_RETRY_MS,
+        };
+        if due {
+            wanted.push(address.to_string());
+        }
+    }
+    wanted
+}
+
+/// O resultado de uma consulta, como fica guardado.
+pub fn server_region_outcome(region: crate::api::roblox::IpRegion, now_ms: i64) -> ServerRegionLookup {
+    if region_has_location(&region) {
+        ServerRegionLookup::Resolved(region)
+    } else {
+        ServerRegionLookup::Failed { at_ms: now_ms }
+    }
+}
+
+/// Põe a região já conhecida no servidor de cada retrato.
+pub fn apply_server_regions(
+    views: &mut HashMap<i64, ClientHealthView>,
+    lookups: &HashMap<String, ServerRegionLookup>,
+    template: &str,
+) {
+    for view in views.values_mut() {
+        let address = view.destination.as_ref().and_then(|d| d.udmux_address.clone());
+        let (Some(server), Some(address)) = (view.server.as_mut(), address) else {
+            continue;
+        };
+        if let Some(ServerRegionLookup::Resolved(region)) = lookups.get(&address) {
+            server.region = Some(crate::api::roblox::format_region(region, template));
+        }
+    }
 }
 
 /// Retrato de um cliente para o histórico de sessões: o jogo em que está, se
@@ -567,6 +752,8 @@ pub enum HealthNotice {
     Recovered { user_id: i64 },
     /// A janela ficou (ou deixou de ficar) "Não respondendo" por 30 s.
     NotResponding { user_id: i64, not_responding: bool },
+    /// O cliente aberto para `user_id` entrou como `logged_user_id`.
+    WrongAccount { user_id: i64, logged_user_id: i64 },
 }
 
 #[derive(Debug, Default)]
@@ -659,6 +846,16 @@ impl ClientHealthMonitor {
                 }
             }
             entry.session.settle(now_ms);
+
+            // Entrou como outra conta: avisa uma vez (por conta vista no log).
+            let wrong = wrong_account(client.user_id, entry.session.logged_user_id(), entry.adopted);
+            if let Some(logged_user_id) = wrong.filter(|_| wrong != entry.wrong_account) {
+                notices.push(HealthNotice::WrongAccount {
+                    user_id: client.user_id,
+                    logged_user_id,
+                });
+            }
+            entry.wrong_account = wrong;
 
             let window = alive
                 .contains(&entry.pid)
@@ -770,6 +967,8 @@ impl ClientHealthMonitor {
                         window_title: entry.applied_title.clone(),
                         not_responding: entry.not_responding,
                         in_game: !entry.exit_seen && entry.session.in_game(),
+                        wrong_account_user_id: entry.wrong_account,
+                        server: server_view_of(entry.session.destination()),
                         destination: entry.session.destination().cloned(),
                         exited: entry.exit_seen,
                     },
@@ -791,6 +990,16 @@ pub(crate) fn client_health_of(user_id: i64, pid: u32) -> Option<ClientHealthVie
         .get(&user_id)
         .filter(|view| view.pid == pid)
         .cloned()
+}
+
+/// Linha do Console para o cliente que entrou como outra conta.
+fn wrong_account_console_line(logged_user_id: i64, queue_stopped: bool) -> String {
+    let base = format!("Entrou como outra conta do Roblox (usuário {logged_user_id})");
+    if queue_stopped {
+        format!("{base}. A fila de launch foi pausada")
+    } else {
+        base
+    }
 }
 
 /// Linha do Console (português, como as do Watcher) para uma queda.
@@ -894,14 +1103,61 @@ fn run_client_health_tick(app: &tauri::AppHandle) -> Vec<HealthNotice> {
         return Vec::new();
     };
     let notices = monitor.tick(&WindowsClientHealthOs, &tracked, now_ms);
+    let mut fresh = monitor.views();
+    if fresh.values().any(|view| view.server.is_some()) {
+        let template = server_region_template(app.state::<SettingsStore>().inner());
+        if let Ok(lookups) = SERVER_REGION_LOOKUPS.lock() {
+            apply_server_regions(&mut fresh, &lookups, &template);
+        }
+    }
     if let Ok(mut views) = CLIENT_HEALTH_VIEWS.lock() {
-        *views = monitor.views();
+        *views = fresh;
     }
     let snapshots = monitor.session_snapshots();
     drop(monitor);
     // Histórico de sessões (ideia 6): grava cada mudança na hora.
     record_session_history(app, &snapshots, now_ms);
     notices
+}
+
+/// Região de cada IP de servidor visto nos logs (Sessão → servidor).
+#[cfg(target_os = "windows")]
+static SERVER_REGION_LOOKUPS: LazyLock<Mutex<HashMap<String, ServerRegionLookup>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Pede a região dos IPs de servidor novos, em segundo plano: a geolocalização
+/// (com cache em memória e disco, `lookup_ip_region`) não segura o monitor. Só
+/// IP público; nenhuma chamada à API do Roblox. Quem mostra é a passada
+/// seguinte (`apply_server_regions`).
+#[cfg(target_os = "windows")]
+fn server_regions_after_health_tick() {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let views = match CLIENT_HEALTH_VIEWS.lock() {
+        Ok(views) => views.clone(),
+        Err(_) => return,
+    };
+    let wanted = {
+        let Ok(mut lookups) = SERVER_REGION_LOOKUPS.lock() else {
+            return;
+        };
+        let wanted: Vec<String> = server_addresses_to_locate(&views, &lookups, now_ms)
+            .into_iter()
+            .take(SERVER_REGION_LOOKUPS_PER_TICK)
+            .collect();
+        for address in &wanted {
+            lookups.insert(address.clone(), ServerRegionLookup::Pending { since_ms: now_ms });
+        }
+        wanted
+    };
+    for address in wanted {
+        tauri::async_runtime::spawn(async move {
+            let region = api::roblox::lookup_ip_region(&address).await;
+            let outcome = server_region_outcome(region, chrono::Utc::now().timestamp_millis());
+            if let Ok(mut lookups) = SERVER_REGION_LOOKUPS.lock() {
+                lookups.insert(address, outcome);
+            }
+        });
+    }
 }
 
 /// Liga o monitor em segundo plano (sempre, como a varredura de clientes de
@@ -917,6 +1173,10 @@ pub(crate) fn start_client_health_monitor(app: tauri::AppHandle) {
             for notice in &notices {
                 emit_health_notice(&app, notice);
             }
+            // Região do servidor de cada cliente (Sessão), pelo IP do log.
+            server_regions_after_health_tick();
+            // Aviso no Discord (desligado por padrão; só põe na fila).
+            webhook_after_health_tick(&app, &notices);
             // Reconexão automática da conta que caiu (commands/reconnect.rs).
             reconnect_after_health_tick(&app, &notices);
             // Conta cujo cliente fechou no meio do jogo (commands/closed_clients.rs).
@@ -966,6 +1226,30 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
             };
             emit_launch_log(app, *user_id, if *not_responding { "warn" } else { "info" }, "client", String::from(line));
         }
+        HealthNotice::WrongAccount {
+            user_id,
+            logged_user_id,
+        } => {
+            // Para o resto da fila (como o Stop da Sessão): quem ainda espera a
+            // vez é cancelado, ninguém é fechado — nem este cliente, que pode
+            // ser a conta principal da pessoa.
+            let queue_stopped = launch_queue_cancel_all_queued(app) > 0;
+            let _ = app.emit(
+                "roblox-client-wrong-account",
+                serde_json::json!({
+                    "userId": user_id,
+                    "loggedUserId": logged_user_id,
+                    "queueStopped": queue_stopped,
+                }),
+            );
+            emit_launch_log(
+                app,
+                *user_id,
+                "warn",
+                "client",
+                wrong_account_console_line(*logged_user_id, queue_stopped),
+            );
+        }
         HealthNotice::Recovered { user_id } => {
             let _ = app.emit(
                 "roblox-client-health",
@@ -1003,6 +1287,54 @@ mod client_log_classifier_tests {
                 place_id: Some(1234567),
                 job_id: Some("00000000-1111-2222-3333-444444444444".into()),
             })
+        );
+    }
+
+    #[test]
+    fn the_game_join_load_time_line_says_which_account_joined() {
+        let event = classify_log_line(&line(
+            "[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:1234567, join_time:0.71, universeid:7654321, referral_page:RequestGame, sid:00000000-1111-2222-3333-444444444444, clienttime:1791000000.5, userid:22222222, ",
+        ));
+        assert_eq!(event, Some(ClientLogEvent::JoinedAs { user_id: 22222222 }));
+        // Sem o marcador da linha, `userid:` solto não diz nada.
+        assert_eq!(classify_log_line(&line("[FLog::Output] userid:22222222, ")), None);
+    }
+
+    #[test]
+    fn the_udmux_line_gives_the_public_server_address() {
+        assert_eq!(
+            classify_log_line(&line(
+                "[FLog::Network] UDMUX Address = 128.116.21.33, Port = 54148 | RCC Server Address = 10.0.0.1, Port = 54148"
+            )),
+            Some(ClientLogEvent::ServerAddress {
+                address: "128.116.21.33".into()
+            })
+        );
+        // Endereço interno (ou ilegível) não vira evento: nunca é geolocalizado.
+        for body in [
+            "[FLog::Network] UDMUX Address = 10.0.0.1, Port = 54148 | RCC Server Address = 10.0.0.1, Port = 54148",
+            "[FLog::Network] UDMUX Address = 192.168.0.10, Port = 1",
+            "[FLog::Network] UDMUX Address = garbage, Port = 1",
+            "[FLog::Network] UDMUX Address = ",
+        ] {
+            assert_eq!(classify_log_line(&line(body)), None, "{body}");
+        }
+    }
+
+    #[test]
+    fn the_server_prefix_says_when_the_server_started() {
+        let Some(ClientLogEvent::ServerStarted { started_at_ms }) = classify_log_line(&line(
+            "[FLog::Output] Server Prefix: 0.743.0.7431129_20261014T235657Z_RCC_79c67",
+        )) else {
+            panic!("expected the server start");
+        };
+        assert_eq!(
+            chrono::DateTime::from_timestamp_millis(started_at_ms).unwrap().to_rfc3339(),
+            "2026-10-14T23:56:57+00:00"
+        );
+        assert_eq!(
+            classify_log_line(&line("[FLog::Output] Server Prefix: 0.743.0.7431129_RCC_79c67")),
+            None
         );
     }
 
@@ -1159,6 +1491,9 @@ mod client_log_classifier_tests {
                         ClientLogEvent::Disconnected { code, .. } => format!("disconnected {code}"),
                         ClientLogEvent::Kicked { code, .. } => format!("kicked {code:?}"),
                         ClientLogEvent::ServerShutdown { code } => format!("shutdown {code}"),
+                        ClientLogEvent::JoinedAs { .. } => "joined as".to_string(),
+                        ClientLogEvent::ServerAddress { .. } => "server address".to_string(),
+                        ClientLogEvent::ServerStarted { .. } => "server started".to_string(),
                     };
                     *counts.entry(key).or_default() += 1;
                     session.apply(&event, 0);
@@ -1314,6 +1649,59 @@ mod client_log_session_tests {
     }
 
     #[test]
+    fn the_logged_account_is_the_last_one_seen() {
+        let mut s = ClientLogSession::default();
+        assert_eq!(s.logged_user_id(), None);
+        s.absorb(
+            "x [FLog::Output] ! Joining game 'a' place 1 at 10.0.0.1\n\
+             x [FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:1, userid:10, \n",
+            T0,
+        );
+        assert_eq!(s.logged_user_id(), Some(10));
+        assert!(s.in_game(), "the account line does not change the session state");
+        s.apply(&ClientLogEvent::JoinedAs { user_id: 20 }, T0 + 1_000);
+        assert_eq!(s.logged_user_id(), Some(20));
+    }
+
+    #[test]
+    fn the_server_of_the_last_join_comes_with_the_destination() {
+        let mut s = ClientLogSession::default();
+        s.absorb(
+            "x [FLog::Output] ! Joining game 'a' place 1 at 10.0.0.1\n\
+             x [FLog::Network] UDMUX Address = 128.116.21.33, Port = 1 | RCC Server Address = 10.0.0.1, Port = 1\n\
+             x [FLog::Output] Server Prefix: 0.743.0.7431129_20261014T203500Z_RCC_b25e4\n",
+            T0,
+        );
+        let d = s.destination().unwrap();
+        assert_eq!(d.place_id, 1);
+        assert_eq!(d.udmux_address.as_deref(), Some("128.116.21.33"));
+        assert!(d.server_started_ms.is_some());
+
+        // Teleporte para outro servidor: o de antes não vale até as linhas novas.
+        s.absorb("x [FLog::Output] ! Joining game 'b' place 2 at 10.0.0.2\n", T0 + 1_000);
+        let d = s.destination().unwrap();
+        assert_eq!(d.place_id, 2);
+        assert_eq!(d.udmux_address, None);
+        assert_eq!(d.server_started_ms, None);
+        s.absorb(
+            "x [FLog::Network] UDMUX Address = 128.116.30.33, Port = 2 | RCC Server Address = 10.0.0.2, Port = 2\n",
+            T0 + 1_100,
+        );
+        assert_eq!(s.destination().unwrap().udmux_address.as_deref(), Some("128.116.30.33"));
+    }
+
+    #[test]
+    fn server_lines_before_any_join_are_ignored() {
+        let mut s = ClientLogSession::default();
+        s.absorb(
+            "x [FLog::Network] UDMUX Address = 128.116.21.33, Port = 1\n\
+             x [FLog::Output] Server Prefix: 0.743.0.7431129_20261014T203500Z_RCC_b25e4\n",
+            T0,
+        );
+        assert_eq!(s.destination(), None);
+    }
+
+    #[test]
     fn the_destination_is_the_last_game_joined() {
         let mut s = ClientLogSession::default();
         assert_eq!(s.destination(), None);
@@ -1335,7 +1723,8 @@ mod client_log_session_tests {
             s.destination(),
             Some(&JoinedDestination {
                 place_id: 20,
-                job_id: None
+                job_id: None,
+                ..JoinedDestination::default()
             })
         );
         // Uma linha sem place não apaga o destino conhecido.
@@ -1504,7 +1893,8 @@ mod client_health_monitor_tests {
             view.destination,
             Some(JoinedDestination {
                 place_id: 1,
-                job_id: Some("a".into())
+                job_id: Some("a".into()),
+                ..JoinedDestination::default()
             })
         );
 
@@ -1643,6 +2033,52 @@ mod client_health_monitor_tests {
             drop_console_line(&drop(DropKind::ServerShutdown, None, Some(274), None)),
             "O servidor fechou (código 274)"
         );
+    }
+
+    // ---- conta errada ------------------------------------------------------
+
+    fn joined_as(user_id: i64) -> String {
+        format!("x [FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:1, join_time:0.5, userid:{user_id}, \n")
+    }
+
+    #[test]
+    fn a_client_that_joined_as_another_account_is_flagged_once_and_kept_open() {
+        let os = FakeOs::with_client(100, &format!("{JOIN}{}", joined_as(99)));
+        let mut monitor = ClientHealthMonitor::new();
+        let notices = monitor.tick(&os, &[ours(1, 100)], T0);
+        assert_eq!(
+            notices,
+            vec![HealthNotice::WrongAccount {
+                user_id: 1,
+                logged_user_id: 99
+            }]
+        );
+        assert_eq!(monitor.views()[&1].wrong_account_user_id, Some(99));
+        assert!(monitor.tick(&os, &[ours(1, 100)], T0 + 2_000).is_empty(), "reported once");
+        // Nunca fecha: o processo segue vivo e o app não o terminou.
+        assert!(os.alive.borrow().contains(&100));
+        assert!(os.terminated.borrow().is_empty());
+        assert!(monitor.views()[&1].in_game, "it is still in a game");
+    }
+
+    #[test]
+    fn the_right_account_is_not_flagged() {
+        let os = FakeOs::with_client(100, &format!("{JOIN}{}", joined_as(1)));
+        let mut monitor = ClientHealthMonitor::new();
+        assert!(monitor.tick(&os, &[ours(1, 100)], T0).is_empty());
+        assert_eq!(monitor.views()[&1].wrong_account_user_id, None);
+    }
+
+    #[test]
+    fn a_website_client_is_never_flagged_as_the_wrong_account() {
+        let os = FakeOs::with_client(100, &format!("{JOIN}{}", joined_as(99)));
+        let site = TrackedClient {
+            adopted: true,
+            ..ours(1, 100)
+        };
+        let mut monitor = ClientHealthMonitor::new();
+        assert!(monitor.tick(&os, &[site], T0).is_empty());
+        assert_eq!(monitor.views()[&1].wrong_account_user_id, None);
     }
 
     // ---- nome da conta no título ------------------------------------------
@@ -1898,5 +2334,192 @@ mod client_window_title_tests {
         assert_eq!(plan_window_title("Roblox", None, None), None);
         assert_eq!(plan_window_title("Roblox Beta", None, Some(&main)), None);
         assert_eq!(plan_window_title("Disconnected", None, Some(&main)), None);
+    }
+}
+
+#[cfg(test)]
+mod client_wrong_account_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_different_logged_account_is_the_wrong_account() {
+        assert_eq!(wrong_account(1, Some(2), false), Some(2));
+        assert_eq!(wrong_account(1, Some(1), false), None);
+        assert_eq!(wrong_account(1, None, false), None, "the log has not said yet");
+        assert_eq!(wrong_account(1, Some(2), true), None, "website clients are the person's");
+        assert_eq!(wrong_account(0, Some(2), false), None, "no expected account");
+    }
+
+    #[test]
+    fn the_console_line_says_whether_the_queue_was_paused() {
+        assert_eq!(
+            wrong_account_console_line(42, true),
+            "Entrou como outra conta do Roblox (usuário 42). A fila de launch foi pausada"
+        );
+        assert_eq!(wrong_account_console_line(42, false), "Entrou como outra conta do Roblox (usuário 42)");
+    }
+
+    /// O aviso de conta errada para a fila do jeito do Stop da Sessão (só quem
+    /// espera a vez) e nunca fecha cliente nenhum.
+    #[test]
+    fn the_wrong_account_notice_stops_the_queue_and_closes_nothing() {
+        let source = include_str!("client_health.rs");
+        let start = source
+            .find("        HealthNotice::WrongAccount {\n            user_id,\n            logged_user_id,\n        } => {")
+            .expect("the WrongAccount arm of emit_health_notice");
+        let end = start + source[start..].find("        HealthNotice::Recovered").unwrap();
+        let arm = &source[start..end];
+        assert!(arm.contains("launch_queue_cancel_all_queued(app)"));
+        for forbidden in ["kill", "terminate", "close_client", "cancel_launch("] {
+            assert!(!arm.contains(forbidden), "{forbidden}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod client_server_region_tests {
+    use super::*;
+    use crate::api::roblox::IpRegion;
+
+    const T0: i64 = 1_791_000_000_000;
+    const TEMPLATE: &str = "<city>, <countryCode>";
+
+    fn view(address: Option<&str>, started: Option<i64>) -> ClientHealthView {
+        let destination = JoinedDestination {
+            place_id: 1,
+            job_id: Some("job".into()),
+            udmux_address: address.map(String::from),
+            server_started_ms: started,
+        };
+        ClientHealthView {
+            pid: 1,
+            log_found: true,
+            drop: None,
+            window_title: None,
+            not_responding: false,
+            in_game: true,
+            wrong_account_user_id: None,
+            server: server_view_of(Some(&destination)),
+            destination: Some(destination),
+            exited: false,
+        }
+    }
+
+    fn miami(ip: &str) -> IpRegion {
+        IpRegion {
+            ip: ip.into(),
+            city: "Miami".into(),
+            region: "Florida".into(),
+            country: "United States".into(),
+            country_code: "US".into(),
+        }
+    }
+
+    #[test]
+    fn the_server_view_exists_only_when_the_log_said_something() {
+        assert_eq!(server_view_of(None), None);
+        assert_eq!(server_view_of(Some(&JoinedDestination::default())), None);
+        assert_eq!(
+            server_view_of(Some(&JoinedDestination {
+                server_started_ms: Some(T0),
+                ..JoinedDestination::default()
+            })),
+            Some(ClientServerView {
+                region: None,
+                started_at_ms: Some(T0)
+            })
+        );
+    }
+
+    #[test]
+    fn each_public_address_is_located_once() {
+        let views = HashMap::from([
+            (1, view(Some("128.116.21.33"), None)),
+            (2, view(Some("128.116.21.33"), None)),
+            (3, view(Some("128.116.30.33"), None)),
+            (4, view(None, Some(T0))),
+            // Nunca chega aqui pelo log (o classificador filtra), mas a
+            // geolocalização também não pergunta por IP interno.
+            (5, view(Some("10.0.0.1"), None)),
+        ]);
+        let mut lookups = HashMap::new();
+        assert_eq!(
+            server_addresses_to_locate(&views, &lookups, T0),
+            vec!["128.116.21.33".to_string(), "128.116.30.33".to_string()]
+        );
+        lookups.insert("128.116.21.33".to_string(), ServerRegionLookup::Resolved(miami("128.116.21.33")));
+        lookups.insert("128.116.30.33".to_string(), ServerRegionLookup::Pending { since_ms: T0 });
+        assert!(server_addresses_to_locate(&views, &lookups, T0 + 1_000).is_empty());
+    }
+
+    #[test]
+    fn a_failed_lookup_waits_before_asking_again() {
+        let views = HashMap::from([(1, view(Some("128.116.21.33"), None))]);
+        let failed = server_region_outcome(IpRegion {
+            ip: "128.116.21.33".into(),
+            city: String::new(),
+            region: String::new(),
+            country: String::new(),
+            country_code: String::new(),
+        }, T0);
+        assert_eq!(failed, ServerRegionLookup::Failed { at_ms: T0 });
+        let lookups = HashMap::from([("128.116.21.33".to_string(), failed)]);
+        assert!(server_addresses_to_locate(&views, &lookups, T0 + SERVER_REGION_RETRY_MS - 1).is_empty());
+        assert_eq!(server_addresses_to_locate(&views, &lookups, T0 + SERVER_REGION_RETRY_MS).len(), 1);
+    }
+
+    #[test]
+    fn the_region_is_formatted_with_the_user_template() {
+        let mut views = HashMap::from([
+            (1, view(Some("128.116.21.33"), Some(T0))),
+            (2, view(Some("128.116.30.33"), None)),
+        ]);
+        let lookups = HashMap::from([
+            ("128.116.21.33".to_string(), ServerRegionLookup::Resolved(miami("128.116.21.33"))),
+            ("128.116.30.33".to_string(), ServerRegionLookup::Pending { since_ms: T0 }),
+        ]);
+        apply_server_regions(&mut views, &lookups, TEMPLATE);
+        assert_eq!(
+            views[&1].server,
+            Some(ClientServerView {
+                region: Some("Miami, US".into()),
+                started_at_ms: Some(T0)
+            })
+        );
+        assert_eq!(views[&2].server.as_ref().unwrap().region, None, "still looking it up");
+        apply_server_regions(&mut views, &lookups, "<country>");
+        assert_eq!(views[&1].server.as_ref().unwrap().region.as_deref(), Some("United States"));
+    }
+
+    #[test]
+    fn the_view_serializes_the_server_for_the_session_page() {
+        let mut views = HashMap::from([(1, view(Some("128.116.21.33"), Some(T0)))]);
+        let lookups = HashMap::from([(
+            "128.116.21.33".to_string(),
+            ServerRegionLookup::Resolved(miami("128.116.21.33")),
+        )]);
+        apply_server_regions(&mut views, &lookups, TEMPLATE);
+        let json = serde_json::to_value(&views[&1]).unwrap();
+        assert_eq!(json["server"]["region"], "Miami, US");
+        assert_eq!(json["server"]["startedAtMs"], T0);
+        // O IP e o destino ficam no backend.
+        assert!(json.get("destination").is_none());
+        assert!(!json.to_string().contains("128.116"));
+    }
+
+    #[test]
+    fn the_monitor_reads_the_server_from_the_log() {
+        // Monitor completo com um log de verdade em formato: join, UDMUX, prefixo.
+        let log = "x [FLog::Output] ! Joining game 'a' place 1 at 10.0.0.1\n\
+                   x [FLog::Network] UDMUX Address = 128.116.21.33, Port = 1 | RCC Server Address = 10.0.0.1, Port = 1\n\
+                   x [FLog::Output] Server Prefix: 0.743.0.7431129_20261014T203500Z_RCC_b25e4\n";
+        let mut session = ClientLogSession::default();
+        session.absorb(log, T0);
+        let server = server_view_of(session.destination()).unwrap();
+        assert_eq!(server.region, None);
+        assert_eq!(
+            server.started_at_ms,
+            crate::roblox_log::server_started_at_ms("Server Prefix: 0.743.0.7431129_20261014T203500Z_RCC_b25e4")
+        );
     }
 }

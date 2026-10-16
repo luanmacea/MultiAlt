@@ -110,6 +110,7 @@ Comandos: `get_launch_queue()` (snapshot para montar a UI), `cancel_account_laun
 - Um lote novo substitui a fila anterior **quando a anterior acabou**; com ela rodando, entra no fim (ver abaixo). `launch_roblox` (conta única) alimenta a mesma fila com uma entrada, para a UI ser uniforme.
 - Cada entrada leva o seu `placeId`/`jobId` (o resto do pedido — launch data, código VIP — fica no backend). Quando a fila mistura jogos, o Painel de Sessão mostra o jogo em cada linha; com um jogo só, não repete.
 - Cancelar uma conta e parar a fila valem igual para as contas que entraram no fim.
+- **Conta errada para a fila sozinha:** quando o log de um cliente que o app abriu mostra que ele entrou como outra conta do Roblox, o monitor de saúde faz o mesmo que o Stop (`launch_queue_cancel_all_queued`) e avisa — sem fechar cliente nenhum. Ver [watcher.md](watcher.md#conta-errada-no-cliente).
 
 A interface disso é o **Painel de Sessão** — ver [ui-layout.md](ui-layout.md#painel-de-sessão-sessionpanel).
 

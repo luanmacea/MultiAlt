@@ -42,7 +42,11 @@ function renderList(props: Partial<Parameters<typeof AccountRecentGames>[0]> = {
 beforeEach(() => {
   resetTauriMocks();
   clearAccountRecentGamesCache();
-  setInvokeHandler((cmd) => (cmd === "get_recent_games_for_accounts" ? ENTRIES : undefined));
+  setInvokeHandler((cmd, args) =>
+    cmd === "get_recent_games_for_accounts"
+      ? ENTRIES.filter((e) => ((args as { userIds: number[] }).userIds ?? []).includes(e.userId))
+      : undefined
+  );
 });
 
 afterEach(cleanup);
@@ -54,7 +58,9 @@ describe("AccountRecentGames", () => {
     expect(within(alpha).getByText("alpha")).toBeInTheDocument();
     expect(within(alpha).getByText("99 Nights")).toBeInTheDocument();
     expect(within(alpha).getByText("Jailbreak")).toBeInTheDocument();
-    expect(invokeMock).toHaveBeenCalledWith("get_recent_games_for_accounts", { userIds: [1, 2] });
+    // Uma chamada por conta: a que volta primeiro já aparece.
+    expect(invokeMock).toHaveBeenCalledWith("get_recent_games_for_accounts", { userIds: [1] });
+    expect(invokeMock).toHaveBeenCalledWith("get_recent_games_for_accounts", { userIds: [2] });
   });
 
   it("puts an account's error on that account only", async () => {
@@ -79,7 +85,7 @@ describe("AccountRecentGames", () => {
     cleanup();
     renderList();
     expect(await screen.findByTestId("account-recent-1")).toBeInTheDocument();
-    expect(invokeMock.mock.calls.filter((c) => c[0] === "get_recent_games_for_accounts")).toHaveLength(1);
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "get_recent_games_for_accounts")).toHaveLength(2);
   });
 
   it("refresh asks again", async () => {
@@ -87,8 +93,45 @@ describe("AccountRecentGames", () => {
     await screen.findByTestId("account-recent-1");
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() =>
-      expect(invokeMock.mock.calls.filter((c) => c[0] === "get_recent_games_for_accounts")).toHaveLength(2)
+      expect(invokeMock.mock.calls.filter((c) => c[0] === "get_recent_games_for_accounts")).toHaveLength(4)
     );
+  });
+
+  /**
+   * Pedido do dono (14/10/2026): a busca é por conta e cada uma aparece quando
+   * volta. Antes era uma chamada só e a tela esperava a última conta.
+   */
+  it("shows an account as soon as its read comes back, while the next one is still loading", async () => {
+    let releaseBravo: (value: AccountRecentGamesEntry[]) => void = () => {};
+    setInvokeHandler((cmd, args) => {
+      if (cmd !== "get_recent_games_for_accounts") return undefined;
+      const ids = (args as { userIds: number[] }).userIds;
+      if (ids.includes(2)) return new Promise<AccountRecentGamesEntry[]>((r) => (releaseBravo = r));
+      return ENTRIES.filter((e) => ids.includes(e.userId));
+    });
+    renderList();
+    expect(await screen.findByTestId("account-recent-1")).toHaveTextContent("99 Nights");
+    expect(screen.getByTestId("account-recent-pending-2")).toBeInTheDocument();
+    releaseBravo([ENTRIES[1]]);
+    expect(await screen.findByTestId("account-recent-2")).toHaveTextContent("status 401");
+  });
+
+  it("keeps the selection order, not the order the answers arrive in", async () => {
+    let releaseAlpha: (value: AccountRecentGamesEntry[]) => void = () => {};
+    setInvokeHandler((cmd, args) => {
+      if (cmd !== "get_recent_games_for_accounts") return undefined;
+      const ids = (args as { userIds: number[] }).userIds;
+      if (ids.includes(1)) return new Promise<AccountRecentGamesEntry[]>((r) => (releaseAlpha = r));
+      return ENTRIES.filter((e) => ids.includes(e.userId));
+    });
+    renderList();
+    await screen.findByTestId("account-recent-2");
+    releaseAlpha([ENTRIES[0]]);
+    await screen.findByTestId("account-recent-1");
+    const order = [...screen.getByTestId("account-recent-games").querySelectorAll("[data-testid^='account-recent-']")]
+      .map((el) => el.getAttribute("data-testid"))
+      .filter((id) => /^account-recent-\d+$/.test(id ?? ""));
+    expect(order).toEqual(["account-recent-1", "account-recent-2"]);
   });
 
   it("says when an account has nothing recent", async () => {

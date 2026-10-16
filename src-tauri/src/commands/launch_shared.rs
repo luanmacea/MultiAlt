@@ -1034,6 +1034,21 @@ pub(crate) async fn apply_windows_post_launch_profile(
     }
 }
 
+/// Roda uma função **bloqueante** fora do worker async, na pool de blocking do
+/// tokio. É o que mantém uma chamada síncrona que pode dormir até 5 s (a
+/// carência de cliente recém-aberto em `close_roblox_singleton_handles`) e varrer
+/// a tabela de handles do sistema longe de um worker do tokio — numa máquina de
+/// 2 núcleos, dois launches a chamarem direto travariam todo comando async.
+pub(crate) async fn run_off_worker<T, F>(label: &str, f: F) -> Result<T, String>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("{label} task failed: {e}"))
+}
+
 #[cfg(target_os = "windows")]
 async fn ensure_multi_roblox_enabled(
     auto_close_conflicts: bool,
@@ -1042,9 +1057,16 @@ async fn ensure_multi_roblox_enabled(
     // Experimental e desligado por padrão (ideia 3): com a opção ligada, o
     // `enable_multi_roblox` também reserva o nome `ROBLOX_singletonEvent`.
     platform::windows::set_singleton_reservation_enabled(reserve_singleton_event);
-    let enabled = platform::windows::enable_multi_roblox()?;
-    if enabled {
-        return Ok(());
+    // Fora do worker async: a resolução pode dormir e varrer a tabela de handles
+    // (ver `run_off_worker`). A lógica dos 5 s não muda; só sai do worker.
+    let outcome =
+        run_off_worker("Multi Roblox", platform::windows::enable_multi_roblox_checked).await??;
+    // Outro cliente ainda segura o `ROBLOX_singletonEvent` (ideia 33): sem a
+    // opção opt-in, o launch para aqui com a mensagem — abrir fecharia esse
+    // cliente. Com `AutoCloseRobloxForMultiRbx` ligado segue o caminho de
+    // sempre dessa opção, abaixo.
+    if let Some(response) = platform::windows::held_event_response(outcome, auto_close_conflicts) {
+        return response;
     }
 
     let roblox_pids = platform::windows::get_roblox_pids();
@@ -1057,7 +1079,8 @@ async fn ensure_multi_roblox_enabled(
                 tokio::time::sleep(std::time::Duration::from_millis(700)).await;
             }
             let _ = platform::windows::tracker().cleanup_dead_processes();
-            let enabled_after = platform::windows::enable_multi_roblox()?;
+            let enabled_after =
+                run_off_worker("Multi Roblox", platform::windows::enable_multi_roblox).await??;
             if enabled_after {
                 return Ok(());
             }
@@ -1075,7 +1098,8 @@ async fn ensure_multi_roblox_enabled(
 
     platform::windows::release_multi_roblox_handle();
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-    let enabled_retry = platform::windows::enable_multi_roblox()?;
+    let enabled_retry =
+        run_off_worker("Multi Roblox", platform::windows::enable_multi_roblox).await??;
     if enabled_retry {
         return Ok(());
     }
@@ -1770,6 +1794,28 @@ mod launch_resolve_tests {
 #[cfg(test)]
 mod launch_shared_helper_tests {
     use super::*;
+
+    /// Regressão (Fix 3): a resolução síncrona do Multi Roblox (que pode dormir
+    /// até 5 s e varrer a tabela de handles) passa por `run_off_worker`, que a
+    /// tira do worker async. Prova real: a função roda numa thread **diferente**
+    /// da do worker do tokio, então não o prende.
+    #[tokio::test]
+    async fn run_off_worker_runs_the_blocking_call_on_another_thread() {
+        let worker_thread = std::thread::current().id();
+        let ran_on = run_off_worker("test", || std::thread::current().id())
+            .await
+            .expect("spawn_blocking não deveria falhar");
+        assert_ne!(
+            ran_on, worker_thread,
+            "o trabalho bloqueante tem que sair do worker do tokio"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_off_worker_reports_a_panic_as_an_error() {
+        let result: Result<(), String> = run_off_worker("test", || panic!("boom")).await;
+        assert!(result.is_err(), "um panic na tarefa vira erro, não aborta o launch");
+    }
 
     fn temp_settings(tag: &str) -> SettingsStore {
         let nanos = std::time::SystemTime::now()

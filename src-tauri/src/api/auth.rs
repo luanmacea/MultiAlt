@@ -419,6 +419,92 @@ pub async fn log_out_other_sessions(security_token: &str) -> Result<RefreshResul
     })
 }
 
+
+/// Prefixo estável dos erros de troca de senha/e-mail. A tela reconhece o tipo
+/// por ele e mostra a frase traduzida (`credentialErrorText` no frontend).
+/// Formato: `credential-error:<tipo>:<status>:<detalhe do Roblox>`.
+pub const CREDENTIAL_ERROR_PREFIX: &str = "credential-error";
+
+/// Por que o Roblox recusou a troca de senha ou de e-mail. Antes o app jogava a
+/// resposta fora e dizia só "Failed to change password" (relato do dono,
+/// 15/10/2026: no lote, umas davam certo e outras não, sem explicação).
+///
+/// O detalhe nunca leva as palavras que `is_auth_session_error` reconhece
+/// ("unauthorized", "authorization has been denied", "status 401"): elas
+/// renovariam a sessão (`signoutfromallsessions`) e derrubariam as outras
+/// sessões da conta — e uma troca de credencial nunca fez isso.
+pub fn classify_credential_failure(status: u16, challenge_type: Option<&str>, has_challenge: bool, body: &str) -> String {
+    let message = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("errors")
+                .and_then(|e| e.get(0))
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .map(|m| m.trim().to_string())
+        })
+        .unwrap_or_default();
+    let lower = message.to_ascii_lowercase();
+
+    let kind = if has_challenge {
+        match challenge_type.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+            "captcha" => "verification-captcha",
+            "twostepverification" | "forcetwostepverification" => "verification-2sv",
+            "reauthentication" => "verification-password",
+            _ => "verification-other",
+        }
+    } else if status == 429 || lower.contains("too many") || lower.contains("flood") || lower.contains("try again later") {
+        "rate-limited"
+    } else if status == 401 || lower.contains("authorization has been denied") || lower.contains("not authenticated") {
+        "session-expired"
+    } else if lower.contains("pin") && lower.contains("lock") {
+        "pin-locked"
+    } else if lower.contains("password")
+        && (lower.contains("incorrect") || lower.contains("wrong") || lower.contains("current"))
+    {
+        "wrong-current-password"
+    } else if lower.contains("password")
+        && (lower.contains("weak")
+            || lower.contains("simple")
+            || lower.contains("common")
+            || lower.contains("username")
+            || lower.contains("invalid")
+            || lower.contains("not valid")
+            || lower.contains("length")
+            || lower.contains("short"))
+    {
+        "invalid-new-password"
+    } else if lower.contains("email") && (lower.contains("invalid") || lower.contains("already") || lower.contains("in use")) {
+        "invalid-email"
+    } else {
+        "unknown"
+    };
+
+    // Detalhe do Roblox, sem as palavras que renovariam a sessão.
+    let detail = if lower.contains("unauthorized")
+        || lower.contains("authorization has been denied")
+        || lower.contains("not authenticated")
+        || lower.contains("401")
+    {
+        String::new()
+    } else {
+        message.replace(':', " -").chars().take(200).collect()
+    };
+    format!("{CREDENTIAL_ERROR_PREFIX}:{kind}:{status}:{detail}")
+}
+
+async fn credential_failure(response: reqwest::Response) -> String {
+    let status = response.status().as_u16();
+    let challenge_type = response
+        .headers()
+        .get("rblx-challenge-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let has_challenge = challenge_type.is_some() || response.headers().contains_key("rblx-challenge-id");
+    let body = response.text().await.unwrap_or_default();
+    classify_credential_failure(status, challenge_type.as_deref(), has_challenge, &body)
+}
+
 pub async fn change_password(
     security_token: &str,
     current_password: &str,
@@ -441,7 +527,7 @@ pub async fn change_password(
     let response = send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
-        return Err("Failed to change password".to_string());
+        return Err(credential_failure(response).await);
     }
 
     let new_cookie = response
@@ -486,7 +572,7 @@ pub async fn change_email(
     if response.status().is_success() {
         Ok(())
     } else {
-        Err("Failed to change email".to_string())
+        Err(credential_failure(response).await)
     }
 }
 
@@ -1745,7 +1831,28 @@ mod auth_extra_tests {
 
         assert_eq!(
             change_password("pw-fail", "old", "new").await.unwrap_err(),
-            "Failed to change password"
+            "credential-error:unknown:400:"
+        );
+    }
+
+    /// O motivo do Roblox chega até a tela (antes virava "Failed to change
+    /// password"): verificação pedida pelo cabeçalho e a mensagem do corpo.
+    #[tokio::test]
+    async fn change_password_reports_why_roblox_refused() {
+        let server = mock_server().await;
+        mount_csrf("pw-why", "csrf-pw-why").await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("auth", "/v2/user/passwords/change")))
+            .and(header("cookie", cookie_of("pw-why")))
+            .respond_with(
+                ResponseTemplate::new(400)
+                    .set_body_json(serde_json::json!({ "errors": [{ "code": 7, "message": "Incorrect password" }] })),
+            )
+            .mount(server)
+            .await;
+        assert_eq!(
+            change_password("pw-why", "old", "new").await.unwrap_err(),
+            "credential-error:wrong-current-password:400:Incorrect password"
         );
     }
 
@@ -1778,7 +1885,7 @@ mod auth_extra_tests {
             change_email("email-fail", "pw", "x@example.com")
                 .await
                 .unwrap_err(),
-            "Failed to change email"
+            "credential-error:unknown:400:"
         );
     }
 
@@ -1883,5 +1990,63 @@ mod auth_extra_tests {
         let info = validate_cookie("snake-cookie").await.expect("account info");
         assert_eq!(info.user_id, 10);
         assert_eq!(info.display_name, "Ten");
+    }
+}
+
+#[cfg(test)]
+mod credential_failure_tests {
+    use super::*;
+
+    fn body(msg: &str) -> String {
+        serde_json::json!({ "errors": [{ "code": 0, "message": msg }] }).to_string()
+    }
+
+    #[test]
+    fn a_verification_request_says_which_check_roblox_wants() {
+        assert!(classify_credential_failure(403, Some("captcha"), true, "")
+            .starts_with("credential-error:verification-captcha:403:"));
+        assert!(classify_credential_failure(403, Some("twostepverification"), true, "").contains(":verification-2sv:"));
+        assert!(classify_credential_failure(403, Some("reauthentication"), true, "").contains(":verification-password:"));
+        assert!(classify_credential_failure(403, None, true, "").contains(":verification-other:"));
+    }
+
+    #[test]
+    fn too_many_changes_in_a_row_is_a_rate_limit() {
+        assert!(classify_credential_failure(429, None, false, "").contains(":rate-limited:429:"));
+        assert!(classify_credential_failure(403, None, false, &body("Too many attempts. Please wait a bit."))
+            .contains(":rate-limited:"));
+    }
+
+    #[test]
+    fn a_wrong_current_password_and_a_refused_new_one_are_told_apart() {
+        assert!(classify_credential_failure(403, None, false, &body("Incorrect password")).contains(":wrong-current-password:"));
+        assert!(classify_credential_failure(400, None, false, &body("Password is too simple")).contains(":invalid-new-password:"));
+        assert!(classify_credential_failure(400, None, false, &body("Password cannot contain the username"))
+            .contains(":invalid-new-password:"));
+    }
+
+    #[test]
+    fn the_roblox_message_goes_along() {
+        let e = classify_credential_failure(400, None, false, &body("Password is too simple"));
+        assert_eq!(e, "credential-error:invalid-new-password:400:Password is too simple");
+    }
+
+    /// Nunca renova a sessão: o detalhe não pode ter as palavras de
+    /// `is_auth_session_error` (renovar desloga a conta de todo lugar).
+    #[test]
+    fn an_expired_session_never_carries_the_words_that_would_refresh_the_session() {
+        let e = classify_credential_failure(401, None, false, &body("Authorization has been denied for this request."));
+        assert_eq!(e, "credential-error:session-expired:401:");
+        let lower = e.to_ascii_lowercase();
+        assert!(!lower.contains("unauthorized") && !lower.contains("authorization has been denied") && !lower.contains("status 401"));
+    }
+
+    #[test]
+    fn something_unknown_keeps_the_status_and_the_roblox_text() {
+        assert_eq!(classify_credential_failure(500, None, false, "not json"), "credential-error:unknown:500:");
+        assert_eq!(
+            classify_credential_failure(400, None, false, &body("Something new: odd")),
+            "credential-error:unknown:400:Something new - odd"
+        );
     }
 }

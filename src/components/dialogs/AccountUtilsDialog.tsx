@@ -11,6 +11,7 @@ import { UtilButton } from "../ui/UtilButton";
 import { Select } from "../ui/Select";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
+import { credentialErrorText } from "../../utils/credentialErrors";
 
 interface BlockedUser {
   userId: number;
@@ -244,7 +245,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
       setCurrentPassword("");
       setNewPassword("");
     } catch (e) {
-      store.addToast(t("Error: {{error}}", { error: String(e) }));
+      store.addToast(credentialErrorText(e, t));
     }
     setLoading("");
   }
@@ -272,7 +273,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
       store.addToast(t("Email changed"));
       setEmailInput("");
     } catch (e) {
-      store.addToast(t("Error: {{error}}", { error: String(e) }));
+      store.addToast(credentialErrorText(e, t));
     }
     setLoading("");
   }

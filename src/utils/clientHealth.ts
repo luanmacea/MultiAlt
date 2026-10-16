@@ -62,3 +62,26 @@ function dropLabel(
       return null;
   }
 }
+
+/**
+ * O cliente que o app abriu entrou como outra conta do Roblox
+ * (`commands/client_health.rs`, `wrong_account`). `null` quando não.
+ */
+export function wrongAccountLabel(health: ClientHealth | null | undefined, t: Translate): string | null {
+  const id = health?.wrongAccountUserId;
+  if (typeof id !== "number") return null;
+  return t("Opened as a different Roblox account (user {{id}})", { id });
+}
+
+/**
+ * O toast do evento `roblox-client-wrong-account`. A fila de launch só é
+ * citada quando o backend de fato a parou (havia conta esperando a vez).
+ */
+export function wrongAccountToast(name: string, loggedUserId: number, queueStopped: boolean, t: Translate): string {
+  return queueStopped
+    ? t("{{name}} opened as a different Roblox account (user {{id}}). The launch queue was paused.", {
+        name,
+        id: loggedUserId,
+      })
+    : t("{{name}} opened as a different Roblox account (user {{id}}).", { name, id: loggedUserId });
+}

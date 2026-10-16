@@ -203,6 +203,20 @@ pub struct AccountStore {
     /// Ler o slot quando a UI pede não basta: gravador de fundo — Auto Rejoin a
     /// cada ciclo, Watcher, servidor HTTP — muda o aviso sem a UI pedir nada.
     key_warning_watchers: Mutex<Vec<std::sync::mpsc::Sender<Option<VaultKeyWarning>>>>,
+    /// O último lote removido por `remove_many`, cada conta com a posição que
+    /// tinha na lista — é o que o "Undo" do toast devolve (`undo_remove`).
+    ///
+    /// **Só em memória**, de propósito: gravar em disco seria guardar cookies que
+    /// o usuário mandou apagar. Fechar o app esquece; reler o arquivo também
+    /// (`mark_memory_fresh`). Ordem de lock: `accounts` → `last_removed`.
+    ///
+    /// Guarda o **id** do lote junto: o "Undo" de um toast só desfaz **aquele**
+    /// lote. Remover A,B,C e depois D em 10 s troca o lote guardado; clicar no
+    /// Undo do primeiro toast bate id diferente e é recusado ("expirou") em vez
+    /// de devolver D — contas que o usuário não mandou voltar.
+    last_removed: Mutex<Option<(u64, Vec<(usize, Account)>)>>,
+    /// Numerador dos lotes removidos (0 nunca é lote: é "nada para desfazer").
+    removed_batch_seq: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,6 +240,8 @@ impl AccountStore {
             write_block: Mutex::new(None),
             key_warning: Mutex::new(None),
             key_warning_watchers: Mutex::new(Vec::new()),
+            last_removed: Mutex::new(None),
+            removed_batch_seq: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -752,6 +768,11 @@ impl AccountStore {
         self.load_failed
             .store(false, std::sync::atomic::Ordering::SeqCst);
         self.allow_writes_after_reload();
+        // A lista em memória é outra agora (unlock, backup restaurado): enxertar
+        // nela um lote removido da lista de antes misturaria as duas.
+        if let Ok(mut batch) = self.last_removed.lock() {
+            *batch = None;
+        }
     }
 
     /// Regrava um vault em texto puro como vault cifrado.
@@ -979,6 +1000,14 @@ impl AccountStore {
         drop(store);
         self.load_failed
             .store(false, std::sync::atomic::Ordering::SeqCst);
+
+        // A lista em memória é a do disco agora; um lote removido de **antes** do
+        // unlock não pode voltar por cima dela — ressuscitaria contas de antes da
+        // restauração/desbloqueio por um "Undo" velho. Mesmo motivo do
+        // `mark_memory_fresh` no `load()`.
+        if let Ok(mut batch) = self.last_removed.lock() {
+            *batch = None;
+        }
 
         let mut slot = self.session.lock().map_err(|e| e.to_string())?;
         *slot = Some(session);
@@ -1289,6 +1318,82 @@ impl AccountStore {
         Ok(removed)
     }
 
+    /// Remove várias contas numa gravação só e guarda o lote para o "Undo"
+    /// (`undo_remove`). O lote anterior é substituído. Devolve `(id do lote,
+    /// quantas saíram)`; id `0` com contagem `0` quando nada saiu.
+    ///
+    /// O id identifica **este** lote: o toast que a remoção gera leva o id e só
+    /// esse id desfaz esse lote (ver `undo_remove`).
+    ///
+    /// A lista nova só entra na memória **depois** de gravada: se a gravação
+    /// falha, nada sai e o lote anterior continua desfazível.
+    pub fn remove_many(&self, user_ids: &[i64]) -> Result<(u64, usize), String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let wanted: HashSet<i64> = user_ids.iter().copied().collect();
+        let mut removed: Vec<(usize, Account)> = Vec::new();
+        let mut kept: Vec<Account> = Vec::with_capacity(accounts.len());
+        for (index, account) in accounts.iter().enumerate() {
+            if wanted.contains(&account.user_id) {
+                removed.push((index, account.clone()));
+            } else {
+                kept.push(account.clone());
+            }
+        }
+        if removed.is_empty() {
+            return Ok((0, 0));
+        }
+
+        self.save_locked(&kept)?;
+        *accounts = kept;
+        let count = removed.len();
+        let batch_id = self
+            .removed_batch_seq
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        *self.last_removed.lock().map_err(|e| e.to_string())? = Some((batch_id, removed));
+        Ok((batch_id, count))
+    }
+
+    /// Devolve o lote `batch_id` de `remove_many` às posições que as contas
+    /// tinham, com tudo (cookie, senha, grupo, campos). Conta que voltou à lista
+    /// nesse meio-tempo (adicionada de novo) é pulada: a de agora vale mais que a
+    /// cópia velha. Funciona uma vez; devolve quantas voltaram.
+    ///
+    /// Só desfaz o lote guardado se o id bater. Lote já substituído por um mais
+    /// novo (toast antigo) é **recusado** com erro — não cai no lote novo, que
+    /// fica intacto para o toast dele. Sem lote nenhum = `Ok(0)`.
+    pub fn undo_remove(&self, batch_id: u64) -> Result<usize, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let mut slot = self.last_removed.lock().map_err(|e| e.to_string())?;
+        let Some((id, batch)) = slot.as_ref() else {
+            return Ok(0);
+        };
+        if *id != batch_id {
+            return Err("This removal can no longer be undone.".to_string());
+        }
+
+        let mut next = accounts.clone();
+        let mut restored = 0usize;
+        // Em ordem crescente de posição: cada inserção recria a lista de antes
+        // até aquele ponto, então a posição seguinte continua certa.
+        for (index, account) in batch {
+            if next.iter().any(|a| a.user_id == account.user_id) {
+                continue;
+            }
+            let at = (*index).min(next.len());
+            next.insert(at, account.clone());
+            restored += 1;
+        }
+
+        if restored > 0 {
+            // `?` antes de limpar: gravação recusada mantém o lote para tentar de novo.
+            self.save_locked(&next)?;
+            *accounts = next;
+        }
+        *slot = None;
+        Ok(restored)
+    }
+
     pub fn update(&self, account: Account) -> Result<bool, String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
 
@@ -1378,6 +1483,39 @@ impl AccountStore {
         *accounts = ordered;
 
         self.save_locked(&accounts)
+    }
+
+    /// Renomeia um grupo: toda conta com `Group == from` passa a `to`, numa
+    /// gravação só. Se `to` já existe, as contas **se juntam** a ele (a tela
+    /// pede confirmação antes). Devolve quantas contas mudaram.
+    ///
+    /// O grupo `Default` não se renomeia: ele é o grupo implícito (vazio no
+    /// arquivo), e "renomeá-lo" seria mover todas as contas sem grupo.
+    pub fn rename_group(&self, from: &str, to: &str) -> Result<usize, String> {
+        let to = to.trim();
+        if to.is_empty() {
+            return Err("Group name cannot be empty".to_string());
+        }
+        if is_default_group_name(from) {
+            return Err("The Default group cannot be renamed".to_string());
+        }
+        if from == to {
+            return Ok(0);
+        }
+
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let mut next = accounts.clone();
+        let mut renamed = 0usize;
+        for account in next.iter_mut().filter(|a| a.group == from) {
+            account.group = to.to_string();
+            renamed += 1;
+        }
+        if renamed == 0 {
+            return Ok(0);
+        }
+        self.save_locked(&next)?;
+        *accounts = next;
+        Ok(renamed)
     }
 
     fn decode_plain_or_legacy_accounts(data: &[u8]) -> Result<Vec<Account>, String> {
@@ -1519,7 +1657,53 @@ impl AccountStore {
             skipped,
         })
     }
+
+    /// As contas cifradas com uma senha escolhida **agora** (ideia 38).
+    ///
+    /// Existe porque o backup sem Pass Lock não protege nem viaja: o zip leva o
+    /// `AccountData.key`, cujo embrulho `device` é só o hash de
+    /// `COMPUTERNAME|USERNAME`, e o DPAPI não abre em outro PC. Este arquivo
+    /// depende só da senha.
+    ///
+    /// **Nada de formato novo:** o JSON é o mesmo que `save_locked` grava, e a
+    /// cifra é a mesma do vault (`crypto::encrypt` com `sha512(senha.trim())`,
+    /// Argon2i + XSalsa20-Poly1305, `RAM_HEADER`). É exatamente o que
+    /// `decode_accounts_for_import` abre quando o usuário digita a senha, então o
+    /// import que já existe ("Import AccountData.json") lê o arquivo em qualquer
+    /// instalação. Não grava nada no vault nem mexe na sessão.
+    pub fn export_with_password(&self, password: &str) -> Result<Vec<u8>, String> {
+        let password = password.trim();
+        if password.chars().count() < MIN_EXPORT_PASSWORD_CHARS {
+            return Err(format!(
+                "The export password must be at least {MIN_EXPORT_PASSWORD_CHARS} characters"
+            ));
+        }
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Account file could not be loaded; there is nothing reliable to export.".to_string(),
+            );
+        }
+        // Snapshot e lock solto **antes** do Argon2: derivar a chave com o lock de
+        // contas seguro travaria toda gravação (Auto Rejoin, launch) enquanto isso.
+        let accounts = self.get_all()?;
+        if accounts.is_empty() {
+            return Err("There are no accounts to export.".to_string());
+        }
+        let json = serde_json::to_string_pretty(&accounts)
+            .map_err(|e| format!("Failed to serialize accounts: {}", e))?;
+        crypto::encrypt(&json, &crypto::hash_password(password))
+            .map_err(|e| format!("Failed to encrypt the export: {}", e))
+    }
 }
+
+/// O grupo implícito: `Default` no modelo, vazio na tela antiga.
+pub fn is_default_group_name(group: &str) -> bool {
+    let group = group.trim();
+    group.is_empty() || group == "Default"
+}
+
+/// Mínimo da senha do export protegido — o mesmo do Pass Lock.
+pub const MIN_EXPORT_PASSWORD_CHARS: usize = 8;
 
 #[cfg(test)]
 mod tests {
@@ -4339,5 +4523,429 @@ mod app_lock_verify_tests {
     fn without_an_app_password_there_is_nothing_to_verify() {
         let t = temp("no-password");
         assert!(t.0.verify_password("anything").is_err());
+    }
+}
+
+/// Renomear grupo: só as contas daquele grupo mudam, e o `Default` não se
+/// renomeia.
+#[cfg(test)]
+mod group_rename_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct Temp(AccountStore);
+
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let path = self.0.file_path.clone();
+            let _ = fs::remove_file(path.with_extension("json.tmp"));
+            let _ = fs::remove_file(&path);
+        }
+    }
+
+    impl std::ops::Deref for Temp {
+        type Target = AccountStore;
+        fn deref(&self) -> &AccountStore {
+            &self.0
+        }
+    }
+
+    fn store_with(tag: &str, groups: &[(i64, &str)]) -> Temp {
+        crypto::init();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let store = AccountStore::new(std::env::temp_dir().join(format!("ram-group-{tag}-{nanos}.json")));
+        for (id, group) in groups {
+            let mut account = Account::new(format!("COOKIE-{id}"), format!("user{id}"), *id);
+            account.group = group.to_string();
+            store.add(account).unwrap();
+        }
+        Temp(store)
+    }
+
+    fn groups(store: &AccountStore) -> Vec<(i64, String)> {
+        store
+            .get_all()
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.user_id, a.group))
+            .collect()
+    }
+
+    fn groups_on_disk(store: &AccountStore) -> Vec<(i64, String)> {
+        AccountStore::parse_accounts_json(&fs::read(&store.file_path).unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.user_id, a.group))
+            .collect()
+    }
+
+    #[test]
+    fn renaming_moves_only_that_group_and_keeps_the_order() {
+        let s = store_with("rename", &[(1, "Alts"), (2, "Default"), (3, "Alts"), (4, "Farm")]);
+        assert_eq!(s.rename_group("Alts", "  02 Bots  ").unwrap(), 2);
+        let expected = vec![
+            (1, "02 Bots".to_string()),
+            (2, "Default".to_string()),
+            (3, "02 Bots".to_string()),
+            (4, "Farm".to_string()),
+        ];
+        assert_eq!(groups(&s), expected);
+        assert_eq!(groups_on_disk(&s), expected, "gravado");
+    }
+
+    #[test]
+    fn renaming_into_an_existing_group_merges_them() {
+        let s = store_with("merge", &[(1, "Alts"), (2, "Farm")]);
+        assert_eq!(s.rename_group("Alts", "Farm").unwrap(), 1);
+        assert_eq!(groups(&s), vec![(1, "Farm".to_string()), (2, "Farm".to_string())]);
+    }
+
+    #[test]
+    fn the_default_group_and_an_empty_name_are_refused() {
+        let s = store_with("refuse", &[(1, "Default"), (2, "Alts")]);
+        let before = fs::read(&s.file_path).unwrap();
+        assert!(s.rename_group("Default", "Main").unwrap_err().contains("Default"));
+        assert!(s.rename_group("", "Main").unwrap_err().contains("Default"));
+        assert!(s.rename_group("Alts", "   ").unwrap_err().contains("empty"));
+        assert_eq!(fs::read(&s.file_path).unwrap(), before, "nada foi gravado");
+    }
+
+    #[test]
+    fn an_unknown_group_or_the_same_name_changes_nothing() {
+        let s = store_with("noop", &[(1, "Alts")]);
+        let before = fs::read(&s.file_path).unwrap();
+        assert_eq!(s.rename_group("Nope", "Other").unwrap(), 0);
+        assert_eq!(s.rename_group("Alts", "Alts").unwrap(), 0);
+        assert_eq!(fs::read(&s.file_path).unwrap(), before);
+    }
+
+    #[test]
+    fn a_refused_save_renames_nothing() {
+        let s = store_with("locked", &[(1, "Alts")]);
+        s.lock_writes_until_restart("test");
+        assert!(s.rename_group("Alts", "Bots").is_err());
+        assert_eq!(groups(&s), vec![(1, "Alts".to_string())]);
+    }
+}
+
+/// Desfazer a remoção: o último lote removido fica **só em memória** e volta
+/// para as posições de antes.
+#[cfg(test)]
+mod account_undo_remove_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct Temp(AccountStore);
+
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let path = self.0.file_path.clone();
+            for extra in ["json.tmp", "json.bak", "key", "key.tmp", "key.probe"] {
+                let _ = fs::remove_file(path.with_extension(extra));
+            }
+            let _ = fs::remove_file(&path);
+        }
+    }
+
+    impl std::ops::Deref for Temp {
+        type Target = AccountStore;
+        fn deref(&self) -> &AccountStore {
+            &self.0
+        }
+    }
+
+    /// Sem `load()`: grava JSON puro (o caminho degradado), o que basta aqui e
+    /// poupa um Argon2 por teste.
+    fn store_with(tag: &str, ids: &[i64]) -> Temp {
+        crypto::init();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let store = AccountStore::new(std::env::temp_dir().join(format!("ram-undo-{tag}-{nanos}.json")));
+        for id in ids {
+            let mut account = Account::new(format!("COOKIE-{id}"), format!("user{id}"), *id);
+            account.group = format!("G{}", id % 2);
+            account.alias = format!("alias {id}");
+            store.add(account).unwrap();
+        }
+        Temp(store)
+    }
+
+    fn ids(store: &AccountStore) -> Vec<i64> {
+        store.get_all().unwrap().iter().map(|a| a.user_id).collect()
+    }
+
+    /// Lê o JSON direto (sem `load()`, que migraria o arquivo para cifrado).
+    fn ids_on_disk(store: &AccountStore) -> Vec<i64> {
+        let data = fs::read(&store.file_path).unwrap();
+        AccountStore::parse_accounts_json(&data)
+            .unwrap()
+            .iter()
+            .map(|a| a.user_id)
+            .collect()
+    }
+
+    #[test]
+    fn a_batch_removal_saves_once_and_reports_how_many_went() {
+        let s = store_with("batch", &[1, 2, 3, 4, 5]);
+        let (id, count) = s.remove_many(&[2, 4, 99]).unwrap();
+        assert_eq!(count, 2, "id desconhecido não conta");
+        assert!(id > 0, "um lote de verdade recebe id");
+        assert_eq!(ids(&s), vec![1, 3, 5]);
+        assert_eq!(ids_on_disk(&s), vec![1, 3, 5]);
+    }
+
+    #[test]
+    fn undo_puts_every_account_back_at_its_old_position_with_all_its_fields() {
+        let s = store_with("restore", &[1, 2, 3, 4, 5]);
+        let before = serde_json::to_string(&s.get_all().unwrap()).unwrap();
+
+        let (id, _) = s.remove_many(&[1, 3, 5]).unwrap();
+        assert_eq!(ids(&s), vec![2, 4]);
+
+        assert_eq!(s.undo_remove(id).unwrap(), 3);
+        assert_eq!(
+            serde_json::to_string(&s.get_all().unwrap()).unwrap(),
+            before,
+            "mesma ordem, cookie, grupo e alias"
+        );
+        assert_eq!(ids_on_disk(&s), vec![1, 2, 3, 4, 5], "e foi para o disco");
+    }
+
+    #[test]
+    fn undo_skips_an_account_that_was_added_again_meanwhile() {
+        let s = store_with("readded", &[1, 2, 3]);
+        let (id, _) = s.remove_many(&[1, 2]).unwrap();
+        // A conta 2 voltou por outro caminho (cookie novo) antes do Undo.
+        s.add(Account::new("NEW-COOKIE".to_string(), "user2".to_string(), 2))
+            .unwrap();
+
+        assert_eq!(s.undo_remove(id).unwrap(), 1, "só a conta 1 volta");
+        assert_eq!(ids(&s), vec![1, 3, 2]);
+        let two = s.get_all().unwrap().into_iter().find(|a| a.user_id == 2).unwrap();
+        assert_eq!(two.security_token, "NEW-COOKIE", "a re-adicionada não é trocada pela velha");
+    }
+
+    #[test]
+    fn undo_works_once_and_a_new_removal_replaces_the_batch() {
+        let s = store_with("replace", &[1, 2, 3]);
+        s.remove_many(&[1]).unwrap();
+        let (id2, _) = s.remove_many(&[2]).unwrap();
+
+        assert_eq!(s.undo_remove(id2).unwrap(), 1, "só o último lote volta");
+        assert_eq!(ids(&s), vec![2, 3]);
+        assert_eq!(s.undo_remove(id2).unwrap(), 0, "depois de desfeito não há o que desfazer");
+        assert_eq!(ids(&s), vec![2, 3]);
+    }
+
+    /// **Fix 1:** o Undo de um toast tem que desfazer o lote **dele**, não o
+    /// mais novo. Remover [1] e depois [2] em 10 s e clicar no Undo do primeiro
+    /// toast (id antigo) é recusado — não devolve a conta 2, que o usuário não
+    /// mandou voltar; o toast do segundo lote continua valendo.
+    #[test]
+    fn an_old_toast_undo_is_refused_and_leaves_the_newer_batch_intact() {
+        let s = store_with("stale", &[1, 2, 3]);
+        let (id1, _) = s.remove_many(&[1]).unwrap();
+        let (id2, _) = s.remove_many(&[2]).unwrap();
+        assert_eq!(ids(&s), vec![3]);
+
+        assert!(s.undo_remove(id1).is_err(), "o lote antigo expirou");
+        assert_eq!(ids(&s), vec![3], "o lote novo não foi tocado");
+
+        assert_eq!(s.undo_remove(id2).unwrap(), 1, "o Undo do toast novo ainda desfaz o dele");
+        assert_eq!(ids(&s), vec![2, 3]);
+    }
+
+    #[test]
+    fn nothing_removed_means_nothing_to_undo() {
+        let s = store_with("empty", &[1]);
+        assert_eq!(s.undo_remove(0).unwrap(), 0);
+        assert_eq!(s.remove_many(&[42]).unwrap(), (0, 0));
+        assert_eq!(ids(&s), vec![1]);
+    }
+
+    /// Reler o arquivo (desbloquear, restaurar backup) troca a lista em memória;
+    /// um lote de antes disso não pode ser enxertado na lista nova.
+    #[test]
+    fn reloading_the_file_forgets_the_removed_batch() {
+        let s = store_with("reload", &[1, 2]);
+        let (id, _) = s.remove_many(&[1]).unwrap();
+        s.load().unwrap();
+        assert_eq!(s.undo_remove(id).unwrap(), 0);
+        assert_eq!(ids(&s), vec![2]);
+    }
+
+    /// **Fix 5:** desbloquear por senha relê o disco, então um lote removido de
+    /// antes do unlock não pode voltar por um "Undo" velho (ressuscitaria contas
+    /// de antes da restauração).
+    #[test]
+    fn unlocking_by_password_forgets_the_removed_batch() {
+        let s = store_with("pw-undo", &[1, 2, 3]);
+        s.set_password(Some("secret-pw")).unwrap();
+        let (id, _) = s.remove_many(&[1]).unwrap();
+        assert_eq!(ids(&s), vec![2, 3]);
+
+        s.load_with_password("secret-pw").unwrap();
+        assert_eq!(s.undo_remove(id).unwrap(), 0, "o lote de antes do unlock sumiu");
+        assert_eq!(ids(&s), vec![2, 3], "as contas de antes da remoção não voltam");
+    }
+
+    /// Se a gravação falhar, a lista em memória fica como estava (memória =
+    /// arquivo) e o lote continua lá para tentar de novo.
+    #[test]
+    fn a_failed_save_changes_nothing_and_keeps_the_batch() {
+        let s = store_with("locked", &[1, 2, 3]);
+        let (id, _) = s.remove_many(&[2]).unwrap();
+        s.lock_writes_until_restart("test");
+
+        assert!(s.undo_remove(id).is_err());
+        assert_eq!(ids(&s), vec![1, 3]);
+        assert!(s.remove_many(&[1]).is_err());
+        assert_eq!(ids(&s), vec![1, 3], "remoção recusada não tira da memória");
+
+        s.allow_writes_after_reload();
+        assert_eq!(s.undo_remove(id).unwrap(), 1, "o lote de antes continua desfazível");
+        assert_eq!(ids(&s), vec![1, 2, 3]);
+    }
+}
+
+/// Export protegido por senha (ideia 38): o arquivo tem que abrir pelo import
+/// que já existe, em **outra** instalação, só com a senha.
+#[cfg(test)]
+mod account_export_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// Uma pasta por instalação simulada: o vault, o `.key` e o `.json.bak`
+    /// ficam lado a lado e somem juntos.
+    struct Install {
+        dir: PathBuf,
+        store: AccountStore,
+    }
+
+    impl Drop for Install {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    impl std::ops::Deref for Install {
+        type Target = AccountStore;
+        fn deref(&self) -> &AccountStore {
+            &self.store
+        }
+    }
+
+    /// Instalação nova, aberta como no boot: sem senha, cifrada pela chave
+    /// **deste** aparelho (um `.key` próprio, sorteado aqui).
+    fn install(tag: &str) -> Install {
+        crypto::init();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("ram-export-{tag}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        let store = AccountStore::new(dir.join("AccountData.json"));
+        store.load().expect("abrir vault novo");
+        Install { dir, store }
+    }
+
+    fn sample(store: &AccountStore) {
+        let mut main = Account::new("COOKIE-1".to_string(), "Main".to_string(), 1);
+        main.alias = "Principal".to_string();
+        main.group = "01 Mains".to_string();
+        main.password = "pw-1".to_string();
+        main.fields.insert("RobloxVersion".to_string(), "version-abc".to_string());
+        store.add(main).unwrap();
+        store
+            .add(Account::new("COOKIE-2".to_string(), "Alt".to_string(), 2))
+            .unwrap();
+    }
+
+    fn as_json(accounts: &[Account]) -> String {
+        serde_json::to_string(accounts).unwrap()
+    }
+
+    #[test]
+    fn an_export_opens_on_another_install_with_its_password_only() {
+        let source = install("source");
+        sample(&source);
+
+        let exported = source.export_with_password("  viaja-comigo  ").expect("exportar");
+        assert!(crypto::is_encrypted(&exported), "o arquivo sai cifrado");
+        assert!(
+            !String::from_utf8_lossy(&exported).contains("COOKIE-1"),
+            "nenhum cookie em texto no arquivo"
+        );
+
+        // Outra instalação: chave de aparelho diferente, sem o `.key` da origem.
+        let target = install("target");
+        assert_eq!(
+            target.import_old_account_data(&exported, None).unwrap_err(),
+            IMPORT_PASSWORD_REQUIRED,
+            "sem senha a UI tem que pedir a senha"
+        );
+        assert_eq!(
+            target
+                .import_old_account_data(&exported, Some("senha-errada"))
+                .unwrap_err(),
+            "Import password is incorrect"
+        );
+        assert!(target.get_all().unwrap().is_empty(), "senha errada não importa nada");
+
+        // Mesmo trim do unlock/import.
+        let summary = target
+            .import_old_account_data(&exported, Some("viaja-comigo"))
+            .expect("importar com a senha");
+        assert_eq!(summary.added, 2);
+        assert_eq!(
+            as_json(&target.get_all().unwrap()),
+            as_json(&source.get_all().unwrap()),
+            "as contas chegam inteiras: cookie, senha, alias, grupo, campos e ordem"
+        );
+    }
+
+    #[test]
+    fn the_export_never_touches_the_vault_or_its_session() {
+        let source = install("untouched");
+        sample(&source);
+        let vault_before = fs::read(&source.file_path).unwrap();
+
+        source.export_with_password("viaja-comigo").expect("exportar");
+
+        assert_eq!(fs::read(&source.file_path).unwrap(), vault_before, "o vault não foi regravado");
+        assert!(!source.has_user_password().unwrap(), "a senha do export não vira senha do app");
+    }
+
+    #[test]
+    fn a_short_password_or_nothing_to_export_is_refused() {
+        let empty = install("empty");
+        assert!(empty
+            .export_with_password("1234567")
+            .unwrap_err()
+            .contains("at least 8"));
+        // Espaço em volta não conta para o mínimo (mesmo trim do Pass Lock).
+        assert!(empty
+            .export_with_password("   1234567   ")
+            .unwrap_err()
+            .contains("at least 8"));
+        assert_eq!(
+            empty.export_with_password("12345678").unwrap_err(),
+            "There are no accounts to export."
+        );
+    }
+
+    #[test]
+    fn an_unreadable_vault_is_not_exported() {
+        let broken = install("broken");
+        sample(&broken);
+        fs::write(&broken.file_path, b"corrupt").unwrap();
+        assert!(broken.load().is_err());
+        assert!(broken.export_with_password("12345678").is_err());
     }
 }

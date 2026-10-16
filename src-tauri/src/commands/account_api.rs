@@ -43,6 +43,16 @@ fn persist_cookie_update(state: &AccountStore, user_id: i64, new_cookie: &str) -
     Ok(())
 }
 
+/// Grava a senha nova depois de uma troca bem-sucedida. Sem isto a conta ficava
+/// com a senha ANTIGA guardada: a próxima troca (ou o lote do menu Ações) usava
+/// essa como "senha atual" e o Roblox respondia que estava errada.
+fn persist_password_update(state: &AccountStore, user_id: i64, new_password: &str) -> Result<(), String> {
+    let mut account = get_account(state, user_id)?;
+    account.password = new_password.to_string();
+    state.update(account)?;
+    Ok(())
+}
+
 async fn refresh_account_session(state: &AccountStore, user_id: i64) -> Result<String, String> {
     let account = mark_refresh_attempt(state, user_id)?;
     let result = api::auth::log_out_other_sessions(&account.security_token).await?;
@@ -915,6 +925,37 @@ async fn get_servers(
     .await
 }
 
+/// Os servidores privados deste place que **a conta** pode acessar (uma página),
+/// lidos com o cookie dela — a seção "Private servers" da aba Servers.
+///
+/// **Sem `run_with_session_retry`**: é leitura, e o refresh chama
+/// `signoutfromallsessionsandreauthenticate`, que derrubaria as sessões abertas
+/// da conta. Cookie vencido vira o erro desta conta, e só dela.
+#[tauri::command]
+async fn get_private_servers(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+    place_id: i64,
+    cursor: Option<String>,
+) -> Result<api::roblox::PrivateServersResponse, String> {
+    get_private_servers_inner(state.inner(), user_id, place_id, cursor).await
+}
+
+async fn get_private_servers_inner(
+    state: &AccountStore,
+    user_id: i64,
+    place_id: i64,
+    cursor: Option<String>,
+) -> Result<api::roblox::PrivateServersResponse, String> {
+    if place_id <= 0 {
+        return Err("Enter a valid Place ID".to_string());
+    }
+    read_without_refresh(state, user_id, |cookie| async move {
+        api::roblox::get_private_servers(place_id, cursor.as_deref(), &cookie).await
+    })
+    .await
+}
+
 /// A lista de servidores **na ordem da preferência**, já sem os que não cabem
 /// o lote.
 ///
@@ -1288,6 +1329,12 @@ fn pick_viewer_cookie(accounts: &[data::accounts::Account]) -> Option<String> {
 /// **Fallback obrigatório:** se a chamada autenticada falhar (cookie morto,
 /// rede, o que for), repete sem cookie em vez de propagar o erro — uma única
 /// conta com sessão inválida não pode apagar a presença de todo mundo.
+///
+/// **Exceção: rate limit (429).** Um 429 na chamada autenticada é propagado
+/// **com o `Retry-After`** em vez de cair no anônimo: o limite é por IP, o
+/// anônimo tomaria 429 igual, e um sucesso anônimo aqui zeraria o backoff da
+/// espera da aba Seguir ("Wait until they're in a game") — ela nunca
+/// desaceleraria sob rate limiting. Continua só leitura, sem refresh de sessão.
 async fn presence_with_viewer_cookie(
     state: &AccountStore,
     user_ids: &[i64],
@@ -1299,12 +1346,22 @@ async fn presence_with_viewer_cookie(
         .or_else(|| state.get_all().ok().and_then(|accounts| pick_viewer_cookie(&accounts)));
 
     if let Some(token) = cookie {
-        if let Ok(presences) = api::roblox::get_presence_as(Some(&token), user_ids).await {
-            return Ok(presences);
+        match api::roblox::get_presence_as(Some(&token), user_ids).await {
+            Ok(presences) => return Ok(presences),
+            // 429: propaga (leva o Retry-After); não mascara com o anônimo.
+            Err(err) if is_presence_rate_limited(&err) => return Err(err),
+            // Cookie morto, rede, 5xx, ilegível: cai para o anônimo.
+            Err(_) => {}
         }
     }
 
     api::roblox::get_presence(user_ids).await
+}
+
+/// Erro de presença que é rate limit (429). O formato vem de
+/// `social_presence::get_presence_as` ("Failed to get presence (status 429...)").
+fn is_presence_rate_limited(err: &str) -> bool {
+    err.contains("status 429")
 }
 
 #[tauri::command]
@@ -1600,6 +1657,7 @@ async fn get_server_regions(
 /// para o launch, e todas as contas entram no mesmo servidor.
 #[tauri::command]
 async fn pick_server(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AccountStore>,
     settings: tauri::State<'_, SettingsStore>,
     user_id: i64,
@@ -1612,7 +1670,13 @@ async fn pick_server(
     let cookie = get_cookie(state.inner(), user_id)?;
     let template = server_region_template(settings.inner());
 
-    api::roblox::pick_server(
+    // No Console: a escolha do servidor roda ANTES do launch e pode levar
+    // segundos (várias páginas de servidores; com filtro de região, uma
+    // consulta por servidor). Sem esta linha o tempo entre o clique e o
+    // "Iniciando launch" não aparecia em lugar nenhum (relato do dono, 15/10).
+    emit_launch_log(&app, user_id, "info", "server", format!("Escolhendo servidor ({preference})..."));
+    let started = std::time::Instant::now();
+    let result = api::roblox::pick_server(
         &cookie,
         place_id,
         api::roblox::parse_server_preference(&preference),
@@ -1621,7 +1685,25 @@ async fn pick_server(
         &template,
         max_lookups.unwrap_or(api::roblox::REGION_LOOKUP_MAX),
     )
-    .await
+    .await;
+    let secs = started.elapsed().as_secs_f32();
+    match &result {
+        Ok(picked) => emit_launch_log(
+            &app,
+            user_id,
+            "info",
+            "server",
+            format!("Servidor escolhido em {secs:.1} s: {}", picked.job_id),
+        ),
+        Err(e) => emit_launch_log(
+            &app,
+            user_id,
+            "warn",
+            "server",
+            format!("Não deu para escolher o servidor em {secs:.1} s: {e}"),
+        ),
+    }
+    result
 }
 
 #[tauri::command]
@@ -1692,6 +1774,7 @@ async fn change_password(
     if let Some(new_cookie) = new_cookie {
         persist_cookie_update(state.inner(), user_id, &new_cookie)?;
     }
+    persist_password_update(state.inner(), user_id, &new_password)?;
 
     Ok(())
 }
@@ -1874,6 +1957,22 @@ mod account_api_tests {
         let stored = store.get_all().unwrap().remove(0);
         assert_eq!(stored.security_token, "NEW");
         assert!(stored.valid);
+    }
+
+    /// Troca de senha bem-sucedida: a senha guardada passa a ser a nova (antes
+    /// ficava a antiga, e a próxima troca falhava com "senha atual errada").
+    #[test]
+    fn persist_password_update_keeps_the_new_password_and_the_cookie() {
+        let store = temp_store("persist-password");
+        let mut acc = account(41, "COOKIE");
+        acc.password = "old-pass".into();
+        store.add(acc).unwrap();
+
+        persist_password_update(&store, 41, "new-pass-123").unwrap();
+
+        let stored = store.get_all().unwrap().remove(0);
+        assert_eq!(stored.password, "new-pass-123");
+        assert_eq!(stored.security_token, "COOKIE");
     }
 
     #[test]
@@ -2978,6 +3077,39 @@ mod account_api_http_tests {
         assert!(presences[0].game_id.is_none());
     }
 
+    /// 429 na chamada autenticada é propagado com o Retry-After, não mascarado
+    /// pelo anônimo: um sucesso anônimo aqui zeraria o backoff da espera da aba
+    /// Seguir, que nunca desaceleraria sob rate limit (regra do plano, Fix 5).
+    #[tokio::test]
+    async fn presence_with_viewer_cookie_propagates_a_429_instead_of_falling_back() {
+        let store = store_with(9075, "presence-429", "presence-429");
+
+        // Chamada autenticada: 429 com Retry-After.
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7075] })))
+            .and(header("cookie", cookie_of("presence-429")))
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "90"))
+            .mount(mock_server().await)
+            .await;
+
+        // Fallback anônimo responderia 200 — se fosse usado, o erro sumiria.
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7075] })))
+            .and(|req: &Request| !req.headers.contains_key("cookie"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{ "userPresenceType": 2, "userId": 7075, "gameId": null }]
+            })))
+            .mount(mock_server().await)
+            .await;
+
+        let err = presence_with_viewer_cookie(&store, &[7075], None)
+            .await
+            .expect_err("429 autenticado deve propagar");
+        assert_eq!(err, "Failed to get presence (status 429, retry after 90 s)");
+    }
+
     #[tokio::test]
     async fn presence_with_viewer_cookie_is_anonymous_when_the_store_is_empty() {
         let store = temp_store("presence-empty");
@@ -3308,5 +3440,86 @@ mod read_only_retry_tests {
     fn the_scan_still_sees_the_retry_helper_in_the_file() {
         assert!(FONTE.contains("fn run_with_session_retry"));
         assert!(FONTE.matches("run_with_session_retry(").count() > 5);
+    }
+}
+
+/// `get_private_servers`: lê com o cookie **da conta pedida** e nunca faz
+/// refresh de sessão.
+#[cfg(test)]
+mod private_servers_command_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    fn store_with(accounts: &[(i64, &str)], tag: &str) -> AccountStore {
+        crypto::init();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let store = AccountStore::new(std::env::temp_dir().join(format!("ram-privsrv-{tag}-{nanos}.json")));
+        for (user_id, token) in accounts {
+            store
+                .add(crate::data::accounts::Account::new(
+                    token.to_string(),
+                    format!("user{user_id}"),
+                    *user_id,
+                ))
+                .unwrap();
+        }
+        store
+    }
+
+    #[tokio::test]
+    async fn reads_with_the_cookie_of_the_requested_account() {
+        let server = mock_server().await;
+        let store = store_with(&[(8101, "ps-cmd-first"), (8102, "ps-cmd-second")], "cookie");
+
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games/7200/private-servers")))
+            .and(header("cookie", cookie_of("ps-cmd-second")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": null, "name": "Mine", "vipServerId": 5, "accessCode": "a-b-c-d-e", "maxPlayers": 6 }],
+                "nextPageCursor": null
+            })))
+            .mount(server)
+            .await;
+
+        let page = super::get_private_servers_inner(&store, 8102, 7200, None)
+            .await
+            .expect("page");
+        assert_eq!(page.data.len(), 1);
+        assert_eq!(page.data[0].name.as_deref(), Some("Mine"));
+    }
+
+    /// Sem mock de sign-out montado: um refresh apareceria como outra falha.
+    #[tokio::test]
+    async fn a_rejected_cookie_is_this_accounts_error_and_never_refreshes() {
+        let server = mock_server().await;
+        let store = store_with(&[(8103, "ps-cmd-401")], "refresh");
+
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games/7201/private-servers")))
+            .and(header("cookie", cookie_of("ps-cmd-401")))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(server)
+            .await;
+
+        let err = super::get_private_servers_inner(&store, 8103, 7201, None)
+            .await
+            .expect_err("401");
+        assert_eq!(err, "Failed to get private servers (status 401)");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_account_or_place_is_refused_before_any_request() {
+        let store = store_with(&[], "invalid");
+        assert!(super::get_private_servers_inner(&store, 8199, 7202, None).await.is_err());
+        let store = store_with(&[(8104, "ps-cmd-place")], "invalid-place");
+        assert_eq!(
+            super::get_private_servers_inner(&store, 8104, 0, None).await.unwrap_err(),
+            "Enter a valid Place ID"
+        );
     }
 }

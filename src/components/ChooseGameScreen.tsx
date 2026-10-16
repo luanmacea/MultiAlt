@@ -15,11 +15,18 @@ import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
-import { ArrowLeft, User, Link2, AlertTriangle, X, Bookmark } from "lucide-react";
+import { ArrowLeft, User, Link2, AlertTriangle, X, Bookmark, Eye, Hourglass } from "lucide-react";
+import {
+  cancelWaitForPlayer,
+  startWaitForPlayer,
+  useWaitForPlayerHost,
+  useWaitWatch,
+} from "./follow/waitForPlayerWatch";
+import { WAIT_POLL_INTERVAL_MS } from "../utils/waitForPlayer";
 import { newPresetDraft } from "../utils/presets";
 import type { LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
-import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
+import { isLaunchAlreadyActiveError, launchErrorText } from "../utils/robloxErrors";
 import { TourButton } from "./tour/TourButton";
 
 /**
@@ -30,11 +37,29 @@ type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow"
 
 /** Extra launch parameters for targets that were already resolved (join links). */
 type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode" | "followUserId">;
+/**
+ * `quickJoin`: "Entrar no jogo" dos Favoritos, Jogos e Recentes — sem servidor
+ * escolhido. Os filtros da aba Servidores (preferência, região) não valem aí
+ * (pedido do dono, 15/10/2026): uma conta entra direto (o Roblox escolhe o
+ * servidor, na hora); várias procuram só um servidor onde caibam juntas.
+ */
+type LaunchOptions = LaunchExtras & { quickJoin?: boolean };
 
 /** Result of a launch attempt, so callers can surface the failure inline. */
 type LaunchResult = { ok: boolean; error?: string };
 
 /** Launches all selected accounts into a given place/job. */
+/**
+ * Contas cujo launch está na preparação (conferindo presença, escolhendo
+ * servidor) — compartilhado entre todas as abas, que têm cada uma o seu
+ * `useLauncher`. Ver a trava de duplo clique em `launchAll`.
+ */
+const launchesPreparing = new Set<number>();
+
+export function resetLaunchesPreparingForTests() {
+  launchesPreparing.clear();
+}
+
 function useLauncher() {
   const store = useStore();
   const confirmJoinOnline = useJoinOnlineWarning();
@@ -53,9 +78,13 @@ function useLauncher() {
    */
   async function resolvePreferredJob(
     userIds: number[],
-    placeId: number
+    placeId: number,
+    quickJoin = false
   ): Promise<{ jobId: string; cancelled: boolean }> {
-    const preference = store.serverPreference;
+    // Entrada rápida com várias contas: só o "mesmo servidor com vaga para
+    // todas" (melhor encaixe), sem a preferência nem o filtro de região.
+    const preference = quickJoin ? "bestfit" : store.serverPreference;
+    const regionFilter = quickJoin ? "" : store.serverRegionFilter;
     if (preference === "none" || userIds.length === 0) {
       return { jobId: "", cancelled: false };
     }
@@ -65,12 +94,12 @@ function useLauncher() {
         placeId,
         preference,
         accounts: userIds.length,
-        countryCode: store.serverRegionFilter || null,
+        countryCode: regionFilter || null,
       });
       if (picked.regionFallback) {
         const ok = await confirm(
           tr("No server found in {{region}}. Join the best available one instead?", {
-            region: store.serverRegionFilter,
+            region: regionFilter,
           })
         );
         if (!ok) return { jobId: "", cancelled: true };
@@ -87,18 +116,52 @@ function useLauncher() {
     placeId: number,
     jobId: string = "",
     onStarted?: () => void,
+    options?: LaunchOptions
+  ): Promise<LaunchResult> {
+    const { quickJoin = false, ...extras } = options ?? {};
+    // Duplo clique (relato do dono, 15/10/2026): entre o clique e a fila
+    // existir, a tela confere quem está online e escolhe o servidor — alguns
+    // segundos sem resposta. O segundo clique abria a mesma conta de novo e o
+    // Roblox derrubava uma das duas (erro 276). Conta já em preparação aqui
+    // não começa outro launch.
+    if (userIds.some((id) => launchesPreparing.has(id))) {
+      const error = tr("This launch is already starting");
+      store.addToast(error);
+      return { ok: false, error };
+    }
+    userIds.forEach((id) => launchesPreparing.add(id));
+    // Resposta na hora: fecha a Escolher jogo e vai para a Sessão, que mostra
+    // a preparação ("Escolhendo servidor...") e, depois, a fila.
+    onStarted?.();
+    store.setLaunchPreparing({ userIds, step: "checking" });
+    try {
+      if (!(await confirmJoinOnline(userIds))) return { ok: false };
+
+      // A preferência só entra quando o usuário não escolheu servidor (e não
+      // quando se segue alguém: aí quem escolhe o servidor é o Roblox).
+      // Uma conta na entrada rápida: nada a buscar — o Roblox põe a conta num
+      // servidor na hora. Era aqui que o clique demorava segundos.
+      const needsServer = !jobId.trim() && !extras.joinVip && !extras.followUserId;
+      if (needsServer && !(quickJoin && userIds.length === 1)) {
+        store.setLaunchPreparing({ userIds, step: "server" });
+        const preferred = await resolvePreferredJob(userIds, placeId, quickJoin);
+        if (preferred.cancelled) return { ok: false };
+        jobId = preferred.jobId;
+      }
+      store.setLaunchPreparing({ userIds, step: "starting" });
+      return await startLaunch(userIds, placeId, jobId, extras);
+    } finally {
+      userIds.forEach((id) => launchesPreparing.delete(id));
+      store.setLaunchPreparing(null);
+    }
+  }
+
+  async function startLaunch(
+    userIds: number[],
+    placeId: number,
+    jobId: string,
     extras?: LaunchExtras
   ): Promise<LaunchResult> {
-    if (!(await confirmJoinOnline(userIds))) return { ok: false };
-
-    // A preferência só entra quando o usuário não escolheu servidor (e não
-    // quando se segue alguém: aí quem escolhe o servidor é o Roblox).
-    if (!jobId.trim() && !extras?.joinVip && !extras?.followUserId) {
-      const preferred = await resolvePreferredJob(userIds, placeId);
-      if (preferred.cancelled) return { ok: false };
-      jobId = preferred.jobId;
-    }
-    onStarted?.();
     // Keep the launch input fields in sync for the UI, but pass the target
     // explicitly to the launch call. setPlaceId/setJobId are async state
     // updates, so the launch closure would otherwise read the PREVIOUS
@@ -135,8 +198,8 @@ function useLauncher() {
         // "Launch failed: {{error}}" despejaria o código do backend na tela.
         return { ok: false, error: tr("A launch is already in progress") };
       }
-      store.addToast(tr("Launch failed: {{error}}", { error: String(e) }));
-      return { ok: false, error: String(e) };
+      store.addToast(tr("Launch failed: {{error}}", { error: launchErrorText(e, tr) }));
+      return { ok: false, error: launchErrorText(e, tr) };
     }
   }
 
@@ -309,6 +372,9 @@ function FollowTab({
   const [joinByFollowing] = useJoinByFollowing();
   const [followUser, setFollowUser] = useState("");
   const [launching, setLaunching] = useState(false);
+  /** Jogador que não deu para seguir agora: oferece esperar por ele. */
+  const [waitOffer, setWaitOffer] = useState<{ userId: number; name: string } | null>(null);
+  const watch = useWaitWatch();
 
   /**
    * Resolve o servidor do alvo UMA vez e manda todas as contas selecionadas
@@ -321,8 +387,10 @@ function FollowTab({
   async function handleFollow() {
     if (!followUser.trim()) return;
     setLaunching(true);
+    setWaitOffer(null);
     try {
       const user = await invoke<{ id: number }>("lookup_user", { username: followUser.trim() });
+      const offerWait = () => setWaitOffer({ userId: user.id, name: followUser.trim() });
       const presence = await invoke<FollowPresence[]>("get_presence", { userIds: [user.id] });
       const entry = presence?.[0];
       const presenceType = entry?.userPresenceType ?? entry?.user_presence_type ?? 0;
@@ -341,6 +409,7 @@ function FollowTab({
         // mesmo com ele escondido. Só não adianta com ele offline.
         if (presenceType === 0) {
           store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
+          offerWait();
           return;
         }
         const followed = await launchAll(userIds, rootPlace ?? serverPlace ?? 0, "", onLaunchStarted, {
@@ -356,6 +425,7 @@ function FollowTab({
 
       if (presenceType < 2 || !placeId) {
         store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
+        offerWait();
         return;
       }
       if (!jobId) {
@@ -366,7 +436,11 @@ function FollowTab({
             name: followUser,
           })
         );
-        if (!ok) return;
+        if (!ok) {
+          // Recusou o servidor público: pode esperar o servidor dele aparecer.
+          offerWait();
+          return;
+        }
       }
 
       const result = await launchAll(userIds, placeId, jobId, onLaunchStarted);
@@ -425,6 +499,69 @@ function FollowTab({
           </button>
         </div>
 
+        {watch ? (
+          <div
+            data-testid="follow-wait-status"
+            className="flex items-start gap-2 text-[12px] text-[var(--panel-fg)] bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-3 leading-relaxed"
+          >
+            <Eye size={13} strokeWidth={1.5} className="shrink-0 mt-[3px] theme-accent" />
+            <div className="min-w-0 flex-1">
+              <div>
+                {watch.phase === "launching"
+                  ? t("{{name}} is in a game. Launching...", { name: watch.name })
+                  : t("Watching {{name}}… (checks every {{seconds}} s)", {
+                      name: watch.name,
+                      seconds: Math.round(WAIT_POLL_INTERVAL_MS / 1000),
+                    })}
+              </div>
+              {watch.lastError && watch.phase === "watching" && (
+                <div className="text-[11px] text-amber-400 break-words">
+                  {t("Last check failed: {{error}}. Next check at {{time}}.", {
+                    error: watch.lastError,
+                    time: new Date(watch.nextCheckAt).toLocaleTimeString(),
+                  })}
+                </div>
+              )}
+            </div>
+            {watch.phase === "watching" && (
+              <button
+                onClick={cancelWaitForPlayer}
+                className="shrink-0 text-[12px] px-2.5 py-1 rounded-md theme-btn-ghost border theme-border transition-colors"
+              >
+                {t("Cancel")}
+              </button>
+            )}
+          </div>
+        ) : (
+          waitOffer && (
+            <div
+              data-testid="follow-wait-offer"
+              className="flex items-start gap-2 text-[12px] text-[var(--panel-fg)] bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-3 leading-relaxed"
+            >
+              <Hourglass size={13} strokeWidth={1.5} className="shrink-0 mt-[3px] theme-muted" />
+              <div className="min-w-0 flex-1">
+                <div>{t("{{name}} is not in a game you can join yet.", { name: waitOffer.name })}</div>
+                {!joinByFollowing && (
+                  <div className="text-[11px] theme-muted">
+                    {t("With “Join by following” off, their server must also be visible.")}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  startWaitForPlayer({ targetUserId: waitOffer.userId, name: waitOffer.name, userIds });
+                  setWaitOffer(null);
+                }}
+                disabled={userIds.length === 0}
+                style={{ width: "auto" }}
+                className="sidebar-btn theme-btn shrink-0 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {t("Wait until they're in a game")}
+              </button>
+            </div>
+          )
+        )}
+
         <JoinByFollowingToggle className="mb-3" />
 
         <div className="text-[12px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed">
@@ -468,6 +605,7 @@ export function ChooseGameScreen() {
   const store = useStore();
   const prompt = usePrompt();
   const launchAll = useLauncher();
+  const [joinByFollowing] = useJoinByFollowing();
   const [activeTab, setActiveTab] = useState<TabId>("favorites");
 
   const accounts = store.selectedAccounts;
@@ -492,9 +630,40 @@ export function ChooseGameScreen() {
    */
   const goToSession = () => store.setActivePage("session");
   const backToAccounts = () => {
+    // 15/10/2026 (pedido do dono): o launch leva para a Sessão, onde a
+    // preparação e a fila aparecem na hora. A Escolher jogo fecha junto — em
+    // 12/10 o problema era ela ficar aberta por baixo da Sessão e reabrir com
+    // as contas do lote anterior ao clicar em Contas.
     store.setChooseGameOpen(false);
-    store.setActivePage("accounts");
+    store.setActivePage("session");
   };
+
+  /**
+   * A espera da aba Seguir ("Wait until they're in a game") vive enquanto esta
+   * tela vive: trocar de aba não a para, fechar a Choose Game para. O launch é
+   * o mesmo `launchAll` do Follow — seguindo o jogador ou no servidor exato,
+   * conforme o toggle no momento em que ele entra.
+   */
+  useWaitForPlayerHost({
+    byFollowing: () => joinByFollowing,
+    currentUserIds: () => userIds,
+    notify: store.addToast,
+    launch: async (watch, join) => {
+      const result = await launchAll(
+        watch.userIds,
+        join.placeId,
+        join.jobId,
+        backToAccounts,
+        join.follow ? { followUserId: watch.targetUserId } : undefined
+      );
+      if (result.ok) {
+        store.addToast(
+          tr("Following {{name}} with {{count}} account(s)...", { name: watch.name, count: watch.userIds.length })
+        );
+      }
+      return result.ok;
+    },
+  });
 
   /**
    * Clique no card, nas abas Games/Recent.
@@ -518,11 +687,11 @@ export function ChooseGameScreen() {
   }
 
   async function handleFavoritesSelectGame(placeId: number, privateServer?: string) {
-    await launchAll(userIds, placeId, privateServer || "", backToAccounts);
+    await launchAll(userIds, placeId, privateServer || "", backToAccounts, { quickJoin: true });
   }
 
   async function handleJoinGame(placeId: number) {
-    await launchAll(userIds, placeId, "", backToAccounts);
+    await launchAll(userIds, placeId, "", backToAccounts, { quickJoin: true });
   }
 
   /** Vai para a aba Servers já com o place do jogo clicado. */
@@ -775,9 +944,6 @@ export function ChooseGameScreen() {
             {/* Em cima, os jogos abertos pelo MultiAlt (a lista de sempre);
                 embaixo, os recentes de cada conta no Roblox, como a aba Amigos. */}
             <section data-testid="recent-opened-by-app">
-              <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                {t("Opened by MultiAlt")}
-              </div>
               <RecentTab
                 onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
                 onJoinGame={handleJoinGame}
@@ -788,6 +954,7 @@ export function ChooseGameScreen() {
                 onBotting={handleBottingForGame}
                 onScripts={handleScriptsForGame}
                 fill={false}
+                layout="rail"
               />
             </section>
             <AccountRecentGames

@@ -215,17 +215,21 @@ struct EmergencyStopPayload {
 }
 
 /// Liga as bandeiras dos botões Parar: a da sessão do Modo AFK (quando há) e a
-/// da reprodução avulsa. Não fecha nada, não espera nada.
+/// da reprodução avulsa. A reprodução avulsa passa pelo `request_playback_stop`,
+/// que também sobe a geração do "parar" — assim uma reprodução já na fila (um
+/// launch ou uma reconexão em lote arma várias) aborta ao pegar a vez, não só a
+/// que toca. Não fecha nada, não espera nada.
 fn apply_emergency_stop(
     afk_stop: Option<&std::sync::atomic::AtomicBool>,
     playback_stop: &std::sync::atomic::AtomicBool,
+    playback_stop_gen: &std::sync::atomic::AtomicU64,
     playbacks_running: usize,
 ) -> EmergencyStopPayload {
     use std::sync::atomic::Ordering;
     if let Some(flag) = afk_stop {
         flag.store(true, Ordering::SeqCst);
     }
-    playback_stop.store(true, Ordering::SeqCst);
+    request_playback_stop(playback_stop, playback_stop_gen);
     EmergencyStopPayload {
         reason: "shake".to_string(),
         afk: afk_stop.is_some(),
@@ -315,6 +319,7 @@ fn trigger_emergency_stop(app: &tauri::AppHandle) {
     let payload = apply_emergency_stop(
         afk_stop.as_deref(),
         &RECORDING_PLAYBACK_STOP,
+        &RECORDING_PLAYBACK_STOP_GEN,
         RECORDING_PLAYBACKS.load(Ordering::SeqCst),
     );
     emit_session_log(
@@ -633,9 +638,13 @@ mod shake_stop_tests {
     fn the_emergency_stop_sets_the_afk_and_the_playback_stop_flags() {
         let afk = AtomicBool::new(false);
         let playback = AtomicBool::new(false);
-        let payload = apply_emergency_stop(Some(&afk), &playback, 1);
+        let playback_gen = std::sync::atomic::AtomicU64::new(3);
+        let payload = apply_emergency_stop(Some(&afk), &playback, &playback_gen, 1);
         assert!(afk.load(Ordering::SeqCst), "a sessão do Modo AFK não recebeu o parar");
         assert!(playback.load(Ordering::SeqCst), "a reprodução avulsa não recebeu o parar");
+        // O chacoalhar sobe a geração do "parar": uma reprodução já na fila (um
+        // launch ou reconexão em lote) aborta ao pegar a vez, não só a que toca.
+        assert_eq!(playback_gen.load(Ordering::SeqCst), 4);
         assert_eq!(
             payload,
             EmergencyStopPayload {
@@ -649,8 +658,10 @@ mod shake_stop_tests {
     #[test]
     fn without_an_afk_session_only_the_playback_is_stopped() {
         let playback = AtomicBool::new(false);
-        let payload = apply_emergency_stop(None, &playback, 0);
+        let playback_gen = std::sync::atomic::AtomicU64::new(0);
+        let payload = apply_emergency_stop(None, &playback, &playback_gen, 0);
         assert!(playback.load(Ordering::SeqCst));
+        assert_eq!(playback_gen.load(Ordering::SeqCst), 1);
         assert!(!payload.afk);
         assert!(!payload.recordings);
     }

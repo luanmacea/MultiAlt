@@ -40,6 +40,8 @@ export const SUITES: Record<string, TestSuite> = {
       "channel_follow_tests",
       "channel_build_pairing_tests",
       "channel_repair_tests",
+      "production_build_fallback_tests",
+      "build_download_retry_tests",
       "client_dir_tests",
       "browser_tracker_tests",
       "client_settings_file_path_tests",
@@ -71,6 +73,7 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_preset_validation_tests",
       "launch_preset_schedule_tests",
       "launch_preset_run_tests",
+      "tray_menu_tests",
     ],
     front: ["src/components/presets", "src/utils/presets.test.ts"],
   },
@@ -83,6 +86,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/session/SessionPanel.test.tsx",
       // "Em jogo" agrupado por jogo e servidor.
       "src/utils/sessionGroups.test.ts",
+      // Região e tempo no ar do servidor (log do cliente).
+      "src/utils/serverUptime.test.ts",
       // Estado ao vivo na lista de contas e o chip "precisam de atenção".
       "src/utils/accountLiveState.test.ts",
       "src/components/accounts/AccountLiveState.test.tsx",
@@ -109,6 +114,15 @@ export const SUITES: Record<string, TestSuite> = {
     description: "Store de contas, criptografia, modelo e comandos de conta",
     rust: [
       "account_store_tests",
+      // Export protegido por senha (ideia 38, Settings › Backups).
+      "account_export_tests",
+      "account_export_command_tests",
+      // Desfazer a remoção de contas (toast "Undo").
+      "account_undo_remove_tests",
+      "account_remove_command_tests",
+      // Renomear grupo (menu de contexto e cabeçalho do grupo).
+      "group_rename_tests",
+      "group_order_rename_tests",
       "account_helpers_tests",
       "account_path_tests",
       "account_api_tests",
@@ -141,7 +155,13 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/accounts",
       "src/components/dialogs/AddAccountDialog.test.tsx",
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
+      // Trocar senha/e-mail em massa (menu Acoes, issue 30).
+      "src/components/dialogs/BulkCredentialsDialog.test.tsx",
+      "src/utils/bulkCredentials.test.ts",
+      "src/utils/credentialErrors.test.ts",
       "src/components/dialogs/ImportDialog.test.tsx",
+      // Fields da conta: grava ao sair do campo e ao fechar, não só com Enter.
+      "src/components/dialogs/AccountFieldsDialog.test.tsx",
       "src/components/layout/VaultKeyBanner.test.tsx",
       // Cópia de credencial pelo backend (ideia 26).
       "src/components/menus/ContextMenu.test.tsx",
@@ -165,6 +185,12 @@ export const SUITES: Record<string, TestSuite> = {
       "client_log_session_tests",
       "client_health_monitor_tests",
       "client_window_title_tests",
+      // Cliente que entrou como outra conta (userid do log ≠ conta lançada).
+      "client_wrong_account_tests",
+      // Região e tempo no ar do servidor de cada cliente (Sessão).
+      "client_server_region_tests",
+      // Linhas do log compartilhadas com os clientes do site (roblox_log.rs).
+      "roblox_log_line_tests",
       // Reconexão automática da conta que caiu (commands/reconnect.rs).
       "auto_reconnect_tests",
       "auto_reconnect_target_tests",
@@ -219,12 +245,13 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   recordings: {
-    description: "Gravações: biblioteca, passos, qual vale para cada conta, reprodução e o gatilho depois da reconexão",
+    description: "Gravações: biblioteca, passos, qual vale para cada conta, reprodução e os gatilhos depois da reconexão e depois do launch",
     rust: [
       "recordings_store_tests",
       "recordings_validation_tests",
       "recordings_playback_tests",
       "recordings_after_reconnect_tests",
+      "recordings_after_launch_tests",
       "recordings_afk_mode_tests",
       // Importar do TinyTask (.rec): leitura do arquivo e conversão em passos.
       "tinytask_import_tests",
@@ -251,6 +278,7 @@ export const SUITES: Record<string, TestSuite> = {
     description: "Catálogo e instalação de versões do Roblox",
     rust: [
       "win_versions_tests",
+      "build_download_retry_tests",
       "versions_catalog_tests",
       "versions_command_tests",
       "versions_atomic_tests",
@@ -272,6 +300,8 @@ export const SUITES: Record<string, TestSuite> = {
       "auth_http_tests",
       "auth_extra_tests",
       "auth_challenge_tests",
+      // Motivo de recusa na troca de senha/e-mail (lote do menu Acoes).
+      "credential_failure_tests",
       "cookie_rotation_tests",
       "csrf_retry_tests",
       "user_api_tests",
@@ -326,7 +356,12 @@ export const SUITES: Record<string, TestSuite> = {
       "social_presence_extra_tests",
       "chromium_commands_tests",
     ],
-    front: ["src/components/pages/GroupsPage.test.tsx", "src/components/layout/NavSidebar.test.tsx"],
+    front: [
+      "src/components/pages/GroupsPage.test.tsx",
+      "src/components/layout/NavSidebar.test.tsx",
+      // Pedido de estrela no GitHub (rodapé da barra lateral).
+      "src/utils/starPrompt.test.ts",
+    ],
   },
   webserver: {
     description: "Servidor HTTP local: rotas, senha e bloqueio anti-CSRF",
@@ -377,7 +412,13 @@ export const SUITES: Record<string, TestSuite> = {
       "recent_games_http_tests",
       "recent_games_command_tests",
     ],
-    front: ["src/components/friends", "src/components/server-list/AccountRecentGames.test.tsx"],
+    front: [
+      "src/components/friends",
+      "src/components/server-list/AccountRecentGames.test.tsx",
+      // "Wait until they're in a game" da aba Seguir: política e laço.
+      "src/utils/waitForPlayer.test.ts",
+      "src/components/follow",
+    ],
   },
   servers: {
     description: "Escolha de servidor (aleatório/vazio/cheio), região e navegador de servidores",
@@ -387,10 +428,26 @@ export const SUITES: Record<string, TestSuite> = {
       "server_region_format_tests",
       "server_region_payload_tests",
       "server_region_http_tests",
+      "client_server_region_tests",
+      "roblox_log_line_tests",
       "server_scan_budget_tests",
       "server_scan_dedupe_tests",
+      // Seção "Private servers" da aba Servers (private-servers da conta).
+      "private_servers_list_tests",
+      "private_servers_command_tests",
     ],
     front: ["src/components/servers", "src/components/server-list"],
+  },
+  webhook: {
+    description: "Avisos no Discord por webhook: URL, filtro de eventos, lote/limite, mensagem com nomes ocultos, envio mockado",
+    rust: [
+      "discord_webhook_url_tests",
+      "discord_webhook_message_tests",
+      "discord_webhook_queue_tests",
+      "discord_webhook_http_tests",
+      "webhook_glue_tests",
+    ],
+    front: ["src/components/settings/NotificationsTab.test.tsx", "src/utils/discordWebhook.test.ts"],
   },
   settings: {
     description: "RAMSettings.ini, defaults, temas e presets",
@@ -455,6 +512,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/types.test.ts",
       "src/tauriWindowConfig.test.ts",
       "src/uiScale.test.ts",
+      "src/components/settings/AppTab.test.tsx",
       // Janela grande: páginas sem teto de largura em lista/cartão.
       "src/components/pages/wideLayout.test.ts",
       "src/repoOwnership.test.ts",

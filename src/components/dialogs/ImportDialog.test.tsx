@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
-import { ImportDialog } from "./ImportDialog";
+import { ImportDialog, isAccountDataFileName } from "./ImportDialog";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import { resetPromptMocks } from "../../test-utils/promptMocks";
@@ -245,5 +245,25 @@ describe("ImportDialog — failures name the account", () => {
     // A caixa de texto mostra o que a pessoa colou; o resultado não repete o nome.
     const line = await screen.findByText(/^\*+ — failed:/);
     expect(line).not.toHaveTextContent("secret_alt");
+  });
+});
+
+/**
+ * O export protegido por senha (Settings › Backups) sai como
+ * `AccountData-export-<data>.json`. Se o import só aceitasse o nome exato, o
+ * arquivo feito para levar as contas a outro PC seria recusado na porta.
+ */
+describe("ImportDialog — which files the old-data import accepts", () => {
+  it("accepts AccountData.json and the password-protected export", () => {
+    expect(isAccountDataFileName("AccountData.json")).toBe(true);
+    expect(isAccountDataFileName("accountdata.JSON")).toBe(true);
+    expect(isAccountDataFileName("AccountData-export-20261015-090507.json")).toBe(true);
+    expect(isAccountDataFileName("AccountData-export-20261015-090507 (1).json")).toBe(true);
+  });
+
+  it("still refuses other files", () => {
+    expect(isAccountDataFileName("RAMSettings.json")).toBe(false);
+    expect(isAccountDataFileName("AccountData.key")).toBe(false);
+    expect(isAccountDataFileName("AccountData.json.bak")).toBe(false);
   });
 });

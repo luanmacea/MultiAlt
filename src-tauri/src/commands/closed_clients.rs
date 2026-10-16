@@ -326,6 +326,7 @@ mod closed_clients_tests {
             destination: Some(JoinedDestination {
                 place_id,
                 job_id: Some(job.into()),
+                ..JoinedDestination::default()
             }),
             ..ClientSeen::default()
         }

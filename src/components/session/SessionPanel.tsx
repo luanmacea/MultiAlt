@@ -6,11 +6,13 @@ import {
   Crosshair,
   Gamepad2,
   Globe,
+  Loader2,
   PowerOff,
   RotateCw,
   SquareStop,
   UserCheck,
   UserPlus,
+  UserX,
   X,
 } from "lucide-react";
 import { useConfirm } from "../../hooks/usePrompt";
@@ -18,7 +20,7 @@ import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
-import { ClientHealthNote } from "./ClientHealthNote";
+import { ClientHealthNote, WrongAccountNote } from "./ClientHealthNote";
 import { ClosedClientsSection } from "./ClosedClientsSection";
 import { ReconnectBulkChip, ReconnectChip } from "./ReconnectChip";
 import { MemoryBulkChip, MemoryChip, type MemoryLimitValue } from "./MemoryLimitControl";
@@ -657,6 +659,11 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   // com quem não tem cliente aberto (fechou, desistiu). Antes as duas listas
   // repetiam as mesmas contas e empurravam o "Em jogo" para baixo.
   const runningSet = new Set(runningIds);
+  // Região e tempo no ar do servidor (log do cliente): as contas do grupo estão
+  // no mesmo servidor, então vale a primeira que já sabe.
+  const serverInfoOf = (ids: number[]) =>
+    ids.map((id) => store.clientHealth?.get(id)?.server).find((info) => info != null) ?? null;
+  const wrongAccountIds = runningIds.filter((id) => store.clientHealth?.get(id)?.wrongAccountUserId != null);
   const reconnectInRow = new Map(
     reconnecting.filter((entry) => runningSet.has(entry.userId)).map((entry) => [entry.userId, entry] as const)
   );
@@ -851,9 +858,10 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
               </span>
             )}
           </span>
+          {health?.wrongAccountUserId != null && <WrongAccountNote health={health} />}
           {(health?.drop || health?.notResponding) && <ClientHealthNote health={health} wrap />}
           {reconnectInRow.has(userId) && renderReconnectLine(reconnectInRow.get(userId)!)}
-          {session && context === "full" && <CurrentSessionLine session={session} />}
+          {session && context === "full" && <CurrentSessionLine session={session} server={health?.server} />}
         </span>
         <span className="flex items-center gap-1 shrink-0">
           {memoryChoice && (
@@ -915,6 +923,30 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-400"
         >
           {error}
+        </div>
+      )}
+
+      {store.launchPreparing && (
+        // Clique em Entrar: a fila ainda não existe (conferindo quem está
+        // online, escolhendo o servidor). Sem isto o clique ficava sem
+        // resposta por alguns segundos (relato do dono, 15/10/2026).
+        <div
+          role="status"
+          data-testid="launch-preparing"
+          className="flex items-center gap-2 rounded-lg border theme-border bg-[var(--panel-soft)] px-3 py-2 text-[12px] text-[var(--panel-fg)]"
+        >
+          <Loader2 size={13} className="shrink-0 animate-spin text-[var(--accent-color)]" aria-hidden="true" />
+          <span>
+            {store.launchPreparing.step === "checking"
+              ? t("Preparing to open {{count}} account(s): checking who is already online...", {
+                  count: store.launchPreparing.userIds.length,
+                })
+              : store.launchPreparing.step === "server"
+                ? t("Preparing to open {{count}} account(s): choosing the best server...", {
+                    count: store.launchPreparing.userIds.length,
+                  })
+                : t("Starting the launch...")}
+          </span>
         </div>
       )}
 
@@ -1272,6 +1304,28 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           )}
         </header>
 
+        {/* Cliente que entrou como outra conta: aviso no topo, além da linha
+            da conta (commands/client_health.rs). O app não o fecha. */}
+        {wrongAccountIds.length > 0 && (
+          <div
+            role="alert"
+            data-testid="session-wrong-account"
+            className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-red-400/40 bg-red-400/10 px-2.5 py-2 text-[12px] text-red-400"
+          >
+            <UserX size={13} strokeWidth={1.75} aria-hidden="true" className="shrink-0 mt-[2px]" />
+            <span className="min-w-0 flex flex-col gap-0.5">
+              {wrongAccountIds.map((id) => (
+                <span key={id}>
+                  {t("{{name}} opened as a different Roblox account (user {{id}}).", {
+                    name: nameFor(id),
+                    id: store.clientHealth?.get(id)?.wrongAccountUserId ?? "",
+                  })}
+                </span>
+              ))}
+              <span className="theme-muted">{t("The client stays open. Check which account is logged in to it.")}</span>
+            </span>
+          </div>
+        )}
         {runningIds.length === 0 && unidentified.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 px-3 py-6 theme-muted">
             <Gamepad2 size={20} strokeWidth={1.5} aria-hidden="true" />
@@ -1329,6 +1383,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                             selection={selectionOf(server.userIds)}
                             onSelect={() => toggleGroup(server.userIds)}
                             selectable={game.servers.length > 1}
+                            info={serverInfoOf(server.userIds)}
                           />
                           <ul className={rowGrid}>{server.userIds.map((id) => renderRow(id, "game"))}</ul>
                         </div>

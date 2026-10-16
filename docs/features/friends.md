@@ -26,6 +26,8 @@ Mostrar os amigos **online** de cada conta selecionada e, com um clique num amig
 
 ### Carga progressiva e cache da aba
 
+- **Fileiras de amigos** (pedido do dono, 14/10/2026), como o "Friends" do site do Roblox: cada conta é uma fileira ([CardRail.tsx](../../src/components/ui/CardRail.tsx)) com a foto grande do amigo (miniatura 150x150), o nome, o jogo e "Join". A lista em linha cheia deixava a tela larga vazia. Amigo que não dá para seguir continua aparecendo, esmaecido, com o motivo no lugar do jogo.
+
 - **Uma conta por vez na tela.** Enquanto a rodada corre, a aba mostra todas as contas da seleção, **na ordem da seleção** (a mesma do retorno final), não na ordem em que as respostas chegam (`upsertAccountFriends`). Conta que ainda não voltou aparece como pendente (`friends-pending-<id>`: cabeçalho com spinner e *Loading friends...*). Evento com outro `requestId` (sobra de uma rodada anterior) é ignorado; evento sem `requestId` só atualiza a contagem.
 - **Voltar à aba mostra o que ela tinha.** A última lista de cada seleção fica num cache de memória da sessão (`friendsCache`, ver `utils/sessionCache.ts`), assim como as miniaturas dos amigos. Ao voltar (trocando de aba ou saindo e entrando na Choose Game), a lista aparece no primeiro desenho e a consulta roda por trás: cada conta mostra um spinner no cabeçalho (`friends-updating-<id>`) até a resposta nova dela chegar e tomar o lugar.
 - **Voltar no meio de uma rodada não abre outra.** A rodada em curso fica registrada por seleção (`runningLoads`); a aba que monta de novo se junta a ela em vez de chamar o backend outra vez — duas rodadas juntas dobrariam as chamadas à API de amigos.
@@ -57,6 +59,19 @@ Desde 14/10/2026 o "Join" da aba **Amigos** e o "Follow" da aba **Seguir** entra
 - **Sempre pelo lote** (`launch_multiple`), mesmo com uma conta: o "seguir" só existe nele.
 - **Aba Seguir:** seguindo, o servidor escondido não impede (o Roblox acha o jogador); só presença **offline** para sem abrir nada. No modo antigo, servidor escondido pergunta antes de cair num público.
 - A privacidade do jogador ("quem pode entrar em mim") vale: se ela não deixar, o Roblox recusa a entrada, como no RAM antigo.
+
+### Esperar o jogador entrar num jogo (aba Seguir, desde 15/10/2026)
+
+Quando o Follow não consegue entrar (jogador offline; com o toggle desligado, também fora de jogo ou com o servidor escondido e o "entrar num público" recusado), além do aviso de sempre aparece **"Wait until they're in a game"**. Clicado, a tela passa a mostrar *Watching <nome>… (checks every 30 s)* com **Cancel**, e lança as contas selecionadas **assim que** o jogador estiver entrável.
+
+- **Quando conta como entrável** ([utils/waitForPlayer.ts](../../src/utils/waitForPlayer.ts), `evaluateWaitPresence`): seguindo, basta `userPresenceType == 2` (em jogo) — online no site ou no Studio não serve, seguir daria em nada; sem seguir, em jogo **e** com Job ID e place visíveis (place do servidor, como no Follow). O toggle é lido na hora de cada consulta.
+- **Ritmo** (constantes no mesmo arquivo): uma consulta a cada `WAIT_POLL_INTERVAL_MS` (30 s), a primeira só depois do primeiro intervalo; erro dobra a espera (60 s, 120 s…) até `WAIT_ERROR_BACKOFF_MAX_MS` (5 min); 429 sem `Retry-After` vai direto aos 5 min; com `Retry-After` espera o que o Roblox pediu se for mais. Desiste sozinha em `WAIT_MAX_DURATION_MS` (2 h), com aviso.
+- **`Retry-After`:** o `get_presence_as` põe a espera no erro do 429 (`Failed to get presence (status 429, retry after 90 s)`), e a política lê o número (`parseRetryAfterMs`).
+- **Presença:** o mesmo comando `get_presence` do Follow — sem `run_with_session_retry`, sem refresh de sessão.
+- **Onde vive:** num módulo ([components/follow/waitForPlayerWatch.ts](../../src/components/follow/waitForPlayerWatch.ts)), não no estado da aba — trocar de aba dentro da Choose Game não para a espera. A Choose Game a sustenta (`useWaitForPlayerHost`: fornece o launch) e, ao sumir (fechada ou a pessoa trocou de página com ela aberta), a cancela — mas **avisa** ("Stopped waiting for \<nome\>: the accounts screen closed."), não some em silêncio; quem clicou em **Cancel** já parou a espera, então aí não avisa de novo.
+- **Lança a seleção do momento:** o launch usa as contas selecionadas **quando o jogador entra**, não as de quando a espera começou (`currentUserIds` no host). Tirar um chip do lote enquanto espera não lança a conta removida; lote vazio encerra a espera sem lançar.
+- **Um launch só, e para:** quando o jogador fica entrável, a espera lança pelo `launchAll` de sempre (`launch_multiple`, seguindo ou no servidor exato, com o aviso de conta online) e termina, dê certo ou não.
+- Testes: `waitForPlayer.test.ts` (política), `waitForPlayerWatch.test.ts` (laço com timers falsos) e os de `ChooseGameScreen.test.tsx` (começar, cancelar, trocar de aba, lançar uma vez); `social_presence_extra_tests` (Rust, `Retry-After`).
 
 ## Configurações relacionadas
 

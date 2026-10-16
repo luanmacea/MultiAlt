@@ -364,6 +364,59 @@ describe("ContextMenu — group, botting and client entries", () => {
     await waitFor(() => expect(store.moveToGroup).toHaveBeenCalledWith([1], "Bots"));
   });
 
+  it("renames the account's group from the prompt, starting from the current name", async () => {
+    promptAnswers.prompt = "  02 Bots ";
+    const store = renderMenu();
+    await userEvent.click(item("Rename Group..."));
+    await waitFor(() => expect(store.renameGroup).toHaveBeenCalledWith("Alts", "02 Bots"));
+    expect(promptMock.mock.calls[0][1]).toBe("Alts");
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it("asks before merging into a group that already exists", async () => {
+    promptAnswers.prompt = "Farm";
+    promptAnswers.confirm = false;
+    const store = renderMenu();
+    await userEvent.click(item("Rename Group..."));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    expect(confirmMock.mock.calls[0][0]).toContain('"Farm" already exists');
+    expect(store.renameGroup).not.toHaveBeenCalled();
+
+    cleanup();
+    resetPromptMocks();
+    promptAnswers.prompt = "Farm";
+    promptAnswers.confirm = true;
+    const store2 = renderMenu();
+    await userEvent.click(item("Rename Group..."));
+    await waitFor(() => expect(store2.renameGroup).toHaveBeenCalledWith("Alts", "Farm"));
+  });
+
+  it("does nothing when the prompt is cancelled or the name is unchanged", async () => {
+    promptAnswers.prompt = null;
+    const store = renderMenu();
+    await userEvent.click(item("Rename Group..."));
+    await waitFor(() => expect(promptMock).toHaveBeenCalledTimes(1));
+    expect(store.renameGroup).not.toHaveBeenCalled();
+
+    cleanup();
+    promptAnswers.prompt = " Alts ";
+    const store2 = renderMenu();
+    await userEvent.click(item("Rename Group..."));
+    await waitFor(() => expect(promptMock).toHaveBeenCalledTimes(2));
+    expect(store2.renameGroup).not.toHaveBeenCalled();
+  });
+
+  /** O `Default` é o grupo implícito: renomeá-lo moveria todas as contas sem grupo. */
+  it("offers no rename for the Default group", () => {
+    const plain = makeAccount({ UserID: 3, Username: "cy", Group: "" });
+    renderMenu({ accounts: [A, B, plain] }, [plain]);
+    expect(screen.queryByText("Rename Group...")).not.toBeInTheDocument();
+    cleanup();
+    const named = makeAccount({ UserID: 4, Username: "di", Group: "Default" });
+    renderMenu({ accounts: [A, B, named] }, [named]);
+    expect(screen.queryByText("Rename Group...")).not.toBeInTheDocument();
+  });
+
   it("hides the botting entry while botting is off", () => {
     renderMenu();
     expect(screen.queryByText(/Auto Rejoin/)).not.toBeInTheDocument();

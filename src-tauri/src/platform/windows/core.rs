@@ -117,39 +117,127 @@ fn acquire_multi_roblox_mutex() -> Result<bool, String> {
 /// Sem cliente Roblox aberto a etapa nova não custa nada (sai na checagem de
 /// pids) e o comportamento antigo é idêntico.
 pub fn enable_multi_roblox() -> Result<bool, String> {
-    if acquire_multi_roblox_mutex()? {
-        // Um cliente aberto fora do app pode ter publicado o Event mesmo com o
-        // mutex na nossa mão; limpar é barato e não fecha ninguém.
-        let _ = close_roblox_singleton_handles();
-        apply_singleton_reservation();
-        lock_roblox_cookies()?;
-        return Ok(true);
+    match enable_multi_roblox_checked()? {
+        MultiRobloxOutcome::Enabled => Ok(true),
+        MultiRobloxOutcome::Blocked => Ok(false),
+        MultiRobloxOutcome::EventStillHeld { unreachable } => {
+            Err(event_still_held_message(unreachable).to_string())
+        }
     }
+}
 
-    // Mutex ocupado. Antes de desistir (e antes que o chamador caia no último
-    // recurso de matar clientes com `AutoCloseRobloxForMultiRbx`), destrava
-    // pelo Event — ou constata que ele já não existe.
-    let closed_now = close_roblox_singleton_handles();
+/// O que `enable_multi_roblox_checked` concluiu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MultiRobloxOutcome {
+    /// Pode abrir mais um cliente.
+    Enabled,
+    /// O caminho antigo do `Ok(false)`: quem segura o mutex não deu para
+    /// destravar (RAM legado, outra ferramenta, ou cliente sem Event a fechar).
+    Blocked,
+    /// Outro cliente **ainda** segura o `ROBLOX_singletonEvent` depois de
+    /// fechar e reservar. Abrir agora faria esse cliente fechar: o launch não
+    /// segue. `unreachable` = clientes cujo processo nem abriu (admin).
+    EventStillHeld { unreachable: usize },
+}
+
+/// Launch pulado porque outro cliente ainda segura o Event. Em inglês: o
+/// frontend traduz (`launchErrorText` em src/utils/robloxErrors.ts, que lê
+/// estas constantes do fonte no teste).
+pub const MULTI_ROBLOX_EVENT_HELD: &str = "Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.";
+/// O mesmo, quando algum processo do Roblox nem pôde ser aberto — o motivo
+/// mais comum é ele rodar como administrador.
+pub const MULTI_ROBLOX_EVENT_HELD_ADMIN: &str = "Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.";
+
+pub fn event_still_held_message(unreachable: usize) -> &'static str {
+    if unreachable > 0 {
+        MULTI_ROBLOX_EVENT_HELD_ADMIN
+    } else {
+        MULTI_ROBLOX_EVENT_HELD
+    }
+}
+
+/// Como a camada de launch responde ao resultado. `Some` = responder já;
+/// `None` = seguir o caminho antigo do `Ok(false)` (mensagem, ou o último
+/// recurso opt-in `AutoCloseRobloxForMultiRbx`). O Event preso **só** vira
+/// matança com essa opção ligada; desligada, o launch para com a mensagem.
+pub fn held_event_response(
+    outcome: MultiRobloxOutcome,
+    auto_close_conflicts: bool,
+) -> Option<Result<(), String>> {
+    match outcome {
+        MultiRobloxOutcome::Enabled => Some(Ok(())),
+        MultiRobloxOutcome::EventStillHeld { unreachable } if !auto_close_conflicts => {
+            Some(Err(event_still_held_message(unreachable).to_string()))
+        }
+        MultiRobloxOutcome::EventStillHeld { .. } | MultiRobloxOutcome::Blocked => None,
+    }
+}
+
+/// Decisão pura do `enable_multi_roblox_checked`, tomada **depois** de fechar
+/// os Events e aplicar a reserva. `event_blocks` = o nome ainda existe e não é
+/// a nossa reserva (`event_blocks_next_client`).
+///
+/// Com cliente Roblox aberto e o Event ainda preso, não abre — nem com o mutex
+/// na nossa mão (antes o resultado do fechamento era ignorado nesse caminho),
+/// nem tendo fechado *algum* Event (antes "fechei algum" bastava, mesmo com
+/// outro cliente ainda segurando o dele).
+fn multi_roblox_outcome(
+    holds_mutex: bool,
+    closed_now: usize,
+    roblox_running: bool,
+    event_blocks: bool,
+    unreachable: usize,
+) -> MultiRobloxOutcome {
+    if roblox_running && event_blocks {
+        return MultiRobloxOutcome::EventStillHeld { unreachable };
+    }
+    if holds_mutex || can_open_another_client(closed_now, roblox_running, event_blocks) {
+        MultiRobloxOutcome::Enabled
+    } else {
+        MultiRobloxOutcome::Blocked
+    }
+}
+
+/// `enable_multi_roblox` com o motivo da recusa. Nunca fecha cliente: no
+/// máximo fecha handles de Event e cria/fecha a reserva do app.
+pub fn enable_multi_roblox_checked() -> Result<MultiRobloxOutcome, String> {
+    // Um cliente aberto fora do app pode ter publicado o Event mesmo com o
+    // mutex na nossa mão; limpar é barato e não fecha ninguém. Com o mutex
+    // ocupado, é o que destrava antes de o chamador cair no último recurso de
+    // matar clientes (`AutoCloseRobloxForMultiRbx`).
+    let holds_mutex = acquire_multi_roblox_mutex()?;
+    let report = close_roblox_singleton_handles();
     apply_singleton_reservation();
     let roblox_running = !find_roblox_pids_all().is_empty();
-    if !can_open_another_client(
-        closed_now,
+    let event_blocks = event_blocks_next_client(
+        named_event_exists(ROBLOX_SINGLETON_EVENT),
+        singleton_reservation_held(),
+    );
+    let outcome = multi_roblox_outcome(
+        holds_mutex,
+        report.closed,
         roblox_running,
-        event_blocks_next_client(
-            named_event_exists(ROBLOX_SINGLETON_EVENT),
-            singleton_reservation_held(),
-        ),
-    ) {
-        // O Event existe e não deu para fechá-lo, ou quem segura o mutex é
-        // outra coisa (RAM legado, outra ferramenta). Caminho antigo.
-        return Ok(false);
+        event_blocks,
+        report.unreachable,
+    );
+    match outcome {
+        MultiRobloxOutcome::Enabled => {
+            if !holds_mutex {
+                // O mutex pode ter sido liberado nesse meio tempo; se não foi,
+                // seguimos assim mesmo — sem o Event o cliente novo não desiste.
+                let _ = acquire_multi_roblox_mutex()?;
+            }
+            lock_roblox_cookies()?;
+        }
+        MultiRobloxOutcome::EventStillHeld { unreachable } => {
+            eprintln!(
+                "Multi Roblox: {} ainda existe depois do fechamento ({} processo(s) inacessível(is)); launch pulado para não fechar o cliente aberto",
+                ROBLOX_SINGLETON_EVENT, unreachable
+            );
+        }
+        MultiRobloxOutcome::Blocked => {}
     }
-
-    // O mutex pode ter sido liberado nesse meio tempo; se não foi, seguimos
-    // assim mesmo — sem o Event o cliente novo não desiste mais.
-    let _ = acquire_multi_roblox_mutex()?;
-    lock_roblox_cookies()?;
-    Ok(true)
+    Ok(outcome)
 }
 
 /// Com o mutex nas mãos de outro processo: dá para abrir mais um cliente?
@@ -168,9 +256,11 @@ fn can_open_another_client(closed_now: usize, roblox_running: bool, event_exists
     closed_now > 0 || (roblox_running && !event_exists)
 }
 
-/// O nome do Event "existe" também quando é a **nossa** reserva (um Mutex com o
-/// mesmo nome: `OpenEventW` falha com tipo errado, não com "não encontrado").
-/// Essa não barra o próximo cliente — é justamente o que impede o Event.
+/// Um `ROBLOX_singletonEvent` (um Event de verdade) barra o próximo cliente,
+/// a não ser que seja a **nossa** reserva. `named_event_exists` já ignora um
+/// objeto de outro tipo com o mesmo nome (um Mutex), então `reserved_by_us`
+/// fica como salvaguarda explícita do caso em que somos nós que seguramos o
+/// nome.
 fn event_blocks_next_client(name_exists: bool, reserved_by_us: bool) -> bool {
     name_exists && !reserved_by_us
 }
@@ -715,7 +805,14 @@ mod singleton_reservation_tests {
 
         let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, wide.as_ptr()) };
         assert!(event.is_null(), "an Event was created over the reserved name");
-        assert!(named_event_exists(&name), "the name reads as taken");
+        // Um Mutex com esse nome não é um Event de cliente: `named_event_exists`
+        // não pode lê-lo como instância antiga (senão o app pularia o launch).
+        // Quem a nossa própria reserva não barra é garantido por
+        // `event_blocks_next_client(_, reserved_by_us = true)`.
+        assert!(
+            !named_event_exists(&name),
+            "a Mutex of the same name is not a blocking Event"
+        );
 
         unsafe { CloseHandle(reservation) };
         let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, wide.as_ptr()) };
@@ -771,5 +868,90 @@ mod multi_roblox_decision_tests {
     fn without_a_roblox_client_the_old_path_decides() {
         assert!(!can_open_another_client(0, false, false));
         assert!(!can_open_another_client(0, false, true));
+    }
+
+    // Regressão (ideia 33): com o mutex na nossa mão, o resultado do
+    // fechamento do Event era ignorado e o launch seguia; sem o mutex, "fechei
+    // algum" liberava mesmo com outro cliente ainda segurando o Event (o
+    // processo dele não abriu — Roblox rodando como administrador). O cliente
+    // novo sinalizaria o antigo, e o antigo fecharia.
+
+    #[test]
+    fn holding_the_mutex_does_not_launch_over_an_event_another_client_still_holds() {
+        assert_eq!(
+            multi_roblox_outcome(true, 0, true, true, 1),
+            MultiRobloxOutcome::EventStillHeld { unreachable: 1 }
+        );
+        assert_eq!(
+            multi_roblox_outcome(true, 2, true, true, 0),
+            MultiRobloxOutcome::EventStillHeld { unreachable: 0 }
+        );
+    }
+
+    #[test]
+    fn closing_one_event_does_not_count_while_another_is_still_held() {
+        assert_eq!(
+            multi_roblox_outcome(false, 1, true, true, 1),
+            MultiRobloxOutcome::EventStillHeld { unreachable: 1 }
+        );
+    }
+
+    #[test]
+    fn with_the_event_gone_the_launch_goes_ahead() {
+        assert_eq!(multi_roblox_outcome(true, 0, true, false, 0), MultiRobloxOutcome::Enabled);
+        assert_eq!(multi_roblox_outcome(true, 0, false, false, 0), MultiRobloxOutcome::Enabled);
+        assert_eq!(multi_roblox_outcome(false, 1, true, false, 0), MultiRobloxOutcome::Enabled);
+        assert_eq!(multi_roblox_outcome(false, 0, true, false, 0), MultiRobloxOutcome::Enabled);
+    }
+
+    #[test]
+    fn without_a_roblox_client_the_old_answers_stay() {
+        // Mutex nosso e nenhum cliente Roblox: o Event (se existir) não é de
+        // cliente nenhum, o launch segue como antes.
+        assert_eq!(multi_roblox_outcome(true, 0, false, true, 0), MultiRobloxOutcome::Enabled);
+        // Mutex de outro e nenhum cliente: o caminho antigo (RAM legado...).
+        assert_eq!(multi_roblox_outcome(false, 0, false, false, 0), MultiRobloxOutcome::Blocked);
+        assert_eq!(multi_roblox_outcome(false, 0, false, true, 0), MultiRobloxOutcome::Blocked);
+    }
+
+    #[test]
+    fn the_message_says_why_when_a_client_could_not_be_opened() {
+        assert_eq!(event_still_held_message(0), MULTI_ROBLOX_EVENT_HELD);
+        assert_eq!(event_still_held_message(1), MULTI_ROBLOX_EVENT_HELD_ADMIN);
+        assert!(MULTI_ROBLOX_EVENT_HELD_ADMIN.contains("administrator"));
+        for message in [MULTI_ROBLOX_EVENT_HELD, MULTI_ROBLOX_EVENT_HELD_ADMIN] {
+            assert!(message.contains("skipped"), "{message}");
+        }
+    }
+
+    /// O Event preso só vira matança com a opção opt-in ligada; desligada, o
+    /// launch para com a mensagem — nada é fechado.
+    #[test]
+    fn a_held_event_only_kills_with_the_opt_in_setting() {
+        assert_eq!(
+            held_event_response(MultiRobloxOutcome::EventStillHeld { unreachable: 1 }, false),
+            Some(Err(MULTI_ROBLOX_EVENT_HELD_ADMIN.to_string()))
+        );
+        assert_eq!(
+            held_event_response(MultiRobloxOutcome::EventStillHeld { unreachable: 0 }, true),
+            None,
+            "com AutoCloseRobloxForMultiRbx ligado segue o caminho antigo (o do opt-in)"
+        );
+        assert_eq!(held_event_response(MultiRobloxOutcome::Enabled, false), Some(Ok(())));
+        assert_eq!(held_event_response(MultiRobloxOutcome::Blocked, false), None);
+    }
+
+    #[test]
+    fn a_client_younger_than_five_seconds_is_waited_for() {
+        let now = 1_000_000;
+        assert_eq!(singleton_close_wait(now, &[]), Duration::ZERO);
+        assert_eq!(singleton_close_wait(now, &[None]), Duration::ZERO);
+        assert_eq!(singleton_close_wait(now, &[Some(now - 10_000)]), Duration::ZERO);
+        assert_eq!(
+            singleton_close_wait(now, &[Some(now - 10_000), Some(now - 1_500)]),
+            Duration::from_millis(3_500)
+        );
+        // Relógio estranho (criado "no futuro") nunca espera mais que o teto.
+        assert_eq!(singleton_close_wait(now, &[Some(now + 60_000)]), YOUNG_CLIENT_GRACE);
     }
 }

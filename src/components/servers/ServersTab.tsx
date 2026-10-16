@@ -8,8 +8,10 @@ import { accountLabel } from "../../utils/accountName";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { GameBadge } from "../ui/GameBadge";
 import { useTr } from "../../i18n/text";
+import { PrivateServersSection } from "./PrivateServersSection";
 import type {
   AccountAccess,
+  PrivateServer,
   ServerPreference,
   ServerRegion,
   ServerRegionProgress,
@@ -87,7 +89,9 @@ export type LaunchAllFn = (
   userIds: number[],
   placeId: number,
   jobId?: string,
-  onStarted?: () => void
+  onStarted?: () => void,
+  /** Servidor privado: `joinVip` + o código (aqui, o `accessCode`). */
+  extras?: { joinVip?: boolean; linkCode?: string }
 ) => Promise<{ ok: boolean; error?: string }>;
 
 /** Um servidor como a API devolve (`games/v1/games/{place}/servers/Public`). */
@@ -677,6 +681,18 @@ export function ServersTab({
     }
   }
 
+  /**
+   * Servidor privado da seção de cima: entra pelo caminho VIP de sempre
+   * (`joinVip` + `accessCode`, que vira `vip:<código>` no launch), com as
+   * contas que veem aquele servidor.
+   */
+  async function handleJoinPrivate(server: PrivateServer, holders: number[]) {
+    const place = parseInt(placeIdRef.current, 10);
+    const code = (server.accessCode || "").trim();
+    if (!place || !code || holders.length === 0) return;
+    await launchAll(holders, place, "", onLaunchStarted, { joinVip: true, linkCode: code });
+  }
+
   async function handleCopyJobId(jobId: string) {
     try {
       await navigator.clipboard.writeText(jobId);
@@ -911,6 +927,15 @@ export function ServersTab({
           )}
         </div>
       )}
+
+      {/* ── Servidores privados das contas, acima dos públicos ── */}
+      <PrivateServersSection
+        className="shrink-0"
+        userIds={userIds}
+        placeId={parseInt(placeId, 10) || 0}
+        onJoin={handleJoinPrivate}
+        accountName={(id) => (store.accounts.some((a) => a.UserID === id) ? accountName(id) : null)}
+      />
 
       {/* ── Lista ── */}
       <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border theme-border theme-surface">
