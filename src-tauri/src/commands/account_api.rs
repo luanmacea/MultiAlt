@@ -1291,6 +1291,12 @@ fn pick_viewer_cookie(accounts: &[data::accounts::Account]) -> Option<String> {
 /// **Fallback obrigatório:** se a chamada autenticada falhar (cookie morto,
 /// rede, o que for), repete sem cookie em vez de propagar o erro — uma única
 /// conta com sessão inválida não pode apagar a presença de todo mundo.
+///
+/// **Exceção: rate limit (429).** Um 429 na chamada autenticada é propagado
+/// **com o `Retry-After`** em vez de cair no anônimo: o limite é por IP, o
+/// anônimo tomaria 429 igual, e um sucesso anônimo aqui zeraria o backoff da
+/// espera da aba Seguir ("Wait until they're in a game") — ela nunca
+/// desaceleraria sob rate limiting. Continua só leitura, sem refresh de sessão.
 async fn presence_with_viewer_cookie(
     state: &AccountStore,
     user_ids: &[i64],
@@ -1302,12 +1308,22 @@ async fn presence_with_viewer_cookie(
         .or_else(|| state.get_all().ok().and_then(|accounts| pick_viewer_cookie(&accounts)));
 
     if let Some(token) = cookie {
-        if let Ok(presences) = api::roblox::get_presence_as(Some(&token), user_ids).await {
-            return Ok(presences);
+        match api::roblox::get_presence_as(Some(&token), user_ids).await {
+            Ok(presences) => return Ok(presences),
+            // 429: propaga (leva o Retry-After); não mascara com o anônimo.
+            Err(err) if is_presence_rate_limited(&err) => return Err(err),
+            // Cookie morto, rede, 5xx, ilegível: cai para o anônimo.
+            Err(_) => {}
         }
     }
 
     api::roblox::get_presence(user_ids).await
+}
+
+/// Erro de presença que é rate limit (429). O formato vem de
+/// `social_presence::get_presence_as` ("Failed to get presence (status 429...)").
+fn is_presence_rate_limited(err: &str) -> bool {
+    err.contains("status 429")
 }
 
 #[tauri::command]

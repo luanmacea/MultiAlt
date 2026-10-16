@@ -166,13 +166,25 @@ const WS_CLOSE_REASON_MAX_CHARS = 123;
 export const isSecretSettingKey = (key: string) =>
   /(password|apikey|api_key|secret|token)$/i.test(key) && !/^(allow|every|auto|require)/i.test(key);
 
+// Segredos cujo NOME não casa com o padrão acima: valor sensível preso a uma
+// seção+chave específica. `Webhook.Url` carrega o token do webhook do Discord
+// na própria URL — tem que sair, enquanto as flags booleanas do Webhook
+// (Enabled, NotifyDropped, HideNames, ...) continuam visíveis. Chave em
+// minúsculas no formato "secao.chave".
+const SECRET_SETTING_PATHS = new Set<string>(["webhook.url"]);
+
+const isSecretSettingPath = (section: string, key: string) =>
+  SECRET_SETTING_PATHS.has(`${section.toLowerCase()}.${key.toLowerCase()}`);
+
 export function redactSecretSettings<T>(settings: T): T {
   if (!settings || typeof settings !== "object") return settings;
   const out: Record<string, unknown> = {};
   for (const [section, values] of Object.entries(settings as Record<string, unknown>)) {
     if (values && typeof values === "object") {
       out[section] = Object.fromEntries(
-        Object.entries(values as Record<string, unknown>).filter(([key]) => !isSecretSettingKey(key))
+        Object.entries(values as Record<string, unknown>).filter(
+          ([key]) => !isSecretSettingKey(key) && !isSecretSettingPath(section, key)
+        )
       );
     } else {
       out[section] = values;
