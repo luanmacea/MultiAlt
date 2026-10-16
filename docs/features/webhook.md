@@ -25,11 +25,12 @@ interruptor.
 
 1. Settings › Notifications: liga **Send notifications to Discord**, cola a URL (campo de senha;
    grava ao sair do campo, só se for válida) e, se quiser, um texto antes de cada mensagem
-   (`@everyone`, `<@&id do cargo>`). **Send test message** manda na hora uma mensagem de exemplo
-   para a URL do campo (salva ou não) e mostra o resultado.
+   (`@everyone`, `<@&id do cargo>`). **Send test message** manda na hora, para a URL do campo
+   (salva ou não), um cartão "✅ Webhook conectado" com os avisos marcados e um **exemplo** de queda
+   com a primeira conta do app — exatamente como os avisos vão chegar.
 2. Um evento acontece no backend → `notify_webhook(app, tipo, conta, motivo, place)`: lê a seção
    `[Webhook]`; se a opção, a URL e a caixa daquele evento estão ligadas, monta o nome da conta
-   (mascarado por padrão) e põe na fila. **Sem rede aqui**: só lock de settings e da fila — nunca
+   (à mostra por padrão; mascarado com **Hide account names**) e põe na fila. **Sem rede aqui**: só lock de settings e da fila — nunca
    atrasa launch nem reconexão.
 3. `start_webhook_dispatcher` (task do tokio ligada no `setup`) olha a fila a cada 1 s:
    - **Lote:** espera 4 s depois do primeiro aviso para juntar os vizinhos (`BATCH_WINDOW_MS`);
@@ -55,18 +56,40 @@ interruptor.
 
 ## Mensagem
 
-Um embed por envio: título com o evento (ou "N updates"), uma linha por aviso —
-`**conta** — Dropped: lost the connection (code 277) · Place 920587237 · <t:…:T>` — cor pela
-pior linha, rodapé "MultiAlt". O `<t:…:T>` o Discord mostra na hora local de quem lê. Textos em
-inglês (o backend não passa pelo i18n da tela).
+Redesenhada em 15/10/2026 a pedido do dono ("o nome não apareceu, está feio — põe título, o que
+aconteceu"). Antes era um embed com uma linha em inglês por aviso e o nome mascarado.
 
-- **Nome da conta:** com **Hide account names in messages** (padrão) sai a mesma máscara do
-  "Names hidden" da tela (`mask_account_name`, com `General.HiddenNameLetters`); desligado, vai
-  Alias ou Username. Conta que não está mais no app vira "Unknown account".
-- **Nunca vai:** cookie, senha, Job ID, link ou código de servidor privado. Do jogo, só o Place ID.
-- **Texto livre** (nome, mensagem de kick) é escapado: não formata, não vira link e não menciona
-  ninguém (`@` ganha um espaço invisível). Só o texto antes da mensagem (`Mention`) pode mencionar;
-  sem ele, `allowed_mentions` vai vazio.
+**Um cartão (embed) por aviso**, até 10 por mensagem (o 10º resume o resto: "+N avisos a mais"):
+
+| Parte | O que leva |
+|---|---|
+| Título | ícone + evento: 🔴 Conta caiu · 🟢 Voltou para o jogo · 🟠 Não conseguiu reconectar · 🟡 Janela travada · ⚠️ Falha ao abrir · ⚠️ Abriu em outra conta |
+| Descrição | a frase do que aconteceu, com o nome em negrito ("**conta** saiu do jogo.") |
+| Conta | o nome; à mostra, vira link do perfil (`roblox.com/users/<id>/profile`) |
+| Jogo | o **nome** do jogo com link (`roblox.com/games/<place>`); sem nome conhecido, "Place 123" com o mesmo link |
+| Motivo | traduzido ("O Roblox fechou sem sair do jogo", "Perdeu a conexão (código 277)"…) |
+| Quando | `<t:…:R> · <t:…:T>` — o Discord mostra "há 2 minutos" e a hora local de quem lê |
+| Foto | a foto da conta (thumbnail), só com o nome à mostra |
+| Cor / rodapé | cor pela gravidade do evento; rodapé "MultiAlt" e a hora (`timestamp`) |
+
+- **Idioma:** o do app (`General.Language`): português, espanhol ou inglês (o resto cai em
+  inglês). O motivo é um **código** (`WebhookReason`) traduzido na hora de montar — o único texto
+  livre é o do kick.
+- **Nome do jogo e foto** (`webhook_enrich`): buscados na hora de enviar, nunca no aviso. Nome do
+  jogo pelo `multiget-place-details` com o cookie de uma conta do aviso, **só leitura, sem renovar a
+  sessão**, e guardado em cache; foto pelo `avatar-headshot` (sem cookie). Cada busca tem teto de
+  4 s; falhou, a mensagem sai sem aquilo.
+- **Nome da conta:** **à mostra por padrão** (`Webhook.MaskNames` = `false`: o canal é do próprio
+  usuário). Com **Hide account names in messages**, sai a mesma máscara do "Names hidden" da tela
+  (`General.HiddenNameLetters`) e **sem** foto e link do perfil (identificariam a conta). A opção
+  era `HideNames` (ligada) até 15/10/2026, nunca publicada — trocou de nome para o padrão novo valer.
+  Conta que não está mais no app vira "Unknown account".
+- **Mensagem de kick:** com os nomes à mostra, vai o texto do Roblox ("Expulsa: …"); mascarado, só a
+  categoria ("Expulsa do jogo (código 267)") — o texto pode citar o nome real de outro jogador.
+- **Nunca vai:** cookie, senha, Job ID, link ou código de servidor privado.
+- **Texto livre** (nome, mensagem de kick, nome do jogo) é escapado: não formata, não vira link e
+  não menciona ninguém (`@` ganha um espaço invisível). Só o texto antes da mensagem (`Mention`)
+  pode mencionar; sem ele, `allowed_mentions` vai vazio.
 
 ## Regras de negócio
 

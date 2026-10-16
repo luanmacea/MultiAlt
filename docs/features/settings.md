@@ -250,7 +250,7 @@ Seção Settings › **Notifications**. Avisos no Discord, **desligados** por pa
 | `NotifyReconnected` | `false` | A reconexão automática devolveu a conta ao jogo. |
 | `NotifyWrongAccount` | `true` | O cliente de uma conta entrou logado em outra conta do Roblox (a fila para; o cliente fica aberto). |
 | `NotifyLaunchFailed` | `false` | O launch de uma conta falhou (auth ticket ou abrir o cliente). |
-| `HideNames` | `true` | "Hide account names in messages": nome mascarado como no "Names hidden" (usa `General.HiddenNameLetters`). Desligado, vai Alias ou Username. |
+| `MaskNames` | `false` | "Hide account names in messages": nome mascarado como no "Names hidden" (usa `General.HiddenNameLetters`), sem foto nem link do perfil. Desligado (padrão desde 15/10/2026), vai Alias ou Username com foto e link. Substituiu o `HideNames` (ligado), nunca publicado. |
 
 ### `[Generator]` / `[BloxGen]`
 

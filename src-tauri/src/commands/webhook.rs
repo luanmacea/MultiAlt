@@ -9,21 +9,27 @@
 // - `notify_webhook` só lê as settings e põe na fila — nunca espera rede, então
 //   não atrasa launch nem reconexão. Quem manda é a task de
 //   `start_webhook_dispatcher`, uma passada por segundo.
-// - O nome da conta sai mascarado por padrão (`Webhook.HideNames`, mesma
-//   máscara do "Names hidden" da tela). A mensagem nunca leva cookie, senha,
-//   Job ID nem link de servidor privado.
+// - O nome da conta sai **à mostra** por padrão (o canal é do próprio usuário;
+//   pedido do dono, 15/10/2026). "Hide account names" (`Webhook.MaskNames`)
+//   mascara como o "Names hidden" da tela e tira foto e link do perfil. A
+//   mensagem nunca leva cookie, senha, Job ID nem link de servidor privado.
+// - A mensagem sai no idioma do app (`General.Language`: en/pt/es) e ganha, na
+//   hora de enviar, o nome do jogo e a foto da conta (`webhook_enrich`).
 
 use api::discord_webhook::{
-    build_message, parse_webhook_url, send as send_webhook, SendOutcome, WebhookConfig, WebhookEvent,
-    WebhookEventKind, WebhookQueue,
+    build_message, build_test_message, parse_webhook_url, send as send_webhook, SendOutcome, WebhookConfig,
+    WebhookEnrichment, WebhookEvent, WebhookEventKind, WebhookLang, WebhookQueue, WebhookReason,
 };
 
 const WEBHOOK_DISPATCH_TICK: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// Motivos da falha de launch na mensagem. Só a etapa — o texto do erro pode
-/// trazer URL de launch, ticket ou código de servidor privado.
-const WEBHOOK_AUTH_FAILED: &str = "could not get the authentication ticket";
-const WEBHOOK_SPAWN_FAILED: &str = "could not open the Roblox client";
+/// Teto de cada busca do enriquecimento (nome do jogo, foto): a mensagem não
+/// espera mais que isso — sem resposta, sai sem eles.
+const WEBHOOK_ENRICH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// Nome de cada jogo já buscado (Place ID → nome), para não pedir de novo.
+static WEBHOOK_GAME_NAMES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<i64, String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 static WEBHOOK_QUEUE: std::sync::LazyLock<std::sync::Mutex<WebhookQueue>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(WebhookQueue::new()));
@@ -41,8 +47,74 @@ fn webhook_config(app: &tauri::AppHandle) -> WebhookConfig {
     WebhookConfig::from_settings(|key| settings.get("Webhook", key).ok().flatten())
 }
 
+fn webhook_lang(app: &tauri::AppHandle) -> WebhookLang {
+    let language = app
+        .state::<SettingsStore>()
+        .get("General", "Language")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    WebhookLang::from_setting(&language)
+}
+
+/// Nome do jogo e foto da conta, buscados na hora de enviar. Só leitura: o
+/// nome do jogo usa o cookie de uma conta do aviso **sem** renovar sessão; a
+/// foto não usa cookie. Cada busca tem teto (`WEBHOOK_ENRICH_TIMEOUT`); falhou,
+/// a mensagem sai sem aquilo.
+async fn webhook_enrich(app: &tauri::AppHandle, events: &[WebhookEvent]) -> WebhookEnrichment {
+    let mut out = WebhookEnrichment::default();
+
+    let mut places: Vec<i64> = Vec::new();
+    for place in events.iter().filter_map(|e| e.place_id).filter(|p| *p > 0) {
+        let cached = WEBHOOK_GAME_NAMES.lock().ok().and_then(|m| m.get(&place).cloned());
+        match cached {
+            Some(name) => {
+                out.game_names.insert(place, name);
+            }
+            None if !places.contains(&place) => places.push(place),
+            None => {}
+        }
+    }
+    if !places.is_empty() {
+        let store = app.state::<AccountStore>();
+        let cookie = events.iter().find_map(|e| get_cookie(store.inner(), e.user_id).ok());
+        if let Ok(Ok(details)) =
+            tokio::time::timeout(WEBHOOK_ENRICH_TIMEOUT, api::roblox::get_place_details(&places, cookie.as_deref()))
+                .await
+        {
+            for d in details {
+                if !d.name.trim().is_empty() {
+                    if let Ok(mut cache) = WEBHOOK_GAME_NAMES.lock() {
+                        cache.insert(d.place_id, d.name.clone());
+                    }
+                    out.game_names.insert(d.place_id, d.name);
+                }
+            }
+        }
+    }
+
+    let mut users: Vec<i64> = Vec::new();
+    for e in events.iter().filter(|e| !e.masked && e.user_id > 0) {
+        if !users.contains(&e.user_id) {
+            users.push(e.user_id);
+        }
+    }
+    if !users.is_empty() {
+        if let Ok(Ok(thumbs)) =
+            tokio::time::timeout(WEBHOOK_ENRICH_TIMEOUT, api::roblox::get_avatar_headshots(&users, "150x150")).await
+        {
+            for t in thumbs {
+                if let Some(url) = t.image_url.filter(|u| !u.trim().is_empty()) {
+                    out.avatars.insert(t.target_id, url);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Nome da conta na mensagem: Alias || Username; com "Hide account names"
-/// (padrão), a mesma máscara da tela com os nomes ocultos.
+/// ligado, a mesma máscara da tela com os nomes ocultos.
 fn webhook_account_name(alias: &str, username: &str, hide: bool, preview_letters: i64) -> String {
     if alias.trim().is_empty() && username.trim().is_empty() {
         return "Unknown account".to_string();
@@ -62,7 +134,7 @@ fn webhook_account_label(app: &tauri::AppHandle, config: &WebhookConfig, user_id
         .into_iter()
         .find(|a| a.user_id == user_id);
     match account {
-        Some(a) => webhook_account_name(&a.alias, &a.username, config.hide_names, letters),
+        Some(a) => webhook_account_name(&a.alias, &a.username, config.mask_names, letters),
         None => "Unknown account".to_string(),
     }
 }
@@ -73,7 +145,7 @@ pub(crate) fn notify_webhook(
     app: &tauri::AppHandle,
     kind: WebhookEventKind,
     user_id: i64,
-    reason: Option<String>,
+    reason: Option<WebhookReason>,
     place_id: Option<i64>,
 ) {
     let config = webhook_config(app);
@@ -83,7 +155,9 @@ pub(crate) fn notify_webhook(
     let now_ms = chrono::Utc::now().timestamp_millis();
     let event = WebhookEvent {
         kind,
+        user_id,
         account: webhook_account_label(app, &config, user_id),
+        masked: config.mask_names,
         reason,
         place_id,
         at_ms: now_ms,
@@ -91,50 +165,47 @@ pub(crate) fn notify_webhook(
     with_webhook_queue(|queue| queue.push(event, now_ms));
 }
 
-/// Motivo da queda em inglês (a mensagem não passa pelo i18n da tela).
-///
-/// O texto cru do kick do Roblox pode citar o nome real de outro jogador
-/// ("kicked by <username>", "<username> banned you", ...). Com "Hide account
-/// names" ligado (padrão) sai só a CATEGORIA ("kicked from the game"); o texto
-/// completo só quando a pessoa desligou o mascaramento.
-fn webhook_drop_reason(drop: &ClientDrop, hide_names: bool) -> String {
-    let code = drop.code.map(|c| format!(" (code {c})")).unwrap_or_default();
+/// Motivo da queda, como código (a mensagem traduz). O texto cru do kick do
+/// Roblox pode citar o nome real de outro jogador ("kicked by <username>"): com
+/// "Hide account names" ligado, só a CATEGORIA; o texto só com os nomes à mostra.
+fn webhook_drop_reason(drop: &ClientDrop, mask_names: bool) -> WebhookReason {
+    let code = drop.code;
     match drop.kind {
         DropKind::Disconnected => match drop.reason {
-            Some(DropReason::ConnectionLost) => format!("lost the connection{code}"),
-            Some(DropReason::JoinedElsewhere) => format!("the account joined somewhere else{code}"),
-            Some(DropReason::Idle) => format!("idle for too long{code}"),
-            _ => format!("disconnected{code}"),
+            Some(DropReason::ConnectionLost) => WebhookReason::ConnectionLost { code },
+            Some(DropReason::JoinedElsewhere) => WebhookReason::JoinedElsewhere { code },
+            Some(DropReason::Idle) => WebhookReason::Idle { code },
+            _ => WebhookReason::Disconnected { code },
         },
-        DropKind::Kicked => match &drop.message {
-            Some(message) if !hide_names => format!("kicked: {message}"),
-            _ => format!("kicked from the game{code}"),
+        DropKind::Kicked => WebhookReason::Kicked {
+            code,
+            message: if mask_names { None } else { drop.message.clone() },
         },
-        DropKind::ServerShutdown => format!("the server shut down{code}"),
-        DropKind::Crashed => "the client closed without leaving the game".to_string(),
+        DropKind::ServerShutdown => WebhookReason::ServerShutdown { code },
+        DropKind::Crashed => WebhookReason::ClosedWithoutLeaving,
     }
 }
 
 /// O que cada aviso de reconexão vira (ou nada).
-fn webhook_reconnect_event(notice: &ReconnectNotice) -> Option<(WebhookEventKind, i64, Option<String>)> {
+fn webhook_reconnect_event(notice: &ReconnectNotice) -> Option<(WebhookEventKind, i64, Option<WebhookReason>)> {
     match notice {
         ReconnectNotice::Reconnected { user_id } => Some((WebhookEventKind::Reconnected, *user_id, None)),
         ReconnectNotice::GaveUp { user_id, attempts } => Some((
             WebhookEventKind::ReconnectFailed,
             *user_id,
-            Some(format!("gave up after {attempts} attempts")),
+            Some(WebhookReason::GaveUp { attempts: *attempts }),
         )),
         ReconnectNotice::Stopped { user_id, reason } => {
-            let text = match reason {
-                ReconnectStopReason::Banned => "the account is banned",
-                ReconnectStopReason::SessionExpired => "the session expired; log in to the account again",
-                ReconnectStopReason::NoDestination => "no game to return to",
+            let reason = match reason {
+                ReconnectStopReason::Banned => WebhookReason::Banned,
+                ReconnectStopReason::SessionExpired => WebhookReason::SessionExpired,
+                ReconnectStopReason::NoDestination => WebhookReason::NoDestination,
                 // A pessoa fechou, ou a conta está em outro lugar: não é falha.
                 ReconnectStopReason::JoinedElsewhere
                 | ReconnectStopReason::ClosedByUser
                 | ReconnectStopReason::OpenedOutsideApp => return None,
             };
-            Some((WebhookEventKind::ReconnectFailed, *user_id, Some(text.to_string())))
+            Some((WebhookEventKind::ReconnectFailed, *user_id, Some(reason)))
         }
         _ => None,
     }
@@ -169,14 +240,14 @@ fn webhook_place_of(user_id: i64) -> Option<i64> {
 
 #[cfg(target_os = "windows")]
 pub(crate) fn webhook_after_health_tick(app: &tauri::AppHandle, notices: &[HealthNotice]) {
-    let hide_names = webhook_config(app).hide_names;
+    let mask_names = webhook_config(app).mask_names;
     for notice in notices {
         match notice {
             HealthNotice::Dropped { user_id, drop, .. } => notify_webhook(
                 app,
                 WebhookEventKind::Dropped,
                 *user_id,
-                Some(webhook_drop_reason(drop, hide_names)),
+                Some(webhook_drop_reason(drop, mask_names)),
                 webhook_place_of(*user_id),
             ),
             HealthNotice::NotResponding {
@@ -186,7 +257,7 @@ pub(crate) fn webhook_after_health_tick(app: &tauri::AppHandle, notices: &[Healt
                 app,
                 WebhookEventKind::NotResponding,
                 *user_id,
-                Some("the window has not responded for 30 s".to_string()),
+                Some(WebhookReason::NotResponding),
                 webhook_place_of(*user_id),
             ),
             // O cliente nunca é fechado (pode ser a conta principal); o aviso
@@ -195,7 +266,7 @@ pub(crate) fn webhook_after_health_tick(app: &tauri::AppHandle, notices: &[Healt
                 app,
                 WebhookEventKind::WrongAccount,
                 *user_id,
-                Some("the client opened logged into a different Roblox account".to_string()),
+                Some(WebhookReason::OtherAccount),
                 webhook_place_of(*user_id),
             ),
             _ => {}
@@ -224,7 +295,8 @@ pub(crate) fn start_webhook_dispatcher(app: tauri::AppHandle) {
             let Some(target) = config.target.clone().filter(|_| config.enabled) else {
                 continue;
             };
-            let body = build_message(&batch, &config.mention);
+            let extra = webhook_enrich(&app, &batch).await;
+            let body = build_message(&batch, &config.mention, webhook_lang(&app), &extra);
             match send_webhook(&client, &target, &body).await {
                 Ok(SendOutcome::Sent) => {}
                 Ok(SendOutcome::RateLimited { retry_after_ms }) => {
@@ -238,23 +310,46 @@ pub(crate) fn start_webhook_dispatcher(app: tauri::AppHandle) {
     });
 }
 
-/// "Send test message": manda já, para a URL do campo (salva ou não).
+/// "Send test message": manda já, para a URL do campo (salva ou não). Um cartão
+/// "Webhook conectado" com os avisos marcados e um exemplo de queda com a
+/// primeira conta do app (nome à mostra ou mascarado, como a opção manda).
 #[tauri::command]
 async fn send_test_webhook(app: tauri::AppHandle, url: String, mention: Option<String>) -> Result<(), String> {
     let target = parse_webhook_url(&url)?;
     let config = webhook_config(&app);
-    let letters = app
-        .state::<SettingsStore>()
-        .get_int("General", "HiddenNameLetters")
-        .unwrap_or(0);
-    let sample = WebhookEvent {
+    let lang = webhook_lang(&app);
+    let enabled: Vec<WebhookEventKind> = [
+        WebhookEventKind::Dropped,
+        WebhookEventKind::ReconnectFailed,
+        WebhookEventKind::NotResponding,
+        WebhookEventKind::Reconnected,
+        WebhookEventKind::LaunchFailed,
+        WebhookEventKind::WrongAccount,
+    ]
+    .into_iter()
+    .filter(|k| config.wants_box(*k))
+    .collect();
+
+    let first = app.state::<AccountStore>().get_all().unwrap_or_default().into_iter().next();
+    let sample = first.map(|a| WebhookEvent {
         kind: WebhookEventKind::Dropped,
-        account: webhook_account_name("", "Example account", config.hide_names, letters),
-        reason: Some("test message from MultiAlt; real notifications look like this".to_string()),
+        user_id: a.user_id,
+        account: webhook_account_label(&app, &config, a.user_id),
+        masked: config.mask_names,
+        reason: Some(WebhookReason::ClosedWithoutLeaving),
         place_id: None,
         at_ms: chrono::Utc::now().timestamp_millis(),
+    });
+    let extra = match &sample {
+        Some(e) => webhook_enrich(&app, std::slice::from_ref(e)).await,
+        None => WebhookEnrichment::default(),
     };
-    let body = build_message(&[sample], mention.as_deref().unwrap_or(&config.mention));
+    let body = build_test_message(
+        mention.as_deref().unwrap_or(&config.mention),
+        lang,
+        &enabled,
+        sample.as_ref().map(|e| (e, &extra)),
+    );
     let client = api::http_client::client();
     match send_webhook(&client, &target, &body).await? {
         SendOutcome::Sent => Ok(()),
@@ -276,7 +371,7 @@ mod webhook_glue_tests {
     }
 
     #[test]
-    fn drop_reasons_read_in_english_with_the_code() {
+    fn drop_reasons_become_codes_with_the_roblox_code() {
         let drop = |kind, reason, code, message: Option<&str>| ClientDrop {
             kind,
             reason,
@@ -285,24 +380,17 @@ mod webhook_glue_tests {
             since_ms: 0,
         };
         assert_eq!(
-            webhook_drop_reason(
-                &drop(DropKind::Disconnected, Some(DropReason::ConnectionLost), Some(277), None),
-                false
-            ),
-            "lost the connection (code 277)"
-        );
-        assert_eq!(
-            webhook_drop_reason(&drop(DropKind::Kicked, None, Some(267), Some("AFK")), false),
-            "kicked: AFK"
+            webhook_drop_reason(&drop(DropKind::Disconnected, Some(DropReason::ConnectionLost), Some(277), None), false),
+            WebhookReason::ConnectionLost { code: Some(277) }
         );
         assert_eq!(
             webhook_drop_reason(&drop(DropKind::Crashed, None, None, None), false),
-            "the client closed without leaving the game"
+            WebhookReason::ClosedWithoutLeaving
         );
     }
 
     #[test]
-    fn a_kick_reason_is_hidden_when_names_are_hidden() {
+    fn a_kick_message_only_goes_out_with_the_names_showing() {
         let drop = |message: Option<&str>, code| ClientDrop {
             kind: DropKind::Kicked,
             reason: None,
@@ -310,20 +398,17 @@ mod webhook_glue_tests {
             message: message.map(String::from),
             since_ms: 0,
         };
-        // Com HideNames ligado (padrão), o texto cru do kick — que pode trazer o
-        // nome real de um jogador — não sai; só a categoria, com o código.
+        // Mascarado: o texto cru do kick (pode trazer o nome real de um
+        // jogador) não sai; só a categoria, com o código.
         assert_eq!(
             webhook_drop_reason(&drop(Some("Kicked by SomeRealPlayer42"), Some(267)), true),
-            "kicked from the game (code 267)"
+            WebhookReason::Kicked { code: Some(267), message: None }
         );
-        // Com HideNames desligado, a mensagem completa sai.
+        // Nomes à mostra: a mensagem completa sai.
         assert_eq!(
             webhook_drop_reason(&drop(Some("Kicked by SomeRealPlayer42"), Some(267)), false),
-            "kicked: Kicked by SomeRealPlayer42"
+            WebhookReason::Kicked { code: Some(267), message: Some("Kicked by SomeRealPlayer42".into()) }
         );
-        // Sem mensagem, os dois caminhos dão a categoria.
-        assert_eq!(webhook_drop_reason(&drop(None, Some(267)), true), "kicked from the game (code 267)");
-        assert_eq!(webhook_drop_reason(&drop(None, Some(267)), false), "kicked from the game (code 267)");
     }
 
     #[test]

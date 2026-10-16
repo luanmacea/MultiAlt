@@ -89,7 +89,7 @@ describe("redactSecretSettings", () => {
         Enabled: "true",
         Url: "https://discord.com/api/webhooks/123456789/aBcDeF-SecretToken",
         NotifyDropped: "true",
-        HideNames: "true",
+        MaskNames: "false",
         Mention: "role:987",
       },
     };
@@ -100,7 +100,7 @@ describe("redactSecretSettings", () => {
     expect(out.Webhook).toEqual({
       Enabled: "true",
       NotifyDropped: "true",
-      HideNames: "true",
+      MaskNames: "false",
       Mention: "role:987",
     });
     expect(JSON.stringify(out)).not.toContain("SecretToken");

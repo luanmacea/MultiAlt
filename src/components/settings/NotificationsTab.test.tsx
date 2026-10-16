@@ -22,7 +22,7 @@ function defaults(): Record<string, Record<string, string>> {
       NotifyReconnectFailed: "true",
       NotifyNotResponding: "true",
       NotifyLaunchFailed: "false",
-      HideNames: "true",
+      MaskNames: "false",
     },
   };
 }
@@ -71,7 +71,8 @@ describe("Settings › Notifications (Discord webhook)", () => {
     expect(on("A client stopped responding")).toBe("true");
     expect(on("An account reconnected")).toBe("false");
     expect(on("A launch failed")).toBe("false");
-    expect(on("Hide account names in messages")).toBe("true");
+    // Nomes à mostra por padrão (15/10/2026): o canal é do próprio usuário.
+    expect(on("Hide account names in messages")).toBe("false");
   });
 
   it("an invalid URL is refused next to the field and never saved", async () => {

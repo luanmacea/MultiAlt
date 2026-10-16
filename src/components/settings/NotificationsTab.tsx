@@ -179,8 +179,8 @@ export function NotificationsTab({ s }: { s: UseSettingsReturn }) {
 
       <Divider />
       <Toggle
-        checked={flag("HideNames", true)}
-        onChange={(v) => s.setBool("Webhook", "HideNames", v)}
+        checked={flag("MaskNames", false)}
+        onChange={(v) => s.setBool("Webhook", "MaskNames", v)}
         label="Hide account names in messages"
         description="On: names are masked like the Names hidden mode. Off: the alias (or username) is sent. Cookies, passwords and private server links are never sent."
       />

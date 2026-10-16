@@ -1434,7 +1434,7 @@ async fn launch_roblox_windows(
         }
         Err(e) => {
             emit_launch_log(&app, user_id, "error", "auth", format!("Falha no auth ticket: {e}"));
-            notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WEBHOOK_AUTH_FAILED.into()), None);
+            notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WebhookReason::AuthTicketFailed), None);
             if is_moderated_error(&e) {
                 mark_account_moderated(state.inner(), &app, user_id);
                 emit_launch_log(&app, user_id, "warn", "moderated", "Conta movida para o grupo 'moderadas'");
@@ -1511,7 +1511,7 @@ async fn launch_roblox_windows(
     };
     if let Err(err) = spawn_result {
         emit_launch_log(&app, user_id, "error", "spawn", format!("Falha ao abrir o cliente: {err}"));
-        notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WEBHOOK_SPAWN_FAILED.into()), None);
+        notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WebhookReason::ClientDidNotOpen), None);
         tracker.clear_pending_launch(pending_id);
         return Err(err);
     }
@@ -2249,7 +2249,7 @@ async fn run_launch_queue_windows(
             }
             Err(e) => {
                 emit_launch_log(app, uid, "error", "auth", format!("Falha no auth ticket: {e}"));
-                notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WEBHOOK_AUTH_FAILED.into()), None);
+                notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WebhookReason::AuthTicketFailed), None);
                 if is_moderated_error(&e) {
                     mark_account_moderated(state.inner(), app, uid);
                     emit_launch_log(app, uid, "warn", "moderated", "Conta movida para o grupo 'moderadas'");
@@ -2333,7 +2333,7 @@ async fn run_launch_queue_windows(
 
         if let Err(err) = &launch_result {
             emit_launch_log(app, uid, "error", "spawn", format!("Falha ao abrir o cliente: {err}"));
-            notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WEBHOOK_SPAWN_FAILED.into()), None);
+            notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WebhookReason::ClientDidNotOpen), None);
             sequence.mark(uid, LaunchQueueState::Failed, Some(err.clone()));
             tracker.clear_pending_launch(acct_pending_id);
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;

@@ -35,6 +35,7 @@ const MAX_TEXT_CHARS: usize = 200;
 /// Texto antes da mensagem (menção), corta aqui.
 pub const MAX_MENTION_CHARS: usize = 100;
 /// O Discord aceita 4096 na descrição do embed; folga para o resto.
+#[allow(dead_code)]
 const MAX_DESCRIPTION_CHARS: usize = 3_900;
 
 /// Hosts que o Discord usa nos links de webhook.
@@ -163,17 +164,6 @@ pub enum WebhookEventKind {
 }
 
 impl WebhookEventKind {
-    fn title(self) -> &'static str {
-        match self {
-            Self::Dropped => "Dropped",
-            Self::Reconnected => "Reconnected",
-            Self::ReconnectFailed => "Reconnect failed",
-            Self::NotResponding => "Not responding",
-            Self::LaunchFailed => "Launch failed",
-            Self::WrongAccount => "Opened as another account",
-        }
-    }
-
     /// Gravidade, para a cor da mensagem: a pior linha decide.
     fn severity(self) -> u8 {
         match self {
@@ -185,15 +175,79 @@ impl WebhookEventKind {
     }
 }
 
+/// Por que o evento aconteceu, como **código**: a mensagem é traduzida na hora
+/// de montar, no idioma do app (`WebhookLang`). O único texto livre é o do
+/// kick, e ele só vem preenchido com os nomes à mostra (pode citar o nome real
+/// de outro jogador).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebhookReason {
+    ConnectionLost { code: Option<u32> },
+    JoinedElsewhere { code: Option<u32> },
+    Idle { code: Option<u32> },
+    Disconnected { code: Option<u32> },
+    Kicked { code: Option<u32>, message: Option<String> },
+    ServerShutdown { code: Option<u32> },
+    ClosedWithoutLeaving,
+    GaveUp { attempts: u32 },
+    Banned,
+    SessionExpired,
+    NoDestination,
+    NotResponding,
+    AuthTicketFailed,
+    ClientDidNotOpen,
+    OtherAccount,
+}
+
 /// Um aviso pronto para a fila. `account` já vem mascarado (ou não) conforme
-/// a opção — a fila nunca vê o nome real com "Hide account names" ligado.
+/// a opção (`masked`) — a fila nunca vê o nome real com "Hide account names"
+/// ligado, e aí a mensagem também não leva foto nem link do perfil.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebhookEvent {
     pub kind: WebhookEventKind,
+    pub user_id: i64,
     pub account: String,
-    pub reason: Option<String>,
+    pub masked: bool,
+    pub reason: Option<WebhookReason>,
     pub place_id: Option<i64>,
     pub at_ms: i64,
+}
+
+/// Idioma da mensagem: o do app (`General.Language`). Inglês para o resto.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebhookLang {
+    En,
+    Pt,
+    Es,
+}
+
+impl WebhookLang {
+    pub fn from_setting(value: &str) -> Self {
+        let v = value.trim().to_ascii_lowercase();
+        if v.starts_with("pt") {
+            Self::Pt
+        } else if v.starts_with("es") {
+            Self::Es
+        } else {
+            Self::En
+        }
+    }
+
+    fn pick<'a>(self, en: &'a str, pt: &'a str, es: &'a str) -> &'a str {
+        match self {
+            Self::En => en,
+            Self::Pt => pt,
+            Self::Es => es,
+        }
+    }
+}
+
+/// O que a mensagem ganha além do que o evento traz, buscado na hora de enviar
+/// (sem bloquear quem avisou): nome do jogo e foto da conta. Tudo opcional —
+/// sem isto a mensagem sai igual, só sem o nome do jogo e sem a foto.
+#[derive(Debug, Default, Clone)]
+pub struct WebhookEnrichment {
+    pub game_names: std::collections::HashMap<i64, String>,
+    pub avatars: std::collections::HashMap<i64, String>,
 }
 
 /// As opções da seção `[Webhook]` do RAMSettings.ini.
@@ -208,7 +262,9 @@ pub struct WebhookConfig {
     pub launch_failed: bool,
     pub wrong_account: bool,
     pub mention: String,
-    pub hide_names: bool,
+    /// "Hide account names in messages" (`MaskNames`, padrão **desligado**:
+    /// o canal é do próprio usuário, e o nome é o que mais importa no aviso).
+    pub mask_names: bool,
 }
 
 impl WebhookConfig {
@@ -235,15 +291,18 @@ impl WebhookConfig {
                 .chars()
                 .take(MAX_MENTION_CHARS)
                 .collect(),
-            hide_names: flag("HideNames", true),
+            mask_names: flag("MaskNames", false),
         }
     }
 
     /// Este aviso sai? Só com a opção ligada, uma URL válida e a caixa marcada.
     pub fn wants(&self, kind: WebhookEventKind) -> bool {
-        if !self.enabled || self.target.is_none() {
-            return false;
-        }
+        self.enabled && self.target.is_some() && self.wants_box(kind)
+    }
+
+    /// Só a caixa deste evento (a mensagem de teste lista as marcadas mesmo com
+    /// a opção ainda desligada).
+    pub fn wants_box(&self, kind: WebhookEventKind) -> bool {
         match kind {
             WebhookEventKind::Dropped => self.dropped,
             WebhookEventKind::Reconnected => self.reconnected,
@@ -282,62 +341,314 @@ pub fn escape_markdown(text: &str) -> String {
     out
 }
 
-/// Uma linha da mensagem: `**conta** — Dropped: motivo · Place 123 · <t:…:T>`.
-pub fn format_event_line(event: &WebhookEvent) -> String {
-    let mut line = format!("**{}** — {}", escape_markdown(&event.account), event.kind.title());
-    if let Some(reason) = event.reason.as_deref().filter(|r| !r.trim().is_empty()) {
-        line.push_str(": ");
-        line.push_str(&escape_markdown(reason));
+/// Discord: no máximo 10 embeds por mensagem.
+const MAX_EMBEDS: usize = 10;
+
+fn event_title(kind: WebhookEventKind, lang: WebhookLang) -> &'static str {
+    match kind {
+        WebhookEventKind::Dropped => lang.pick("🔴 Account dropped", "🔴 Conta caiu", "🔴 Cuenta caída"),
+        WebhookEventKind::Reconnected => lang.pick("🟢 Back in the game", "🟢 Voltou para o jogo", "🟢 Volvió al juego"),
+        WebhookEventKind::ReconnectFailed => {
+            lang.pick("🟠 Could not reconnect", "🟠 Não conseguiu reconectar", "🟠 No pudo reconectar")
+        }
+        WebhookEventKind::NotResponding => {
+            lang.pick("🟡 Window not responding", "🟡 Janela travada", "🟡 Ventana sin responder")
+        }
+        WebhookEventKind::LaunchFailed => lang.pick("⚠️ Launch failed", "⚠️ Falha ao abrir", "⚠️ No se pudo abrir"),
+        WebhookEventKind::WrongAccount => lang.pick(
+            "⚠️ Opened as another account",
+            "⚠️ Abriu em outra conta",
+            "⚠️ Se abrió con otra cuenta",
+        ),
     }
-    if let Some(place) = event.place_id.filter(|p| *p > 0) {
-        line.push_str(&format!(" · Place {place}"));
-    }
-    // O Discord mostra `<t:unix:T>` na hora local de quem lê.
-    line.push_str(&format!(" · <t:{}:T>", event.at_ms.div_euclid(1_000)));
-    line
 }
 
-/// O corpo do POST. Uma mensagem com um embed; a menção (texto antes) vai no
-/// `content` e é a **única** coisa que pode mencionar alguém.
-pub fn build_message(events: &[WebhookEvent], mention: &str) -> serde_json::Value {
-    let title = match events {
-        [single] => single.kind.title().to_string(),
-        many => format!("{} updates", many.len()),
-    };
-    let mut description = String::new();
-    for event in events {
-        let line = format_event_line(event);
-        if description.chars().count() + line.chars().count() + 1 > MAX_DESCRIPTION_CHARS {
-            description.push_str("\n…");
-            break;
-        }
-        if !description.is_empty() {
-            description.push('\n');
-        }
-        description.push_str(&line);
+/// A frase do que aconteceu, com o nome em negrito.
+fn event_sentence(kind: WebhookEventKind, name: &str, lang: WebhookLang) -> String {
+    let n = format!("**{name}**");
+    match kind {
+        WebhookEventKind::Dropped => match lang {
+            WebhookLang::En => format!("{n} left the game."),
+            WebhookLang::Pt => format!("{n} saiu do jogo."),
+            WebhookLang::Es => format!("{n} salió del juego."),
+        },
+        WebhookEventKind::Reconnected => match lang {
+            WebhookLang::En => format!("{n} is back in the game."),
+            WebhookLang::Pt => format!("{n} voltou para o jogo."),
+            WebhookLang::Es => format!("{n} volvió al juego."),
+        },
+        WebhookEventKind::ReconnectFailed => match lang {
+            WebhookLang::En => format!("Auto-reconnect could not bring {n} back."),
+            WebhookLang::Pt => format!("A reconexão automática não conseguiu trazer {n} de volta."),
+            WebhookLang::Es => format!("La reconexión automática no pudo traer de vuelta a {n}."),
+        },
+        WebhookEventKind::NotResponding => match lang {
+            WebhookLang::En => format!("The Roblox window of {n} stopped responding."),
+            WebhookLang::Pt => format!("A janela do Roblox de {n} parou de responder."),
+            WebhookLang::Es => format!("La ventana de Roblox de {n} dejó de responder."),
+        },
+        WebhookEventKind::LaunchFailed => match lang {
+            WebhookLang::En => format!("{n} could not be opened."),
+            WebhookLang::Pt => format!("Não deu para abrir {n}."),
+            WebhookLang::Es => format!("No se pudo abrir {n}."),
+        },
+        WebhookEventKind::WrongAccount => match lang {
+            WebhookLang::En => format!(
+                "The client opened for {n} is logged into a different Roblox account. The launch queue was paused and the client was left open."
+            ),
+            WebhookLang::Pt => format!(
+                "O cliente aberto para {n} está logado em outra conta do Roblox. A fila de launch foi pausada e o cliente ficou aberto."
+            ),
+            WebhookLang::Es => format!(
+                "El cliente abierto para {n} tiene sesión en otra cuenta de Roblox. La cola de inicio se pausó y el cliente quedó abierto."
+            ),
+        },
     }
-    let color = match events.iter().map(|e| e.kind.severity()).max().unwrap_or(0) {
+}
+
+fn with_code(text: &str, code: Option<u32>, lang: WebhookLang) -> String {
+    match code {
+        Some(c) => format!("{text} ({} {c})", lang.pick("code", "código", "código")),
+        None => text.to_string(),
+    }
+}
+
+/// O motivo, traduzido. Texto livre (o do kick) passa por `escape_markdown`.
+pub fn reason_text(reason: &WebhookReason, lang: WebhookLang) -> String {
+    match reason {
+        WebhookReason::ConnectionLost { code } => {
+            with_code(lang.pick("Lost the connection", "Perdeu a conexão", "Perdió la conexión"), *code, lang)
+        }
+        WebhookReason::JoinedElsewhere { code } => with_code(
+            lang.pick(
+                "The account joined from somewhere else",
+                "A conta entrou por outro lugar",
+                "La cuenta entró desde otro lugar",
+            ),
+            *code,
+            lang,
+        ),
+        WebhookReason::Idle { code } => with_code(
+            lang.pick("Idle for too long", "Ficou parada tempo demais", "Inactiva demasiado tiempo"),
+            *code,
+            lang,
+        ),
+        WebhookReason::Disconnected { code } => {
+            with_code(lang.pick("Disconnected", "Desconectada", "Desconectada"), *code, lang)
+        }
+        WebhookReason::Kicked { code, message } => match message.as_deref().filter(|m| !m.trim().is_empty()) {
+            Some(m) => format!(
+                "{}: {}",
+                lang.pick("Kicked", "Expulsa", "Expulsada"),
+                escape_markdown(m)
+            ),
+            None => with_code(
+                lang.pick("Kicked from the game", "Expulsa do jogo", "Expulsada del juego"),
+                *code,
+                lang,
+            ),
+        },
+        WebhookReason::ServerShutdown { code } => with_code(
+            lang.pick("The server shut down", "O servidor fechou", "El servidor se cerró"),
+            *code,
+            lang,
+        ),
+        WebhookReason::ClosedWithoutLeaving => lang
+            .pick(
+                "The Roblox client closed without leaving the game",
+                "O Roblox fechou sem sair do jogo",
+                "Roblox se cerró sin salir del juego",
+            )
+            .to_string(),
+        WebhookReason::GaveUp { attempts } => match lang {
+            WebhookLang::En => format!("Gave up after {attempts} attempts"),
+            WebhookLang::Pt => format!("Desistiu depois de {attempts} tentativas"),
+            WebhookLang::Es => format!("Se rindió tras {attempts} intentos"),
+        },
+        WebhookReason::Banned => lang.pick("The account is banned", "A conta está banida", "La cuenta está baneada").to_string(),
+        WebhookReason::SessionExpired => lang
+            .pick(
+                "The session expired: log in to the account again",
+                "A sessão expirou: entre na conta de novo",
+                "La sesión expiró: vuelve a iniciar sesión en la cuenta",
+            )
+            .to_string(),
+        WebhookReason::NoDestination => lang
+            .pick("No game to return to", "Não havia jogo para voltar", "No había juego al que volver")
+            .to_string(),
+        WebhookReason::NotResponding => lang
+            .pick("No response for 30 seconds", "Sem resposta há 30 segundos", "Sin respuesta durante 30 segundos")
+            .to_string(),
+        WebhookReason::AuthTicketFailed => lang
+            .pick(
+                "Could not get the authentication ticket",
+                "Não deu para obter o ticket de autenticação",
+                "No se pudo obtener el ticket de autenticación",
+            )
+            .to_string(),
+        WebhookReason::ClientDidNotOpen => lang
+            .pick(
+                "The Roblox client did not open",
+                "O cliente do Roblox não abriu",
+                "El cliente de Roblox no se abrió",
+            )
+            .to_string(),
+        WebhookReason::OtherAccount => lang
+            .pick(
+                "Logged into a different Roblox account",
+                "Logado em outra conta do Roblox",
+                "Con sesión en otra cuenta de Roblox",
+            )
+            .to_string(),
+    }
+}
+
+fn severity_color(severity: u8) -> u32 {
+    match severity {
         0 => 0x2e_cc_71, // verde
         1 => 0xf1_c4_0f, // amarelo
         2 => 0xe6_7e_22, // laranja
         _ => 0xe7_4c_3c, // vermelho
+    }
+}
+
+fn field(name: &str, value: String, inline: bool) -> serde_json::Value {
+    serde_json::json!({ "name": name, "value": truncate_chars(&value, 1_000), "inline": inline })
+}
+
+/// Um cartão (embed) para um aviso: título com ícone, a frase do que
+/// aconteceu e os campos Conta / Jogo / Motivo / Quando. Com o nome à mostra,
+/// o nome vira link do perfil e a foto da conta aparece; mascarado, nenhum dos
+/// dois (a foto e o perfil identificariam a conta).
+pub fn event_embed(event: &WebhookEvent, lang: WebhookLang, extra: &WebhookEnrichment) -> serde_json::Value {
+    let name = escape_markdown(&event.account);
+    let mut fields = Vec::new();
+
+    let account_value = if event.masked || event.user_id <= 0 {
+        name.clone()
+    } else {
+        format!("[{name}](https://www.roblox.com/users/{}/profile)", event.user_id)
     };
+    fields.push(field(lang.pick("Account", "Conta", "Cuenta"), account_value, true));
+
+    if let Some(place) = event.place_id.filter(|p| *p > 0) {
+        let label = match extra.game_names.get(&place).map(|g| g.trim()).filter(|g| !g.is_empty()) {
+            Some(game) => escape_markdown(game),
+            None => format!("Place {place}"),
+        };
+        fields.push(field(
+            lang.pick("Game", "Jogo", "Juego"),
+            format!("[{label}](https://www.roblox.com/games/{place})"),
+            true,
+        ));
+    }
+
+    if let Some(reason) = &event.reason {
+        fields.push(field(lang.pick("Reason", "Motivo", "Motivo"), reason_text(reason, lang), false));
+    }
+
+    // O Discord mostra `<t:…>` na hora local de quem lê: relativo ("há 2 min")
+    // e a hora certa.
+    let secs = event.at_ms.div_euclid(1_000);
+    fields.push(field(lang.pick("When", "Quando", "Cuándo"), format!("<t:{secs}:R> · <t:{secs}:T>"), true));
+
+    let mut embed = serde_json::json!({
+        "title": event_title(event.kind, lang),
+        "description": event_sentence(event.kind, &name, lang),
+        "color": severity_color(event.kind.severity()),
+        "fields": fields,
+        "footer": { "text": "MultiAlt" },
+    });
+    if let Some(ts) = chrono::DateTime::from_timestamp_millis(event.at_ms) {
+        embed["timestamp"] = serde_json::Value::String(ts.to_rfc3339());
+    }
+    if !event.masked {
+        if let Some(url) = extra.avatars.get(&event.user_id) {
+            embed["thumbnail"] = serde_json::json!({ "url": url });
+        }
+    }
+    embed
+}
+
+fn mention_and_allowed(mention: &str) -> (String, serde_json::Value) {
     let mention: String = mention.trim().chars().take(MAX_MENTION_CHARS).collect();
     let allowed = if mention.is_empty() {
         serde_json::json!({ "parse": [] })
     } else {
         serde_json::json!({ "parse": ["everyone", "roles", "users"] })
     };
+    (mention, allowed)
+}
+
+/// O corpo do POST: um cartão por aviso (até 10; passou disso, o 10º resume o
+/// resto). A menção (texto antes) vai no `content` e é a **única** coisa que
+/// pode mencionar alguém.
+pub fn build_message(
+    events: &[WebhookEvent],
+    mention: &str,
+    lang: WebhookLang,
+    extra: &WebhookEnrichment,
+) -> serde_json::Value {
+    let mut embeds: Vec<serde_json::Value> = Vec::new();
+    if events.len() <= MAX_EMBEDS {
+        embeds.extend(events.iter().map(|e| event_embed(e, lang, extra)));
+    } else {
+        embeds.extend(events[..MAX_EMBEDS - 1].iter().map(|e| event_embed(e, lang, extra)));
+        let rest = events.len() - (MAX_EMBEDS - 1);
+        let title = match lang {
+            WebhookLang::En => format!("+{rest} more notifications"),
+            WebhookLang::Pt => format!("+{rest} avisos a mais"),
+            WebhookLang::Es => format!("+{rest} avisos más"),
+        };
+        let worst = events[MAX_EMBEDS - 1..].iter().map(|e| e.kind.severity()).max().unwrap_or(0);
+        embeds.push(serde_json::json!({ "title": title, "color": severity_color(worst) }));
+    }
+    let (mention, allowed) = mention_and_allowed(mention);
     serde_json::json!({
         "username": "MultiAlt",
         "content": mention,
         "allowed_mentions": allowed,
-        "embeds": [{
-            "title": title,
-            "description": description,
-            "color": color,
-            "footer": { "text": "MultiAlt" },
-        }],
+        "embeds": embeds,
+    })
+}
+
+/// "Send test message": um cartão dizendo que o canal está ligado (com os
+/// avisos marcados) e, se houver conta, um exemplo real de como chega.
+pub fn build_test_message(
+    mention: &str,
+    lang: WebhookLang,
+    enabled: &[WebhookEventKind],
+    sample: Option<(&WebhookEvent, &WebhookEnrichment)>,
+) -> serde_json::Value {
+    let list = if enabled.is_empty() {
+        lang.pick("None", "Nenhum", "Ninguno").to_string()
+    } else {
+        enabled.iter().map(|k| event_title(*k, lang)).collect::<Vec<_>>().join("\n")
+    };
+    let mut embeds = vec![serde_json::json!({
+        "title": lang.pick("✅ Webhook connected", "✅ Webhook conectado", "✅ Webhook conectado"),
+        "description": lang.pick(
+            "MultiAlt notifications will arrive in this channel.",
+            "Os avisos do MultiAlt vão chegar neste canal.",
+            "Los avisos de MultiAlt llegarán a este canal.",
+        ),
+        "color": 0x58_65_f2,
+        "fields": [field(lang.pick("Notifications on", "Avisos ligados", "Avisos activos"), list, false)],
+        "footer": { "text": "MultiAlt" },
+    })];
+    if let Some((event, extra)) = sample {
+        let mut example = event_embed(event, lang, extra);
+        let prefix = lang.pick("Example", "Exemplo", "Ejemplo");
+        let title = example["title"].as_str().unwrap_or_default().to_string();
+        example["title"] = serde_json::Value::String(format!("{prefix} — {title}"));
+        embeds.push(example);
+    }
+    let (mention, allowed) = mention_and_allowed(mention);
+    serde_json::json!({
+        "username": "MultiAlt",
+        "content": mention,
+        "allowed_mentions": allowed,
+        "embeds": embeds,
     })
 }
 
@@ -556,7 +867,9 @@ mod discord_webhook_message_tests {
     fn event(kind: WebhookEventKind, account: &str) -> WebhookEvent {
         WebhookEvent {
             kind,
+            user_id: 55,
             account: account.into(),
+            masked: false,
             reason: None,
             place_id: None,
             at_ms: 1_760_000_000_000,
@@ -567,7 +880,7 @@ mod discord_webhook_message_tests {
     fn off_by_default_and_needs_a_valid_url() {
         let c = settings(&[]);
         assert!(!c.enabled);
-        assert!(c.hide_names, "names are hidden by default");
+        assert!(!c.mask_names, "names show by default (15/10/2026)");
         assert!(!c.wants(WebhookEventKind::Dropped));
         assert!(!settings(&[("Enabled", "true")]).wants(WebhookEventKind::Dropped), "no URL");
         assert!(!settings(&[("Enabled", "true"), ("Url", "https://evil.com/x")]).wants(WebhookEventKind::Dropped));
@@ -598,68 +911,121 @@ mod discord_webhook_message_tests {
         assert!(!custom.wants(WebhookEventKind::WrongAccount));
     }
 
+    fn extra() -> WebhookEnrichment {
+        let mut e = WebhookEnrichment::default();
+        e.game_names.insert(107535308163741, "Huss Valley".into());
+        e.avatars.insert(55, "https://tr.rbxcdn.com/avatar.png".into());
+        e
+    }
+
+    /// Pedido do dono (15/10/2026): título, o que aconteceu, o nome à mostra e
+    /// o jogo pelo nome — a linha única em inglês com o nome mascarado era feia.
     #[test]
-    fn a_line_has_the_account_the_event_the_reason_the_place_and_the_time() {
+    fn a_drop_reads_like_a_card_with_title_sentence_and_fields() {
         let e = WebhookEvent {
-            reason: Some("lost the connection (code 277)".into()),
-            place_id: Some(920587237),
+            reason: Some(WebhookReason::ClosedWithoutLeaving),
+            place_id: Some(107535308163741),
+            ..event(WebhookEventKind::Dropped, "dasdawedaw2e1231")
+        };
+        let body = build_message(&[e], "", WebhookLang::Pt, &extra());
+        let card = &body["embeds"][0];
+        assert_eq!(card["title"], "🔴 Conta caiu");
+        assert_eq!(card["description"], "**dasdawedaw2e1231** saiu do jogo.");
+        let fields = card["fields"].as_array().unwrap();
+        assert_eq!(fields[0]["name"], "Conta");
+        assert_eq!(fields[0]["value"], "[dasdawedaw2e1231](https://www.roblox.com/users/55/profile)");
+        assert_eq!(fields[1]["name"], "Jogo");
+        assert_eq!(fields[1]["value"], "[Huss Valley](https://www.roblox.com/games/107535308163741)");
+        assert_eq!(fields[2]["value"], "O Roblox fechou sem sair do jogo");
+        assert!(fields[3]["value"].as_str().unwrap().starts_with("<t:1760000000:R>"));
+        assert_eq!(card["thumbnail"]["url"], "https://tr.rbxcdn.com/avatar.png");
+        assert_eq!(card["color"], 0xe7_4c_3c);
+        assert!(card["timestamp"].is_string());
+    }
+
+    #[test]
+    fn english_and_spanish_follow_the_app_language() {
+        let e = WebhookEvent {
+            reason: Some(WebhookReason::ConnectionLost { code: Some(277) }),
             ..event(WebhookEventKind::Dropped, "Farm 1")
         };
-        assert_eq!(
-            format_event_line(&e),
-            "**Farm 1** — Dropped: lost the connection \\(code 277\\) · Place 920587237 · <t:1760000000:T>"
-        );
+        let en = build_message(&[e.clone()], "", WebhookLang::En, &WebhookEnrichment::default());
+        assert_eq!(en["embeds"][0]["title"], "🔴 Account dropped");
+        assert_eq!(en["embeds"][0]["fields"][1]["value"], "Lost the connection (code 277)");
+        let es = build_message(&[e], "", WebhookLang::Es, &WebhookEnrichment::default());
+        assert_eq!(es["embeds"][0]["title"], "🔴 Cuenta caída");
+        assert_eq!(es["embeds"][0]["fields"][1]["value"], "Perdió la conexión (código 277)");
+        assert_eq!(WebhookLang::from_setting("pt-BR"), WebhookLang::Pt);
+        assert_eq!(WebhookLang::from_setting("de"), WebhookLang::En);
+    }
+
+    /// Mascarado: nada de foto nem link do perfil — identificariam a conta.
+    #[test]
+    fn a_masked_name_has_no_photo_and_no_profile_link() {
+        let e = WebhookEvent { masked: true, ..event(WebhookEventKind::Dropped, "Fa********") };
+        let card = &build_message(&[e], "", WebhookLang::En, &extra())["embeds"][0];
+        assert!(card.get("thumbnail").is_none());
+        assert!(!card.to_string().contains("/profile"));
+    }
+
+    #[test]
+    fn without_a_known_name_the_game_is_a_place_link() {
+        let e = WebhookEvent { place_id: Some(42), ..event(WebhookEventKind::Dropped, "A") };
+        let card = &build_message(&[e], "", WebhookLang::En, &WebhookEnrichment::default())["embeds"][0];
+        assert_eq!(card["fields"][1]["value"], "[Place 42](https://www.roblox.com/games/42)");
     }
 
     #[test]
     fn free_text_cannot_format_link_or_ping() {
-        let line = format_event_line(&WebhookEvent {
-            reason: Some("@everyone **x** [a](http://x)\nnext".into()),
+        let e = WebhookEvent {
+            reason: Some(WebhookReason::Kicked { code: None, message: Some("@everyone **x** [a](http://x)\nnext".into()) }),
             ..event(WebhookEventKind::Dropped, "<@&123>")
-        });
-        assert!(!line.contains("@everyone"), "{line}");
-        assert!(!line.contains("<@&"), "{line}");
-        assert!(!line.contains("**x**"), "{line}");
-        assert!(!line.contains('\n'), "{line}");
+        };
+        let text = build_message(&[e], "", WebhookLang::En, &WebhookEnrichment::default()).to_string();
+        assert!(!text.contains("@everyone"), "{text}");
+        assert!(!text.contains("<@&"), "{text}");
+        assert!(!text.contains("**x**"), "{text}");
     }
 
     #[test]
-    fn a_masked_name_goes_out_as_it_came() {
-        // O nome chega mascarado da cola (commands/webhook.rs): a mensagem não
-        // tem como saber o real.
-        let body = build_message(&[event(WebhookEventKind::Dropped, "Fa********")], "");
-        let text = body.to_string();
-        assert!(text.contains("Fa\\\\*\\\\*"), "{text}");
-    }
-
-    #[test]
-    fn several_events_become_one_message_and_only_the_prefix_can_mention() {
-        let events = vec![
-            event(WebhookEventKind::Dropped, "A"),
-            event(WebhookEventKind::Reconnected, "B"),
-        ];
-        let body = build_message(&events, "");
-        assert_eq!(body["embeds"][0]["title"], "2 updates");
-        assert_eq!(body["embeds"][0]["description"].as_str().unwrap().lines().count(), 2);
+    fn several_events_are_one_message_with_a_card_each_and_only_the_prefix_can_mention() {
+        let events = vec![event(WebhookEventKind::Dropped, "A"), event(WebhookEventKind::Reconnected, "B")];
+        let body = build_message(&events, "", WebhookLang::En, &WebhookEnrichment::default());
+        assert_eq!(body["embeds"].as_array().unwrap().len(), 2);
+        assert_eq!(body["embeds"][1]["title"], "🟢 Back in the game");
         assert_eq!(body["allowed_mentions"]["parse"], serde_json::json!([]));
-        assert_eq!(body["embeds"][0]["color"], 0xe7_4c_3c, "the worst line sets the color");
 
-        let pinged = build_message(&events[..1], "<@&42> ");
+        let pinged = build_message(&events[..1], "<@&42> ", WebhookLang::En, &WebhookEnrichment::default());
         assert_eq!(pinged["content"], "<@&42>");
-        assert_eq!(pinged["embeds"][0]["title"], "Dropped");
         assert_ne!(pinged["allowed_mentions"]["parse"], serde_json::json!([]));
     }
 
     #[test]
-    fn a_huge_batch_stays_under_discords_limit() {
-        let events: Vec<WebhookEvent> = (0..MAX_BATCH)
-            .map(|_| WebhookEvent {
-                reason: Some("x".repeat(500)),
-                ..event(WebhookEventKind::Dropped, &"n".repeat(500))
-            })
-            .collect();
-        let body = build_message(&events, "");
-        assert!(body["embeds"][0]["description"].as_str().unwrap().chars().count() <= 4096);
+    fn more_than_ten_events_fit_discords_ten_cards() {
+        let events: Vec<WebhookEvent> = (0..15).map(|i| event(WebhookEventKind::Dropped, &format!("acc{i}"))).collect();
+        let body = build_message(&events, "", WebhookLang::Pt, &WebhookEnrichment::default());
+        let cards = body["embeds"].as_array().unwrap();
+        assert_eq!(cards.len(), 10);
+        assert_eq!(cards[9]["title"], "+6 avisos a mais");
+    }
+
+    #[test]
+    fn the_test_message_says_it_is_connected_lists_the_events_and_shows_an_example() {
+        let sample = WebhookEvent {
+            reason: Some(WebhookReason::ClosedWithoutLeaving),
+            ..event(WebhookEventKind::Dropped, "dasdawedaw2e1231")
+        };
+        let body = build_test_message(
+            "",
+            WebhookLang::Pt,
+            &[WebhookEventKind::Dropped, WebhookEventKind::NotResponding],
+            Some((&sample, &extra())),
+        );
+        let cards = body["embeds"].as_array().unwrap();
+        assert_eq!(cards[0]["title"], "✅ Webhook conectado");
+        assert_eq!(cards[0]["fields"][0]["value"], "🔴 Conta caiu\n🟡 Janela travada");
+        assert_eq!(cards[1]["title"], "Exemplo — 🔴 Conta caiu");
+        assert_eq!(cards[1]["description"], "**dasdawedaw2e1231** saiu do jogo.");
     }
 }
 
@@ -670,7 +1036,9 @@ mod discord_webhook_queue_tests {
     fn event(n: usize) -> WebhookEvent {
         WebhookEvent {
             kind: WebhookEventKind::Dropped,
+            user_id: n as i64,
             account: format!("acc{n}"),
+            masked: false,
             reason: None,
             place_id: None,
             at_ms: 0,
@@ -773,7 +1141,7 @@ mod discord_webhook_http_tests {
             .expect(1)
             .mount(server)
             .await;
-        let body = build_message(&[], "");
+        let body = build_message(&[], "", WebhookLang::En, &WebhookEnrichment::default());
         assert_eq!(send(&client(), &target("100000000000000001"), &body).await, Ok(SendOutcome::Sent));
     }
 
@@ -788,7 +1156,7 @@ mod discord_webhook_http_tests {
             .respond_with(ResponseTemplate::new(429).set_body_json(serde_json::json!({ "retry_after": 1.5 })))
             .mount(server)
             .await;
-        let outcome = send(&client(), &target("100000000000000002"), &build_message(&[], "")).await;
+        let outcome = send(&client(), &target("100000000000000002"), &build_message(&[], "", WebhookLang::En, &WebhookEnrichment::default())).await;
         assert_eq!(outcome, Ok(SendOutcome::RateLimited { retry_after_ms: 1_500 }));
     }
 
@@ -803,7 +1171,7 @@ mod discord_webhook_http_tests {
             .respond_with(ResponseTemplate::new(404))
             .mount(server)
             .await;
-        let err = send(&client(), &target("100000000000000003"), &build_message(&[], ""))
+        let err = send(&client(), &target("100000000000000003"), &build_message(&[], "", WebhookLang::En, &WebhookEnrichment::default()))
             .await
             .unwrap_err();
         assert!(err.contains("404"), "{err}");

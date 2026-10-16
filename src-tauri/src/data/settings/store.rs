@@ -494,7 +494,7 @@ impl SettingsStore {
             ("NotifyNotResponding", "true"),
             ("NotifyLaunchFailed", "false"),
             ("NotifyWrongAccount", "true"),
-            ("HideNames", "true"),
+            ("MaskNames", "false"),
         ];
         let webhook = ini.section("Webhook");
         for (key, value) in webhook_defaults {
@@ -875,7 +875,7 @@ mod settings_store_tests {
                 ("NotifyNotResponding", "true"),
                 ("NotifyLaunchFailed", "false"),
                 ("NotifyWrongAccount", "true"),
-                ("HideNames", "true"),
+                ("MaskNames", "false"),
             ],
         );
 
