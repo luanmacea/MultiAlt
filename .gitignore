@@ -349,3 +349,8 @@ src-tauri/gen/
 .superpowers/
 .claude/worktrees/
 ui-audit-out/
+
+# graphify (grafo local do código para economizar tokens do Claude; não vai para o GitHub)
+graphify-out/
+CLAUDE.local.md
+.graphifyignore
