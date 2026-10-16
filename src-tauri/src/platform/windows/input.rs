@@ -105,17 +105,33 @@ const AFK_PAIR_GAP_MS: u64 = 40;
 /// `Up+Down`) é a primeira tocada assim e, depois de um respiro, a segunda, do
 /// mesmo tamanho — para o personagem terminar onde começou.
 ///
+/// Antes de **cada** toque depois do primeiro, `ok_to_continue` confere que
+/// ainda dá para enviar (a janela do alvo continua na frente e ninguém mandou
+/// parar): entre os dois toques há um respiro, e no meio dele o usuário pode
+/// clicar em outra janela — a segunda tecla cairia fora. Se não der, o par para
+/// ali, e nenhuma tecla fica apertada (cada toque solta a sua antes do respiro).
+///
 /// O "solta" é tentado até três vezes: se ele falhar, a tecla fica logicamente
 /// pressionada dentro do cliente e o personagem sai andando. Se o Windows
 /// recusa um toque, o par para ali: a segunda tecla sozinha deixaria a câmera
 /// (ou o personagem) fora do lugar.
-pub fn tap_afk_key(key: &str, hold_ms: u64) -> Result<(), String> {
+pub fn tap_afk_key(
+    key: &str,
+    hold_ms: u64,
+    mut ok_to_continue: impl FnMut() -> bool,
+) -> Result<(), String> {
     let taps =
         afk_taps_with_scan(key).ok_or_else(|| format!("Key not allowed in AFK mode: {}", key))?;
 
     for (index, (vk, scan, extended)) in taps.into_iter().enumerate() {
         if index > 0 {
             std::thread::sleep(std::time::Duration::from_millis(AFK_PAIR_GAP_MS));
+            // A janela saiu da frente ou pararam durante o respiro: o segundo
+            // toque cairia na janela do usuário. Para aqui — o primeiro já
+            // reiniciou o relógio de inatividade, e nada ficou apertado.
+            if !ok_to_continue() {
+                return Ok(());
+            }
         }
         let down = send_key_flags(vk, scan, false, extended);
         std::thread::sleep(std::time::Duration::from_millis(hold_ms));

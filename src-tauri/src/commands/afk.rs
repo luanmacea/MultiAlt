@@ -572,6 +572,14 @@ fn afk_window_is_ready(focus_requested: bool, foreground: isize, target: isize) 
     focus_requested && target != 0 && foreground == target
 }
 
+/// Entre os dois toques de um par de setas, antes do segundo, ainda dá para
+/// enviar? Não, se o usuário mandou parar ou clicou em outra janela (o foco
+/// saiu da do alvo) durante o respiro do par — o segundo toque cairia fora.
+/// `foreground`/`target` são handles em número; `0` nunca é o alvo.
+fn afk_can_send_next_tap(stopping: bool, foreground: isize, target: isize) -> bool {
+    !stopping && target != 0 && foreground == target
+}
+
 /// Como a janela de uma conta volta ao lugar depois do ciclo (ideia 44).
 ///
 /// Trazer para frente tira a janela de onde estava: desminimiza (o
@@ -659,6 +667,18 @@ fn afk_manual_targets(requested: &[i64], accounts: &HashMap<i64, AfkAccountRunti
 /// foco nenhum, e ciclo que não roubou o foco não tem o que devolver.
 fn afk_should_restore_focus(stopping: bool, focus_taken: bool) -> bool {
     !stopping && focus_taken
+}
+
+/// Uma janela do ciclo deve voltar ao lugar (minimizar / pôr embaixo)? Não, se
+/// ela ainda é a da **frente** e o foco **não** voltou de verdade para a janela
+/// do usuário (parada no meio, ou o give-back recusado): pô-la embaixo com
+/// `SWP_NOACTIVATE` a deixaria ativa mas escondida sob a janela do usuário — e
+/// a tecla que o usuário digitar cairia no jogo; minimizá-la faria o Windows
+/// ativar outra (o piscar). As **outras** janelas do ciclo (não são a da
+/// frente) voltam normalmente. Com o foco devolvido (give-back `Restored` ou
+/// `UserMovedOn`), a da frente é a do usuário, não uma do ciclo, e todas voltam.
+fn afk_should_put_back(is_foreground: bool, focus_returned: bool) -> bool {
+    focus_returned || !is_foreground
 }
 
 // ── tela cheia na frente (ideia 25) ─────────────────────────────────────────
@@ -1150,9 +1170,18 @@ fn run_afk_cycle_blocking(
                     Some(AfkSendError::FocusDenied)
                 } else {
                     match action {
-                        AfkCycleAction::Key(key) => windows::tap_afk_key(key, AFK_KEY_HOLD_MS)
-                            .err()
-                            .map(|_| AfkSendError::KeyRefused),
+                        AfkCycleAction::Key(key) => windows::tap_afk_key(key, AFK_KEY_HOLD_MS, || {
+                            // Antes do segundo toque de um par de setas: a
+                            // janela do alvo ainda está na frente e ninguém
+                            // mandou parar?
+                            afk_can_send_next_tap(
+                                stop_flag.load(Ordering::Relaxed),
+                                windows::get_foreground_hwnd() as isize,
+                                hwnd as isize,
+                            )
+                        })
+                        .err()
+                        .map(|_| AfkSendError::KeyRefused),
                         AfkCycleAction::Click(points) => {
                             let point = points.get(&user_id).copied().unwrap_or(AFK_DEFAULT_POINT);
                             windows::click_afk_point(hwnd, point, AFK_KEY_HOLD_MS)
@@ -1173,7 +1202,7 @@ fn run_afk_cycle_blocking(
         }
     }
 
-    if afk_should_restore_focus(stop_flag.load(Ordering::Relaxed), focus_taken)
+    let give_back = if afk_should_restore_focus(stop_flag.load(Ordering::Relaxed), focus_taken)
         && windows::window_exists(previous_foreground)
     {
         // Só o primeiro plano volta: a janela do usuário não é restaurada nem
@@ -1184,13 +1213,29 @@ fn run_afk_cycle_blocking(
         if back == windows::GiveBack::Denied {
             eprintln!("[afk] o Windows recusou devolver o foco à janela anterior");
         }
-    }
+        Some(back)
+    } else {
+        None
+    };
 
+    // O foco voltou de verdade para a janela do usuário? Só então a da frente
+    // não é mais uma janela do Roblox que o ciclo trouxe.
+    let focus_returned = matches!(
+        give_back,
+        Some(windows::GiveBack::Restored | windows::GiveBack::UserMovedOn)
+    );
     // Só depois de o foco voltar: minimizar a janela do Roblox enquanto ela é a
     // da frente fazia o Windows ativar a próxima da pilha (o piscar entre
-    // janelas). Nada aqui ativa janela — vale também para ciclo parado no meio.
+    // janelas), e pô-la embaixo com `SWP_NOACTIVATE` a deixaria ativa mas
+    // escondida. A da frente, quando o foco **não** voltou (parada, ou give-back
+    // recusado), fica como está; as outras voltam ao lugar. Nada aqui ativa
+    // janela.
+    let foreground_now = windows::get_foreground_hwnd() as isize;
     for index in afk_put_back_order(&put_back) {
         let (hwnd, plan) = put_back[index];
+        if !afk_should_put_back(hwnd == foreground_now, focus_returned) {
+            continue;
+        }
         match plan {
             AfkPutBack::Minimize => {
                 windows::minimize_window_quietly(hwnd as windows_sys::Win32::Foundation::HWND);
@@ -1952,6 +1997,20 @@ mod afk_command_tests {
             !afk_should_restore_focus(false, false),
             "ciclo que não roubou foco não mexe na janela de ninguém"
         );
+    }
+
+    #[test]
+    fn the_front_window_is_left_alone_when_the_focus_did_not_return() {
+        // Parada no meio (ou give-back recusado): a janela do Roblox continua
+        // na frente. Pô-la embaixo (SWP_NOACTIVATE) a deixaria ativa mas
+        // escondida sob a do usuário — a tecla cairia no jogo; minimizá-la faria
+        // o Windows ativar outra. Fica como está.
+        assert!(!afk_should_put_back(true, false));
+        // As outras janelas do ciclo (não são a da frente) voltam ao lugar.
+        assert!(afk_should_put_back(false, false));
+        // Com o foco devolvido, a da frente é a do usuário e tudo volta.
+        assert!(afk_should_put_back(true, true));
+        assert!(afk_should_put_back(false, true));
     }
 
     // ── status ─────────────────────────────────────────────────────────────
