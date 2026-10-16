@@ -1,11 +1,11 @@
 {
-  "version": "0.1.10-beta",
-  "notes": "> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: d6ba367\nApp version: 0.1.10\n\n## What's Changed\n* Sidebar navigation, unified AFK Mode, window grid on launch, Spanish and website clients by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/16\n\n\n**Full Changelog**: https://github.com/luanmacea/roblox-account-manager/compare/v0.1.9-beta...v0.1.10-beta",
-  "pub_date": "2026-10-03T22:23:48.0226993Z",
+  "version": "2.2.0-beta",
+  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: e0454f6\nApp version: 2.2.0\n\n## What's Changed\n* Bulk password/email change, Discord notifications, group presets and launch fixes by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/31\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v2.1.0...v2.2.0-beta",
+  "pub_date": "2026-10-16T05:44:43.4034962Z",
   "platforms": {
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclFqZ1dNYnducHhBc09EdUx6NjJrd2xRQ2d4Q3JMclI3OEc1T2VpRkxNWlRQeWtjTHhwV0ZKYjVYT2RZWkxFSFhqcWJYVkVmdTZEVVE2a0NJWEtMaWdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDY2MjI3CWZpbGU6TXVsdGlBbHRfMC4xLjEwX3g2NF9lbi1VUy5tc2kKb2xDcDRoNXBoSW14eW16QjJUMjduSDJyNFJPaldQTXo0WFFoMWhpN3NNWlZQaG5EZS8zOXM1QjJndlF5Ty9pR3lHVmpqMm44NjkyQkFQTzlwRjVNRHc9PQo=",
-      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.10-beta/MultiAlt_0.1.10_x64_en-US_full-nexus-ws.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmVUWnFpdUNwVkh6Z0w1M2FZZEVQenhJa25ra3E5b21GcVNRbWJjcGMxVVdOQlE0VkVZYW1rbGVjeUQ2UVZqelcvSVJLc2NWcmFURUpGdGJrR1phRndrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTI5NDgyCWZpbGU6TXVsdGlBbHRfMi4yLjBfeDY0X2VuLVVTLm1zaQppWjlxdXFVRGpGRXowWWc3bXp0Y25TQ0VJcjJOL0lFV3RaQkZ0NUZ0OXJGU2ZuMGhOZjBtS3Z6b3VqeXdmR2FBQ3E5YjE5V3VOVzZsbWtsT2RIMHZDQT09Cg==",
+      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v2.2.0-beta/MultiAlt_2.2.0_Full-Setup.msi"
     }
   }
 }
