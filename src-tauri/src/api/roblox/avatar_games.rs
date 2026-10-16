@@ -236,6 +236,88 @@ pub async fn get_servers_page(
     response.json().await.map_err(|e| format!("Failed to parse servers: {}", e))
 }
 
+/// Dono de um servidor privado, como a API devolve.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateServerOwner {
+    pub id: i64,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "displayName", default)]
+    pub display_name: Option<String>,
+}
+
+/// Um servidor privado que a conta pode acessar.
+///
+/// Diferente de [`ServerData`]: servidor privado sem ninguém dentro vem com
+/// `id` (Job ID) nulo e sem `playing`, e o que importa para entrar é o
+/// `accessCode`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateServerData {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "vipServerId", default)]
+    pub vip_server_id: Option<i64>,
+    #[serde(rename = "accessCode", default)]
+    pub access_code: Option<String>,
+    #[serde(rename = "maxPlayers", default)]
+    pub max_players: i32,
+    #[serde(default)]
+    pub playing: i32,
+    #[serde(default)]
+    pub owner: Option<PrivateServerOwner>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateServersResponse {
+    #[serde(default)]
+    pub data: Vec<PrivateServerData>,
+    #[serde(rename = "nextPageCursor", default)]
+    pub next_page_cursor: Option<String>,
+}
+
+/// Servidores privados de um place que **esta conta** pode acessar
+/// (`GET games/v1/games/{place}/private-servers`, com o cookie dela).
+///
+/// Só leitura: quem chama passa o cookie sem `run_with_session_retry` (o
+/// refresh derrubaria as sessões abertas da conta).
+pub async fn get_private_servers(
+    place_id: i64,
+    cursor: Option<&str>,
+    security_token: &str,
+) -> Result<PrivateServersResponse, String> {
+    let client = http_client::client();
+    let mut url = format!(
+        "{}/v1/games/{}/private-servers?sortOrder=Asc&limit=25",
+        endpoints::host("games"),
+        place_id
+    );
+    if let Some(c) = cursor.filter(|c| !c.is_empty()) {
+        url.push_str(&format!("&cursor={}", urlencoding::encode(c)));
+    }
+
+    let response = send_with_retry(|| {
+        client
+            .get(&url)
+            .header(COOKIE, cookie_header(security_token))
+            .header("Accept", "application/json")
+    })
+    .await?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Failed to get private servers (status {})",
+            response.status().as_u16()
+        ));
+    }
+
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse private servers: {}", e))
+}
+
 pub async fn join_game_instance(
     security_token: &str,
     place_id: i64,

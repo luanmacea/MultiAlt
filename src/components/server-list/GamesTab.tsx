@@ -1,12 +1,12 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import type { GameEntry } from "./types";
 import { GameContextMenu } from "./GameContextMenu";
-import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
-import { Search, Play, Server, Star, Loader2 } from "lucide-react";
+import { Search, Play, Loader2 } from "lucide-react";
 import { SessionCache } from "../../utils/sessionCache";
+import { GAME_CARD_GRID, GameCard } from "./GameCard";
 
 /**
  * A última lista da aba Games e a busca que a produziu.
@@ -24,63 +24,11 @@ interface GamesSnapshot {
 const gamesCache = new SessionCache<GamesSnapshot>(1);
 const GAMES_CACHE_KEY = "last";
 
-/** Uma ação da linha de um jogo (ver servidores, favoritar, entrar). */
-export interface GameRowAction {
-  key: string;
-  /** Texto em inglês: vira `aria-label` e tooltip. */
-  label: string;
-  icon: ReactNode;
-  onClick: () => void;
-}
-
-/**
- * Ações de uma linha de jogo — as mesmas em Games, Favorites e Recent.
- *
- * Ficam **sempre visíveis**. Antes eram `opacity-0 group-hover:opacity-100`,
- * então a ação mais útil da tela (ver os servidores do jogo) era invisível em
- * repouso: quem não passa o mouse por cima nunca descobre que existe.
- *
- * O peso é o da lista da aba Servers: botão fantasma, ícone apagado, contraste
- * só no hover. Aparece sem competir com o nome do jogo.
- *
- * O container corta a propagação do clique: a linha inteira tem a sua própria
- * ação (lançar, nas listas Games/Recent; expandir, nos favoritos) e usar um
- * botão não pode disparar as duas coisas.
- */
-export function GameRowActions({ placeId, actions }: { placeId: number; actions: GameRowAction[] }) {
-  if (actions.length === 0) return null;
-  return (
-    <div
-      data-testid={`game-actions-${placeId}`}
-      className="shrink-0 flex items-center gap-1"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {actions.map((action) => (
-        <Tooltip key={action.key} content={action.label}>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              action.onClick();
-            }}
-            aria-label={action.label}
-            className="w-7 h-7 rounded-md theme-btn-ghost border theme-border theme-muted hover:text-[var(--panel-fg)] flex items-center justify-center transition-colors"
-          >
-            {action.icon}
-          </button>
-        </Tooltip>
-      ))}
-    </div>
-  );
-}
-
-/** Ícone de "ver servidores" — mesmo desenho nas três listas. */
-export const browseServersIcon = <Server size={12} strokeWidth={1.5} />;
-/** Ícone de "favoritar". */
-export const favoriteIcon = <Star size={12} strokeWidth={1.5} />;
-/** Ícone de "entrar" — o único com cor própria, porque é o que lança. */
-export const joinGameIcon = (
-  <Play size={12} fill="currentColor" stroke="none" className="text-emerald-400" />
-);
+// As ações da linha moram em GameRowActions.tsx (o GameCard também usa);
+// continuam exportadas daqui para quem já importava desta aba.
+export { GameRowActions, browseServersIcon, favoriteIcon, joinGameIcon } from "./GameRowActions";
+export type { GameRowAction } from "./GameRowActions";
+import { browseServersIcon, favoriteIcon, joinGameIcon } from "./GameRowActions";
 
 export interface GamesTabProps {
   onSelectGame: (placeId: number, name: string, iconUrl: string | null) => void;
@@ -249,88 +197,62 @@ export function GamesTab({
             <span className="text-xs text-zinc-700">{t("No games found")}</span>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2 px-1">
+          // Grade de cards, como a vitrine do site do Roblox (pedido do dono,
+          // 14/10/2026): quanto mais larga a janela, mais colunas.
+          <div className={`${GAME_CARD_GRID} px-1`}>
             {games.map((game) => (
-              <div
+              <GameCard
                 key={`${game.placeId}-${game.name}`}
-                role="button"
-                tabIndex={0}
-                className="flex items-center gap-2.5 p-2 rounded-lg border border-zinc-800/40 bg-zinc-900/40 hover:bg-zinc-800/50 hover:border-zinc-700/60 transition-all cursor-pointer group outline-none"
-                onClick={() => onSelectGame(game.placeId, game.name, game.iconUrl)}
-                onKeyDown={(e) => {
-                  if (e.target !== e.currentTarget) return;
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onSelectGame(game.placeId, game.name, game.iconUrl);
-                  }
-                }}
+                variant="grid"
+                placeId={game.placeId}
+                name={game.name}
+                iconUrl={game.iconUrl}
+                fallbackIcon={<Play size={22} strokeWidth={1.5} />}
+                subtitle={
+                  game.playerCount > 0 || game.likeRatio !== null ? (
+                    <span className="flex items-center gap-2">
+                      {game.likeRatio !== null && <span>👍 {game.likeRatio}%</span>}
+                      {game.playerCount > 0 && (
+                        <span>
+                          {game.playerCount >= 1000
+                            ? `${(game.playerCount / 1000).toFixed(1)}K`
+                            : game.playerCount}{" "}
+                          {t("playing")}
+                        </span>
+                      )}
+                    </span>
+                  ) : undefined
+                }
+                onOpen={() => onSelectGame(game.placeId, game.name, game.iconUrl)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, game });
                 }}
-              >
-                <div className="w-10 h-10 rounded-md bg-zinc-800 shrink-0 overflow-hidden">
-                  {game.iconUrl ? (
-                    <img src={game.iconUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Play size={16} strokeWidth={1.5} className="text-zinc-700" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] text-zinc-200 truncate group-hover:text-zinc-100 transition-colors">
-                    {game.name}
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {game.playerCount > 0 && (
-                      <span className="text-[11px] text-zinc-500">
-                        {game.playerCount >= 1000
-                          ? `${(game.playerCount / 1000).toFixed(1)}K`
-                          : game.playerCount} {t("playing")}
-                      </span>
-                    )}
-                    {game.likeRatio !== null && (
-                      <div className="flex items-center gap-1">
-                        <div className="w-8 h-1 bg-zinc-800 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-emerald-500/60 rounded-full"
-                            style={{ width: `${game.likeRatio}%` }}
-                          />
-                        </div>
-                        <span className="text-[11px] text-zinc-600">{game.likeRatio}%</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <GameRowActions
-                  placeId={game.placeId}
-                  actions={[
-                    ...(onBrowseServers
-                      ? [
-                          {
-                            key: "servers",
-                            label: t("Browse servers"),
-                            icon: browseServersIcon,
-                            onClick: () => onBrowseServers(game.placeId, game.name),
-                          },
-                        ]
-                      : []),
-                    {
-                      key: "favorite",
-                      label: t("Favorite"),
-                      icon: favoriteIcon,
-                      onClick: () => onAddFavorite(game),
-                    },
-                    {
-                      key: "join",
-                      label: t("Join Game"),
-                      icon: joinGameIcon,
-                      onClick: () => onJoinGame(game.placeId),
-                    },
-                  ]}
-                />
-              </div>
+                actions={[
+                  ...(onBrowseServers
+                    ? [
+                        {
+                          key: "servers",
+                          label: t("Browse servers"),
+                          icon: browseServersIcon,
+                          onClick: () => onBrowseServers(game.placeId, game.name),
+                        },
+                      ]
+                    : []),
+                  {
+                    key: "favorite",
+                    label: t("Favorite"),
+                    icon: favoriteIcon,
+                    onClick: () => onAddFavorite(game),
+                  },
+                  {
+                    key: "join",
+                    label: t("Join Game"),
+                    icon: joinGameIcon,
+                    onClick: () => onJoinGame(game.placeId),
+                  },
+                ]}
+              />
             ))}
           </div>
         )}

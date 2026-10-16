@@ -419,6 +419,92 @@ pub async fn log_out_other_sessions(security_token: &str) -> Result<RefreshResul
     })
 }
 
+
+/// Prefixo estável dos erros de troca de senha/e-mail. A tela reconhece o tipo
+/// por ele e mostra a frase traduzida (`credentialErrorText` no frontend).
+/// Formato: `credential-error:<tipo>:<status>:<detalhe do Roblox>`.
+pub const CREDENTIAL_ERROR_PREFIX: &str = "credential-error";
+
+/// Por que o Roblox recusou a troca de senha ou de e-mail. Antes o app jogava a
+/// resposta fora e dizia só "Failed to change password" (relato do dono,
+/// 15/10/2026: no lote, umas davam certo e outras não, sem explicação).
+///
+/// O detalhe nunca leva as palavras que `is_auth_session_error` reconhece
+/// ("unauthorized", "authorization has been denied", "status 401"): elas
+/// renovariam a sessão (`signoutfromallsessions`) e derrubariam as outras
+/// sessões da conta — e uma troca de credencial nunca fez isso.
+pub fn classify_credential_failure(status: u16, challenge_type: Option<&str>, has_challenge: bool, body: &str) -> String {
+    let message = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("errors")
+                .and_then(|e| e.get(0))
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .map(|m| m.trim().to_string())
+        })
+        .unwrap_or_default();
+    let lower = message.to_ascii_lowercase();
+
+    let kind = if has_challenge {
+        match challenge_type.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+            "captcha" => "verification-captcha",
+            "twostepverification" | "forcetwostepverification" => "verification-2sv",
+            "reauthentication" => "verification-password",
+            _ => "verification-other",
+        }
+    } else if status == 429 || lower.contains("too many") || lower.contains("flood") || lower.contains("try again later") {
+        "rate-limited"
+    } else if status == 401 || lower.contains("authorization has been denied") || lower.contains("not authenticated") {
+        "session-expired"
+    } else if lower.contains("pin") && lower.contains("lock") {
+        "pin-locked"
+    } else if lower.contains("password")
+        && (lower.contains("incorrect") || lower.contains("wrong") || lower.contains("current"))
+    {
+        "wrong-current-password"
+    } else if lower.contains("password")
+        && (lower.contains("weak")
+            || lower.contains("simple")
+            || lower.contains("common")
+            || lower.contains("username")
+            || lower.contains("invalid")
+            || lower.contains("not valid")
+            || lower.contains("length")
+            || lower.contains("short"))
+    {
+        "invalid-new-password"
+    } else if lower.contains("email") && (lower.contains("invalid") || lower.contains("already") || lower.contains("in use")) {
+        "invalid-email"
+    } else {
+        "unknown"
+    };
+
+    // Detalhe do Roblox, sem as palavras que renovariam a sessão.
+    let detail = if lower.contains("unauthorized")
+        || lower.contains("authorization has been denied")
+        || lower.contains("not authenticated")
+        || lower.contains("401")
+    {
+        String::new()
+    } else {
+        message.replace(':', " -").chars().take(200).collect()
+    };
+    format!("{CREDENTIAL_ERROR_PREFIX}:{kind}:{status}:{detail}")
+}
+
+async fn credential_failure(response: reqwest::Response) -> String {
+    let status = response.status().as_u16();
+    let challenge_type = response
+        .headers()
+        .get("rblx-challenge-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let has_challenge = challenge_type.is_some() || response.headers().contains_key("rblx-challenge-id");
+    let body = response.text().await.unwrap_or_default();
+    classify_credential_failure(status, challenge_type.as_deref(), has_challenge, &body)
+}
+
 pub async fn change_password(
     security_token: &str,
     current_password: &str,
@@ -441,7 +527,7 @@ pub async fn change_password(
     let response = send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
-        return Err("Failed to change password".to_string());
+        return Err(credential_failure(response).await);
     }
 
     let new_cookie = response
@@ -486,7 +572,7 @@ pub async fn change_email(
     if response.status().is_success() {
         Ok(())
     } else {
-        Err("Failed to change email".to_string())
+        Err(credential_failure(response).await)
     }
 }
 

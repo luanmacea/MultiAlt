@@ -1,8 +1,10 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { AlertTriangle, ChevronDown, Gamepad2, Lock } from "lucide-react";
+import { AlertTriangle, ChevronDown, Gamepad2, Globe, Lock } from "lucide-react";
 import { useTr } from "../../i18n/text";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { shortJobId, type ServerGroup } from "../../utils/sessionGroups";
+import { serverInfoParts } from "../../utils/serverUptime";
+import type { ClientServer } from "../../types";
 
 /**
  * Cabeçalhos dos grupos da lista "Em jogo" (página Session): jogo (com a
@@ -184,20 +186,41 @@ export function NoGameGroupHeader(props: {
 }
 
 /**
- * Linha do servidor dentro do jogo: público/privado, o Job ID curto e quantas
- * contas. A caixa fica na mesma coluna das contas; com um servidor só no jogo
- * ela repetiria a do jogo, então some (o espaço fica, para não desalinhar).
+ * Região e tempo no ar do servidor, lidos do log do cliente (`health.server`):
+ * "Miami, US · server up for 3 h". Some quando o log não disse nada.
+ */
+export function ServerInfo({ server, className = "" }: { server: ClientServer | null | undefined; className?: string }) {
+  const t = useTr();
+  const parts = serverInfoParts(server, Date.now(), t);
+  if (parts.length === 0) return null;
+  const text = parts.join(" · ");
+  return (
+    <span data-testid="session-server-info" className={`inline-flex items-center gap-1 min-w-0 ${className}`} title={text}>
+      <Globe size={10} strokeWidth={1.75} aria-hidden="true" className="shrink-0" />
+      <span className="truncate">{text}</span>
+    </span>
+  );
+}
+
+/**
+ * Linha do servidor dentro do jogo: público/privado, o Job ID curto, a região e
+ * há quanto tempo o servidor está no ar (quando o log disse) e quantas contas.
+ * A caixa fica na mesma coluna das contas; com um servidor só no jogo ela
+ * repetiria a do jogo, então some (o espaço fica, para não desalinhar).
  */
 export function ServerHeader({
   server,
   selection,
   onSelect,
   selectable = true,
+  info,
 }: {
   server: ServerGroup;
   selection: "all" | "some" | "none";
   onSelect: (event: React.MouseEvent<HTMLInputElement>) => void;
   selectable?: boolean;
+  /** Região e início do servidor, de uma das contas dele. */
+  info?: ClientServer | null;
 }) {
   const t = useTr();
   const kind =
@@ -229,7 +252,8 @@ export function ServerHeader({
           {shortJobId(server.jobId)}
         </span>
       )}
-      <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-color)] opacity-60" />
+      <ServerInfo server={info} />
+      <span aria-hidden="true" className="h-px flex-1 min-w-4 bg-[var(--border-color)] opacity-60" />
       {/* Com um servidor só, a contagem já está no cabeçalho do jogo. */}
       {selectable && <span className="shrink-0 tabular-nums">{countLabel(server.userIds.length, t)}</span>}
     </div>

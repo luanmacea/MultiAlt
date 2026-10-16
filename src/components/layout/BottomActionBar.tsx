@@ -747,6 +747,13 @@ export function BottomActionBar() {
             )}
 
             <button
+              onClick={() => { setActionsOpen(false); store.setBulkCredentialsOpen(true); }}
+              className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] flex items-center gap-2"
+            >
+              🔑 {t("Change password / email...")}
+            </button>
+
+            <button
               onClick={() => { setActionsOpen(false); store.killAllRobloxProcesses(); }}
               className="w-full text-left px-3 py-1.5 text-[12px] text-amber-300/80 hover:bg-amber-500/10 flex items-center gap-2"
             >

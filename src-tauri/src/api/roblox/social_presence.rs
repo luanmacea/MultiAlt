@@ -50,7 +50,20 @@ pub async fn get_presence_as(
         .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
-        return Err(format!("Failed to get presence (status {})", response.status().as_u16()));
+        let status = response.status().as_u16();
+        // No 429 o `Retry-After` (em segundos) vai junto na mensagem: a espera da
+        // aba Seguir lê esse número e não pergunta de novo antes da hora.
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<u64>().ok());
+        return Err(match retry_after {
+            Some(secs) if status == 429 => {
+                format!("Failed to get presence (status 429, retry after {} s)", secs)
+            }
+            _ => format!("Failed to get presence (status {})", status),
+        });
     }
 
     let body: serde_json::Value = response.json().await.map_err(|e| format!("Failed to parse: {}", e))?;

@@ -203,6 +203,20 @@ pub struct AccountStore {
     /// Ler o slot quando a UI pede não basta: gravador de fundo — Auto Rejoin a
     /// cada ciclo, Watcher, servidor HTTP — muda o aviso sem a UI pedir nada.
     key_warning_watchers: Mutex<Vec<std::sync::mpsc::Sender<Option<VaultKeyWarning>>>>,
+    /// O último lote removido por `remove_many`, cada conta com a posição que
+    /// tinha na lista — é o que o "Undo" do toast devolve (`undo_remove`).
+    ///
+    /// **Só em memória**, de propósito: gravar em disco seria guardar cookies que
+    /// o usuário mandou apagar. Fechar o app esquece; reler o arquivo também
+    /// (`mark_memory_fresh`). Ordem de lock: `accounts` → `last_removed`.
+    ///
+    /// Guarda o **id** do lote junto: o "Undo" de um toast só desfaz **aquele**
+    /// lote. Remover A,B,C e depois D em 10 s troca o lote guardado; clicar no
+    /// Undo do primeiro toast bate id diferente e é recusado ("expirou") em vez
+    /// de devolver D — contas que o usuário não mandou voltar.
+    last_removed: Mutex<Option<(u64, Vec<(usize, Account)>)>>,
+    /// Numerador dos lotes removidos (0 nunca é lote: é "nada para desfazer").
+    removed_batch_seq: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,6 +240,8 @@ impl AccountStore {
             write_block: Mutex::new(None),
             key_warning: Mutex::new(None),
             key_warning_watchers: Mutex::new(Vec::new()),
+            last_removed: Mutex::new(None),
+            removed_batch_seq: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -752,6 +768,11 @@ impl AccountStore {
         self.load_failed
             .store(false, std::sync::atomic::Ordering::SeqCst);
         self.allow_writes_after_reload();
+        // A lista em memória é outra agora (unlock, backup restaurado): enxertar
+        // nela um lote removido da lista de antes misturaria as duas.
+        if let Ok(mut batch) = self.last_removed.lock() {
+            *batch = None;
+        }
     }
 
     /// Regrava um vault em texto puro como vault cifrado.
@@ -979,6 +1000,14 @@ impl AccountStore {
         drop(store);
         self.load_failed
             .store(false, std::sync::atomic::Ordering::SeqCst);
+
+        // A lista em memória é a do disco agora; um lote removido de **antes** do
+        // unlock não pode voltar por cima dela — ressuscitaria contas de antes da
+        // restauração/desbloqueio por um "Undo" velho. Mesmo motivo do
+        // `mark_memory_fresh` no `load()`.
+        if let Ok(mut batch) = self.last_removed.lock() {
+            *batch = None;
+        }
 
         let mut slot = self.session.lock().map_err(|e| e.to_string())?;
         *slot = Some(session);
@@ -1289,6 +1318,82 @@ impl AccountStore {
         Ok(removed)
     }
 
+    /// Remove várias contas numa gravação só e guarda o lote para o "Undo"
+    /// (`undo_remove`). O lote anterior é substituído. Devolve `(id do lote,
+    /// quantas saíram)`; id `0` com contagem `0` quando nada saiu.
+    ///
+    /// O id identifica **este** lote: o toast que a remoção gera leva o id e só
+    /// esse id desfaz esse lote (ver `undo_remove`).
+    ///
+    /// A lista nova só entra na memória **depois** de gravada: se a gravação
+    /// falha, nada sai e o lote anterior continua desfazível.
+    pub fn remove_many(&self, user_ids: &[i64]) -> Result<(u64, usize), String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let wanted: HashSet<i64> = user_ids.iter().copied().collect();
+        let mut removed: Vec<(usize, Account)> = Vec::new();
+        let mut kept: Vec<Account> = Vec::with_capacity(accounts.len());
+        for (index, account) in accounts.iter().enumerate() {
+            if wanted.contains(&account.user_id) {
+                removed.push((index, account.clone()));
+            } else {
+                kept.push(account.clone());
+            }
+        }
+        if removed.is_empty() {
+            return Ok((0, 0));
+        }
+
+        self.save_locked(&kept)?;
+        *accounts = kept;
+        let count = removed.len();
+        let batch_id = self
+            .removed_batch_seq
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        *self.last_removed.lock().map_err(|e| e.to_string())? = Some((batch_id, removed));
+        Ok((batch_id, count))
+    }
+
+    /// Devolve o lote `batch_id` de `remove_many` às posições que as contas
+    /// tinham, com tudo (cookie, senha, grupo, campos). Conta que voltou à lista
+    /// nesse meio-tempo (adicionada de novo) é pulada: a de agora vale mais que a
+    /// cópia velha. Funciona uma vez; devolve quantas voltaram.
+    ///
+    /// Só desfaz o lote guardado se o id bater. Lote já substituído por um mais
+    /// novo (toast antigo) é **recusado** com erro — não cai no lote novo, que
+    /// fica intacto para o toast dele. Sem lote nenhum = `Ok(0)`.
+    pub fn undo_remove(&self, batch_id: u64) -> Result<usize, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let mut slot = self.last_removed.lock().map_err(|e| e.to_string())?;
+        let Some((id, batch)) = slot.as_ref() else {
+            return Ok(0);
+        };
+        if *id != batch_id {
+            return Err("This removal can no longer be undone.".to_string());
+        }
+
+        let mut next = accounts.clone();
+        let mut restored = 0usize;
+        // Em ordem crescente de posição: cada inserção recria a lista de antes
+        // até aquele ponto, então a posição seguinte continua certa.
+        for (index, account) in batch {
+            if next.iter().any(|a| a.user_id == account.user_id) {
+                continue;
+            }
+            let at = (*index).min(next.len());
+            next.insert(at, account.clone());
+            restored += 1;
+        }
+
+        if restored > 0 {
+            // `?` antes de limpar: gravação recusada mantém o lote para tentar de novo.
+            self.save_locked(&next)?;
+            *accounts = next;
+        }
+        *slot = None;
+        Ok(restored)
+    }
+
     pub fn update(&self, account: Account) -> Result<bool, String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
 
@@ -1378,6 +1483,39 @@ impl AccountStore {
         *accounts = ordered;
 
         self.save_locked(&accounts)
+    }
+
+    /// Renomeia um grupo: toda conta com `Group == from` passa a `to`, numa
+    /// gravação só. Se `to` já existe, as contas **se juntam** a ele (a tela
+    /// pede confirmação antes). Devolve quantas contas mudaram.
+    ///
+    /// O grupo `Default` não se renomeia: ele é o grupo implícito (vazio no
+    /// arquivo), e "renomeá-lo" seria mover todas as contas sem grupo.
+    pub fn rename_group(&self, from: &str, to: &str) -> Result<usize, String> {
+        let to = to.trim();
+        if to.is_empty() {
+            return Err("Group name cannot be empty".to_string());
+        }
+        if is_default_group_name(from) {
+            return Err("The Default group cannot be renamed".to_string());
+        }
+        if from == to {
+            return Ok(0);
+        }
+
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let mut next = accounts.clone();
+        let mut renamed = 0usize;
+        for account in next.iter_mut().filter(|a| a.group == from) {
+            account.group = to.to_string();
+            renamed += 1;
+        }
+        if renamed == 0 {
+            return Ok(0);
+        }
+        self.save_locked(&next)?;
+        *accounts = next;
+        Ok(renamed)
     }
 
     fn decode_plain_or_legacy_accounts(data: &[u8]) -> Result<Vec<Account>, String> {
@@ -1519,4 +1657,50 @@ impl AccountStore {
             skipped,
         })
     }
+
+    /// As contas cifradas com uma senha escolhida **agora** (ideia 38).
+    ///
+    /// Existe porque o backup sem Pass Lock não protege nem viaja: o zip leva o
+    /// `AccountData.key`, cujo embrulho `device` é só o hash de
+    /// `COMPUTERNAME|USERNAME`, e o DPAPI não abre em outro PC. Este arquivo
+    /// depende só da senha.
+    ///
+    /// **Nada de formato novo:** o JSON é o mesmo que `save_locked` grava, e a
+    /// cifra é a mesma do vault (`crypto::encrypt` com `sha512(senha.trim())`,
+    /// Argon2i + XSalsa20-Poly1305, `RAM_HEADER`). É exatamente o que
+    /// `decode_accounts_for_import` abre quando o usuário digita a senha, então o
+    /// import que já existe ("Import AccountData.json") lê o arquivo em qualquer
+    /// instalação. Não grava nada no vault nem mexe na sessão.
+    pub fn export_with_password(&self, password: &str) -> Result<Vec<u8>, String> {
+        let password = password.trim();
+        if password.chars().count() < MIN_EXPORT_PASSWORD_CHARS {
+            return Err(format!(
+                "The export password must be at least {MIN_EXPORT_PASSWORD_CHARS} characters"
+            ));
+        }
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Account file could not be loaded; there is nothing reliable to export.".to_string(),
+            );
+        }
+        // Snapshot e lock solto **antes** do Argon2: derivar a chave com o lock de
+        // contas seguro travaria toda gravação (Auto Rejoin, launch) enquanto isso.
+        let accounts = self.get_all()?;
+        if accounts.is_empty() {
+            return Err("There are no accounts to export.".to_string());
+        }
+        let json = serde_json::to_string_pretty(&accounts)
+            .map_err(|e| format!("Failed to serialize accounts: {}", e))?;
+        crypto::encrypt(&json, &crypto::hash_password(password))
+            .map_err(|e| format!("Failed to encrypt the export: {}", e))
+    }
 }
+
+/// O grupo implícito: `Default` no modelo, vazio na tela antiga.
+pub fn is_default_group_name(group: &str) -> bool {
+    let group = group.trim();
+    group.is_empty() || group == "Default"
+}
+
+/// Mínimo da senha do export protegido — o mesmo do Pass Lock.
+pub const MIN_EXPORT_PASSWORD_CHARS: usize = 8;

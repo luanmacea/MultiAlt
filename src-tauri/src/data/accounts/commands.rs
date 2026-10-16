@@ -32,6 +32,102 @@ pub fn remove_account(state: tauri::State<'_, AccountStore>, user_id: i64) -> Re
     state.remove(user_id)
 }
 
+/// O que a remoção em lote devolve: o id do lote (o toast leva-o para o Undo
+/// desfazer **esse** lote) e quantas contas saíram.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveBatchResult {
+    pub batch_id: u64,
+    pub count: usize,
+}
+
+/// Remove um lote numa gravação só e guarda-o para o "Undo" do toast. O
+/// `remove_account` (uma conta) continua para scripts e compatibilidade, e não
+/// mexe no lote.
+#[tauri::command]
+pub fn remove_accounts(
+    state: tauri::State<'_, AccountStore>,
+    user_ids: Vec<i64>,
+) -> Result<RemoveBatchResult, String> {
+    let (batch_id, count) = state.remove_many(&user_ids)?;
+    Ok(RemoveBatchResult { batch_id, count })
+}
+
+/// Desfaz o lote `batch_id` de `remove_accounts` (só em memória: fechar o app
+/// esquece). Lote já substituído por uma remoção mais nova (toast antigo) é
+/// recusado com erro, em vez de desfazer o lote errado.
+#[tauri::command]
+pub fn undo_remove_accounts(
+    state: tauri::State<'_, AccountStore>,
+    batch_id: u64,
+) -> Result<usize, String> {
+    state.undo_remove(batch_id)
+}
+
+/// `General.GroupOrder` depois de renomear `from` para `to`, ou `None` quando
+/// não há o que mudar (sem ordem manual, valor estragado, grupo fora da lista).
+///
+/// O nome novo fica **na posição do antigo**. Se `to` já estava na ordem (é uma
+/// junção de grupos), o antigo só sai: o grupo de destino fica onde estava.
+/// O valor é JSON, como o frontend grava (`serializeGroupOrder`).
+pub fn rename_group_in_order(raw: &str, from: &str, to: &str) -> Option<String> {
+    let order: Vec<String> = serde_json::from_str(raw).ok()?;
+    let position = order.iter().position(|g| g == from)?;
+    let mut next = order;
+    if next.iter().any(|g| g == to) {
+        next.remove(position);
+    } else {
+        next[position] = to.to_string();
+    }
+    serde_json::to_string(&next).ok()
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameGroupResult {
+    pub renamed: usize,
+    /// O `General.GroupOrder` novo, quando mudou e foi gravado; o frontend o
+    /// põe nas settings em memória sem reler o INI.
+    pub group_order: Option<String>,
+}
+
+/// Renomeia um grupo (ou junta-o a outro já existente): as contas, numa gravação
+/// só, e a entrada dele em `General.GroupOrder`. O grupo `Default` não se
+/// renomeia. O estado "colapsado" dos grupos vive só na tela e é migrado lá.
+#[tauri::command]
+pub fn rename_group(
+    state: tauri::State<'_, AccountStore>,
+    settings: tauri::State<'_, crate::data::settings::SettingsStore>,
+    presets: tauri::State<'_, crate::data::launch_presets::LaunchPresetStore>,
+    from: String,
+    to: String,
+) -> Result<RenameGroupResult, String> {
+    let to = to.trim().to_string();
+    let renamed = state.rename_group(&from, &to)?;
+    let mut group_order = None;
+    if renamed > 0 {
+        let raw = settings.get_string("General", "GroupOrder");
+        if let Some(next) = rename_group_in_order(&raw, &from, &to) {
+            // Falhar aqui não desfaz o rename: o grupo só perde o lugar da ordem
+            // manual e vai para o fim, como um grupo novo.
+            match settings.set("General", "GroupOrder", &next) {
+                Ok(()) => group_order = Some(next),
+                Err(e) => eprintln!("Não foi possível gravar a ordem dos grupos: {}", e),
+            }
+        }
+        // Presets de grupo seguem o nome novo: sem isto o preset guarda o nome
+        // antigo e o launch dele falha com "Group ... has no accounts". Falhar
+        // aqui não desfaz o rename das contas (que é o principal), só vira log.
+        if let Err(e) = presets.rename_group(&from, &to) {
+            eprintln!("Não foi possível atualizar os presets do grupo renomeado: {}", e);
+        }
+    }
+    Ok(RenameGroupResult {
+        renamed,
+        group_order,
+    })
+}
+
 #[tauri::command]
 pub fn update_account(
     state: tauri::State<'_, AccountStore>,
@@ -261,4 +357,36 @@ pub fn import_old_account_data(
     password: Option<String>,
 ) -> Result<OldAccountImportSummary, String> {
     state.import_old_account_data(&file_data, password.as_deref())
+}
+
+/// Nome do arquivo do export protegido. Começa com `AccountData` e termina em
+/// `.json` de propósito: é o que o "Import AccountData.json" aceita
+/// (`isAccountDataFileName` no [ImportDialog.tsx]).
+fn account_export_file_name(now: chrono::DateTime<chrono::Local>) -> String {
+    format!("AccountData-export-{}.json", now.format("%Y%m%d-%H%M%S"))
+}
+
+/// "Export accounts with a password" (ideia 38): grava as contas cifradas com a
+/// senha escolhida agora em `<pasta de dados>/exports/` e abre o Explorer com o
+/// arquivo selecionado — o mesmo caminho do export do histórico; o app não tem
+/// diálogo de salvar. Devolve o caminho.
+///
+/// `async` para o Argon2 (128 MiB) não rodar na thread da janela.
+#[tauri::command(async)]
+pub fn export_accounts_with_password(
+    state: tauri::State<'_, AccountStore>,
+    password: String,
+) -> Result<String, String> {
+    let data = state.export_with_password(&password)?;
+    let dir = crate::data::settings::get_runtime_data_dir().join("exports");
+    fs::create_dir_all(&dir).map_err(|e| format!("Could not create the exports folder: {e}"))?;
+    let path = dir.join(account_export_file_name(chrono::Local::now()));
+    fs::write(&path, &data).map_err(|e| format!("Could not save the file: {e}"))?;
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn();
+    }
+    Ok(path.display().to_string())
 }

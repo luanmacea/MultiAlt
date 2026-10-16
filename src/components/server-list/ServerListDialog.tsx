@@ -200,6 +200,10 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
               refreshOnOpenSignal={refreshOnOpenSignal}
               prefillJobId={jobIdPrefill}
               prefillNonce={jobIdPrefillNonce}
+              accountName={(id) => {
+                const account = store.accounts.find((a) => a.UserID === id);
+                return account ? accountLabel(account, store, id) : null;
+              }}
             />
           )}
           {/* O menu do jogo é o mesmo da Choose Game (Browse servers, Auto

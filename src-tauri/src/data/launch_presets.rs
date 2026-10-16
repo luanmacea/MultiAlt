@@ -55,7 +55,15 @@ pub struct LaunchPreset {
     #[serde(default)]
     pub id: String,
     pub name: String,
+    /// Contas fixas. Vazio quando o preset segue um grupo (`group`).
+    #[serde(default)]
     pub user_ids: Vec<i64>,
+    /// Grupo de contas (ideia 42): com ele, as contas saem do grupo **a cada
+    /// launch** (quem está nele agora, na ordem da lista) em vez de `user_ids`.
+    /// Texto literal do `Account.group`, como a lista agrupa. Ausente nos
+    /// presets antigos — e nos de contas fixas, que gravam sem a chave.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     pub place_id: i64,
     /// Vazio = servidor público; Job ID; ou `vip:<código>` de um VIP salvo nos
     /// favoritos (a forma que `resolve_launch_job` entende).
@@ -111,13 +119,25 @@ pub fn normalize_preset(mut preset: LaunchPreset) -> Result<LaunchPreset, String
     }
     preset.name = name;
 
-    let mut seen = std::collections::HashSet::new();
-    preset.user_ids.retain(|id| *id > 0 && seen.insert(*id));
-    if preset.user_ids.is_empty() {
-        return Err("Pick at least one account.".into());
-    }
-    if preset.user_ids.len() > MAX_PRESET_ACCOUNTS {
-        return Err(format!("A preset holds up to {MAX_PRESET_ACCOUNTS} accounts."));
+    // Grupo só com espaços não é grupo. O texto fica como veio (sem trim):
+    // o grupo da conta é comparado literalmente, como a lista agrupa.
+    preset.group = preset.group.take().filter(|g| !g.trim().is_empty());
+    if let Some(group) = &preset.group {
+        if group.chars().count() > MAX_LABEL_CHARS {
+            return Err("The group name is too long.".into());
+        }
+        // As contas saem do grupo a cada launch: lista fixa guardada junto só
+        // confundiria (e "fechar" usa o que a execução abriu, não esta lista).
+        preset.user_ids.clear();
+    } else {
+        let mut seen = std::collections::HashSet::new();
+        preset.user_ids.retain(|id| *id > 0 && seen.insert(*id));
+        if preset.user_ids.is_empty() {
+            return Err("Pick at least one account.".into());
+        }
+        if preset.user_ids.len() > MAX_PRESET_ACCOUNTS {
+            return Err(format!("A preset holds up to {MAX_PRESET_ACCOUNTS} accounts."));
+        }
     }
     if preset.place_id <= 0 {
         return Err("Pick a game (Place ID).".into());
@@ -157,6 +177,44 @@ pub fn normalize_preset(mut preset: LaunchPreset) -> Result<LaunchPreset, String
         }
     }
     Ok(preset)
+}
+
+/// As contas que este launch do preset abre, a partir da lista de contas do app
+/// (`(UserID, grupo)`, na ordem da lista):
+///
+/// - preset de **grupo**: quem está no grupo **agora**, na ordem da lista (até
+///   `MAX_PRESET_ACCOUNTS`). Grupo renomeado ou esvaziado = erro claro;
+/// - preset de **contas fixas**: as dele que ainda existem no app, na ordem do
+///   preset.
+pub fn resolve_preset_accounts(preset: &LaunchPreset, accounts: &[(i64, &str)]) -> Result<Vec<i64>, String> {
+    let mut seen = std::collections::HashSet::new();
+    match &preset.group {
+        Some(group) => {
+            let ids: Vec<i64> = accounts
+                .iter()
+                .filter(|(id, g)| *id > 0 && *g == group.as_str() && seen.insert(*id))
+                .map(|(id, _)| *id)
+                .take(MAX_PRESET_ACCOUNTS)
+                .collect();
+            if ids.is_empty() {
+                return Err(format!("Group \"{group}\" has no accounts."));
+            }
+            Ok(ids)
+        }
+        None => {
+            let known: std::collections::HashSet<i64> = accounts.iter().map(|(id, _)| *id).collect();
+            let ids: Vec<i64> = preset
+                .user_ids
+                .iter()
+                .copied()
+                .filter(|id| known.contains(id) && seen.insert(*id))
+                .collect();
+            if ids.is_empty() {
+                return Err("None of this preset's accounts are in the app anymore.".into());
+            }
+            Ok(ids)
+        }
+    }
 }
 
 /// O que o agendador tem que fazer agora.
@@ -341,6 +399,40 @@ impl LaunchPresetStore {
         }
         self.write(&file, existed)?;
         Ok(preset)
+    }
+
+    /// Faz os presets de **grupo** que apontam para `from` passarem a `to`.
+    ///
+    /// Chamado quando o usuário renomeia (ou junta) um grupo de contas: sem isto
+    /// o preset guarda o nome antigo e o launch dele falha depois com
+    /// "Group \"...\" has no accounts.", mesmo com as contas ali — elas só estão
+    /// num grupo com outro nome. Junção (o `to` já existe como grupo) é o mesmo
+    /// caminho: o preset passa a resolver pelas contas do grupo de destino.
+    /// Compara o texto literal, como `resolve_preset_accounts` agrupa. Grava só
+    /// se algum preset mudou; devolve quantos.
+    pub fn rename_group(&self, from: &str, to: &str) -> Result<usize, String> {
+        if from == to {
+            return Ok(0);
+        }
+        let _guard = self.lock.lock().map_err(|e| e.to_string())?;
+        let Some(mut file) = self.read_from_disk().map_err(|e| {
+            format!("{e}; refusing to overwrite it. Fix or restore {LAUNCH_PRESETS_FILE_NAME} and restart.")
+        })?
+        else {
+            return Ok(0);
+        };
+        let mut changed = 0usize;
+        for preset in file.presets.iter_mut() {
+            if preset.group.as_deref() == Some(from) {
+                preset.group = Some(to.to_string());
+                changed += 1;
+            }
+        }
+        if changed == 0 {
+            return Ok(0);
+        }
+        self.write(&file, true)?;
+        Ok(changed)
     }
 
     /// Apaga pelo id. `Ok(false)` se não existia.

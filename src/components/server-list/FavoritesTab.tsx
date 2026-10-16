@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import type { FavoriteGame, VipServer } from "./types";
 import { loadFavorites, updateFavorites, makeVipId } from "./types";
 import { useGameListsChanged } from "./gameListsSync";
 import { FavoriteContextMenu } from "./FavoriteContextMenu";
-import { GameRowActions, browseServersIcon } from "./GamesTab";
+import { browseServersIcon } from "./GameRowActions";
+import { GAME_CARD_GRID, GameCard } from "./GameCard";
 import { loadGameIdentity } from "../../hooks/useGameIdentity";
 
 /**
@@ -247,70 +248,61 @@ export function FavoritesTab({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="flex flex-col gap-1 px-1">
+        {/* Grade de cards (pedido do dono, 14/10/2026). A gaveta do favorito
+            aberto ocupa a linha inteira logo abaixo dele; `grid-flow-dense`
+            puxa os outros cards para os buracos que ela deixaria. */}
+        <div className={`${GAME_CARD_GRID} grid-flow-dense px-1`}>
           {favorites.map((game) => {
             const vips = getVips(game);
             const expanded = expandedId === game.placeId;
             return (
-              <div key={game.placeId} className="rounded-lg">
-                <div
-                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800/40 transition-colors cursor-pointer group"
-                  onClick={() => setExpandedId(expanded ? null : game.placeId)}
+              <Fragment key={game.placeId}>
+                <GameCard
+                  variant="grid"
+                  active={expanded}
+                  placeId={game.placeId}
+                  name={game.name}
+                  iconUrl={game.iconUrl}
+                  fallbackIcon={
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                    </svg>
+                  }
+                  subtitle={<span className="font-mono">{t("ID: {{id}}", { id: game.placeId })}</span>}
+                  badge={
+                    vips.length > 0 ? (
+                      <span className="text-[11px] font-medium text-amber-300 bg-black/70 px-1.5 py-0.5 rounded">
+                        {vips.length} {t("VIP")}
+                      </span>
+                    ) : undefined
+                  }
+                  onOpen={() => setExpandedId(expanded ? null : game.placeId)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setContextMenu({ x: e.clientX, y: e.clientY, game });
                   }}
-                >
-                  <div className="w-9 h-9 rounded-md bg-zinc-800 shrink-0 overflow-hidden">
-                    {game.iconUrl ? (
-                      <img src={game.iconUrl} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-700">
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12px] text-zinc-200 truncate">{game.name}</div>
-                    <div className="text-[11px] text-zinc-600 font-mono">{t("ID: {{id}}", { id: game.placeId })}</div>
-                  </div>
-                  {vips.length > 0 && (
-                    <span className="text-[11px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded shrink-0">
-                      {vips.length} {t("VIP")}
-                    </span>
-                  )}
-                  {/* Entrar continua na gaveta (é lá que estão os VIPs); o que
-                      faltava na linha era o caminho para os servidores. */}
-                  <GameRowActions
-                    placeId={game.placeId}
-                    actions={
-                      onBrowseServers
-                        ? [
-                            {
-                              key: "servers",
-                              label: t("Browse servers"),
-                              icon: browseServersIcon,
-                              onClick: () => onBrowseServers(game.placeId),
-                            },
-                          ]
-                        : []
-                    }
-                  />
-                  <svg
-                    width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                    className={`text-zinc-600 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </div>
+                  // Entrar continua na gaveta (é lá que estão os VIPs); no card
+                  // fica o caminho para os servidores.
+                  actions={
+                    onBrowseServers
+                      ? [
+                          {
+                            key: "servers",
+                            label: t("Browse servers"),
+                            icon: browseServersIcon,
+                            onClick: () => onBrowseServers(game.placeId),
+                          },
+                        ]
+                      : []
+                  }
+                />
 
                 {expanded && (
-                  <div className="ml-12 mr-1 mb-2 mt-1 flex flex-col gap-1.5">
+                  <div className="col-span-full mb-2 p-3 rounded-xl border theme-border bg-[var(--panel-soft)] flex flex-col items-start gap-1.5">
+                    <div className="text-[12px] font-medium text-[var(--panel-fg)] truncate">{game.name}</div>
                     <button
                       onClick={() => onSelectGame(game.placeId)}
-                      className="flex items-center justify-center gap-2 w-full px-3 py-1.5 rounded-lg text-[12px] font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors"
+                      className="flex items-center justify-center gap-2 px-4 py-1.5 rounded-lg text-[12px] font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors"
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <polygon points="5 3 19 12 5 21 5 3" />
@@ -319,7 +311,7 @@ export function FavoritesTab({
                     </button>
 
                     {vips.length > 0 && (
-                      <div className="flex flex-col gap-1 mt-1">
+                      <div className="flex flex-col gap-1 mt-1 w-full max-w-xl">
                         {vips.map((vip) => (
                           <div key={vip.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-zinc-800/40">
                             <div className="flex-1 min-w-0">
@@ -350,7 +342,7 @@ export function FavoritesTab({
                     )}
 
                     {addingVipFor === game.placeId ? (
-                      <div className="flex flex-col gap-1.5 mt-1 p-2 rounded-lg border border-dashed border-zinc-700">
+                      <div className="flex flex-col gap-1.5 mt-1 p-2 rounded-lg border border-dashed border-zinc-700 w-full max-w-md">
                         <input
                           autoFocus
                           value={vipDraftLink}
@@ -396,7 +388,7 @@ export function FavoritesTab({
                     ) : (
                       <button
                         onClick={() => startAddVip(game.placeId)}
-                        className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-[12px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors mt-1"
+                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors mt-1"
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <line x1="12" y1="5" x2="12" y2="19" />
@@ -407,7 +399,7 @@ export function FavoritesTab({
                     )}
                   </div>
                 )}
-              </div>
+              </Fragment>
             );
           })}
         </div>

@@ -468,15 +468,38 @@ impl SettingsStore {
 
         // Gravações (docs/features/recordings.md): tocar a gravação da conta
         // depois de a reconexão automática devolvê-la ao jogo nasce desligado;
-        // ligado, espera a conta ficar 30 s no jogo antes de tocar.
+        // ligado, espera a conta ficar 30 s no jogo antes de tocar. O mesmo
+        // para depois de um launch (ideia 52): desligado, 30 s.
         let recordings_defaults: &[(&str, &str)] = &[
             ("AfterReconnect", "false"),
             ("AfterReconnectDelaySeconds", "30"),
+            ("AfterLaunch", "false"),
+            ("AfterLaunchDelaySeconds", "30"),
         ];
         let recordings = ini.section("Recordings");
         for (key, value) in recordings_defaults {
             if !recordings.exists(key) {
                 recordings.set(key, value, None);
+            }
+        }
+
+        // Avisos no Discord (docs/features/webhook.md): **desligado** por
+        // padrão — os avisos saem do PC. `Url` e `Mention` nascem vazias (e
+        // por isso não chegam ao arquivo). Nome da conta mascarado por padrão.
+        let webhook_defaults: &[(&str, &str)] = &[
+            ("Enabled", "false"),
+            ("NotifyDropped", "true"),
+            ("NotifyReconnected", "false"),
+            ("NotifyReconnectFailed", "true"),
+            ("NotifyNotResponding", "true"),
+            ("NotifyLaunchFailed", "false"),
+            ("NotifyWrongAccount", "true"),
+            ("MaskNames", "false"),
+        ];
+        let webhook = ini.section("Webhook");
+        for (key, value) in webhook_defaults {
+            if !webhook.exists(key) {
+                webhook.set(key, value, None);
             }
         }
 

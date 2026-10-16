@@ -14,6 +14,7 @@ import { VaultKeyBanner } from "./components/layout/VaultKeyBanner";
 import { LockOverlay } from "./components/layout/LockOverlay";
 import { EmergencyStopAlert } from "./components/afk-mode/EmergencyStopAlert";
 import { useInactivityLock } from "./hooks/useInactivityLock";
+import { useTrayPresetLaunch } from "./hooks/useTrayPresetLaunch";
 import { inactivityLockActive, normalizeLockMinutes } from "./utils/inactivityLock";
 import { Toolbar } from "./components/layout/Toolbar";
 import { AccountList } from "./components/accounts/AccountList";
@@ -27,6 +28,7 @@ import { ServerListDialog } from "./components/server-list/ServerListDialog";
 import { ImportDialog } from "./components/dialogs/ImportDialog";
 import { AccountFieldsDialog } from "./components/dialogs/AccountFieldsDialog";
 import { AccountUtilsDialog } from "./components/dialogs/AccountUtilsDialog";
+import { BulkCredentialsDialog } from "./components/dialogs/BulkCredentialsDialog";
 import { MissingAssetsDialog } from "./components/dialogs/MissingAssetsDialog";
 import { UpdateDialog } from "./components/dialogs/UpdateDialog";
 import { AfkModeDialog } from "./components/afk-mode/AfkModeDialog";
@@ -72,6 +74,7 @@ function AppContent() {
     store.importDialogOpen ||
     store.accountFieldsOpen ||
     store.accountUtilsOpen ||
+    store.bulkCredentialsOpen ||
     !!store.missingAssets ||
     !!store.afkModeDialog ||
     store.generatorDialogOpen ||
@@ -105,6 +108,10 @@ function AppContent() {
     store.appLocked,
     store.lockApp
   );
+
+  // Launch preset da bandeja: traz a janela à frente e roda o launch normal
+  // (com a pergunta de conta online), ou avisa que é preciso destrancar.
+  useTrayPresetLaunch();
 
   // Botões laterais do mouse (Voltar/Avançar) e Alt+setas, como no navegador:
   // Voltar fecha o que está aberto por cima ou volta à página anterior. Fora da
@@ -297,6 +304,20 @@ function AppContent() {
             >
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${TONE_STYLES[toast.tone].dot}`} />
               <span>{toast.message}</span>
+              {/* Ação do próprio toast ("Undo" da remoção): some ao clicar, para
+                  não ser clicada duas vezes. */}
+              {toast.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    store.dismissToast(toast.id);
+                    toast.action?.run();
+                  }}
+                  className="ml-1 rounded px-1.5 py-0.5 font-semibold text-[var(--accent-color)] hover:bg-[var(--accent-soft)] transition-colors"
+                >
+                  {toast.action.label}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -321,6 +342,11 @@ function AppContent() {
       <AccountUtilsDialog
         open={store.accountUtilsOpen}
         onClose={() => store.setAccountUtilsOpen(false)}
+      />
+
+      <BulkCredentialsDialog
+        open={store.bulkCredentialsOpen}
+        onClose={() => store.setBulkCredentialsOpen(false)}
       />
 
       <MissingAssetsDialog />

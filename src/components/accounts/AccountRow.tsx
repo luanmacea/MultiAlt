@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronUp, User, GripVertical } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, User, GripVertical } from "lucide-react";
 import { useStore } from "../../store";
 import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import type { Account } from "../../types";
@@ -9,7 +9,13 @@ import { StatusBadge, STATUS_COLORS, type StatusKind } from "./StatusBadge";
 import { moderationBadge, moderationLabel } from "../../utils/moderation";
 import { AccountLiveSegment } from "./AccountLiveSegment";
 
-export function AccountRow({ account }: { account: Account }) {
+/**
+ * Uma conta da lista. `variant="card"` é a visão em cards (`AccountListView`,
+ * pedido do dono em 14/10/2026): a mesma conta, com os mesmos cliques, menu,
+ * arrasto e seleção por caixa, só que em pé — foto e nome maiores, numa grade
+ * que ocupa a largura da tela.
+ */
+export function AccountRow({ account, variant = "row" }: { account: Account; variant?: "row" | "card" }) {
   const t = useTr();
   const store = useStore();
   const selected = store.selectedIds.has(account.UserID);
@@ -153,6 +159,169 @@ export function AccountRow({ account }: { account: Account }) {
     store.moveToGroup([dragged.userId], account.Group || "Default");
   }
 
+  const statusBadges =
+    statusDots.length > 0 ? (
+      <div
+        className={`absolute z-10 flex items-center gap-0.5 ${
+          variant === "card" ? "-left-1 -top-1" : "-left-1.5 -top-1"
+        }`}
+      >
+        {statusDots.map((dot, index) => (
+          <Tooltip key={index} content={dot.title} side="bottom">
+            {/* Cor e ícone: o estado não pode depender só da cor (StatusBadge). */}
+            <StatusBadge kind={dot.kind} label={dot.title} color={dot.color} />
+          </Tooltip>
+        ))}
+      </div>
+    ) : null;
+
+  const dragHandleProps = {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.stopPropagation();
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(account.UserID));
+      store.setDragState({ userId: account.UserID, sourceGroup: account.Group || "Default" });
+    },
+    // Cancelled drags (Esc / drop outside) must not leave a stale dragState
+    // that a later cookie-text drop would act on.
+    onDragEnd: () => store.setDragState(null),
+    onClick: (e: React.MouseEvent) => e.stopPropagation(),
+    title: t("Drag to reorder"),
+  };
+
+  const selectBox = (
+    <div
+      className={`w-4 h-4 rounded border flex items-center justify-center transition-all duration-100 ${
+        selected ? "" : "theme-border group-hover/row:brightness-110"
+      }`}
+      style={
+        selected
+          ? { backgroundColor: "var(--accent-color)", borderColor: "var(--accent-color)" }
+          : undefined
+      }
+    >
+      {selected && <Check size={10} stroke="var(--forms-bg)" strokeWidth={3} />}
+    </div>
+  );
+
+  const lastUse = isJoining ? (
+    <span className="inline-flex items-center gap-1 theme-accent">
+      <span className="w-2 h-2 border border-[var(--accent-color)] border-t-transparent rounded-full animate-spin" />
+      <span>{t("Join")}</span>
+    </span>
+  ) : (
+    <span className="theme-muted">{t(timeAgo(account.LastUse))}</span>
+  );
+
+  if (variant === "card") {
+    const arrowClass =
+      "w-6 h-6 flex items-center justify-center rounded theme-muted opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:!opacity-0 disabled:cursor-not-allowed transition";
+    return (
+      <div
+        data-account-row="true"
+        data-user-id={account.UserID}
+        className={`@container/row group/row relative flex flex-col items-center gap-1.5 px-2 pt-3 pb-2.5 rounded-xl border cursor-default select-none transition-colors duration-100 ${
+          selected ? "theme-row-selected" : "theme-border theme-row-hover"
+        }`}
+        style={selected ? { borderColor: "var(--accent-color)" } : undefined}
+        onClick={handleClick}
+        onContextMenu={handleContext}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={handleDrop}
+      >
+        {/* Arrasto e caixa de seleção no canto; setas de ordem no outro. */}
+        <div className="absolute left-1.5 top-1.5 flex items-center gap-1">
+          <div
+            {...dragHandleProps}
+            className="opacity-30 group-hover/row:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-0.5"
+          >
+            <GripVertical size={13} strokeWidth={1.5} className="theme-muted" />
+          </div>
+          {multiMode && selectBox}
+        </div>
+        <div className="absolute right-1 top-1 flex items-center">
+          <button
+            type="button"
+            onClick={(e) => moverPara(contaAcima, e)}
+            disabled={!contaAcima}
+            aria-label={t("Move up")}
+            title={t("Move up")}
+            className={arrowClass}
+          >
+            <ChevronLeft size={13} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => moverPara(contaAbaixo, e)}
+            disabled={!contaAbaixo}
+            aria-label={t("Move down")}
+            title={t("Move down")}
+            className={arrowClass}
+          >
+            <ChevronRight size={13} strokeWidth={2} />
+          </button>
+        </div>
+
+        <div data-row-marquee-surface="true" className="relative mt-1">
+          {statusBadges}
+          {hideAvatar ? (
+            <div className="theme-avatar w-[72px] h-[72px] rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted">
+              <User size={28} strokeWidth={1.25} />
+            </div>
+          ) : avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt=""
+              className="theme-avatar w-[72px] h-[72px] rounded-full bg-[var(--panel-soft)] transition-transform duration-150 group-hover/row:scale-105"
+              loading="lazy"
+            />
+          ) : (
+            <div className="theme-avatar w-[72px] h-[72px] rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-xl font-medium">
+              {accountInitial(account, store)}
+            </div>
+          )}
+          {showPresence && presenceType >= 1 && (
+            <Tooltip content={presenceMeta.label} side="bottom">
+              <span
+                className={`absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[var(--panel-bg)] ${presenceMeta.dotClass}`}
+                style={presenceMeta.dotStyle}
+              />
+            </Tooltip>
+          )}
+        </div>
+
+        <div data-row-marquee-surface="true" className="w-full min-w-0 text-center">
+          <div
+            className={`text-[14px] font-medium leading-tight ${wrapLongNames ? "wrap-anywhere" : "truncate"} ${
+              selected ? "theme-accent" : "text-[var(--panel-fg)]"
+            }`}
+          >
+            {displayName}
+          </div>
+          {showUsername && (
+            <div className={`text-[12px] theme-muted leading-tight ${wrapLongNames ? "wrap-anywhere" : "truncate"}`}>
+              @{account.Username}
+            </div>
+          )}
+          {description && (
+            <Tooltip content={description}>
+              <div className="mt-0.5 text-[11px] theme-muted truncate leading-tight">{description}</div>
+            </Tooltip>
+          )}
+        </div>
+
+        <div className="w-full min-w-0 flex justify-center">
+          <AccountLiveSegment userId={account.UserID} />
+        </div>
+        <div className="text-[11px] tabular-nums">{lastUse}</div>
+      </div>
+    );
+  }
+
   return (
     <div
       data-account-row="true"
@@ -172,19 +341,8 @@ export function AccountRow({ account }: { account: Account }) {
       {/* Drag handle — the reorder drag starts here (not the whole row) so it
           doesn't conflict with the list's marquee multi-select on the row body. */}
       <div
-        draggable
-        onDragStart={(e) => {
-          e.stopPropagation();
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", String(account.UserID));
-          store.setDragState({ userId: account.UserID, sourceGroup: account.Group || "Default" });
-        }}
-        // Cancelled drags (Esc / drop outside) must not leave a stale dragState
-        // that a later cookie-text drop would act on.
-        onDragEnd={() => store.setDragState(null)}
-        onClick={(e) => e.stopPropagation()}
+        {...dragHandleProps}
         className="shrink-0 opacity-30 group-hover/row:opacity-100 transition-opacity cursor-grab active:cursor-grabbing -ml-1 px-0.5 py-1"
-        title={t("Drag to reorder")}
       >
         <GripVertical size={13} strokeWidth={1.5} className="theme-muted" />
       </div>
@@ -192,33 +350,11 @@ export function AccountRow({ account }: { account: Account }) {
       <div className={`shrink-0 overflow-hidden transition-all duration-150 ease-out ${
         multiMode ? "w-4 opacity-100" : "w-0 opacity-0"
       }`}>
-        <div
-          className={`w-4 h-4 rounded border flex items-center justify-center transition-all duration-100 ${
-            selected ? "" : "theme-border group-hover/row:brightness-110"
-          }`}
-          style={
-            selected
-              ? { backgroundColor: "var(--accent-color)", borderColor: "var(--accent-color)" }
-              : undefined
-          }
-        >
-          {selected && (
-            <Check size={10} stroke="var(--forms-bg)" strokeWidth={3} />
-          )}
-        </div>
+        {selectBox}
       </div>
 
       <div className="relative flex-shrink-0">
-        {statusDots.length > 0 && (
-          <div className="absolute -left-1.5 -top-1 z-10 flex items-center gap-0.5">
-            {statusDots.map((dot, index) => (
-              <Tooltip key={index} content={dot.title} side="bottom">
-                {/* Cor e ícone: o estado não pode depender só da cor (StatusBadge). */}
-                <StatusBadge kind={dot.kind} label={dot.title} color={dot.color} />
-              </Tooltip>
-            ))}
-          </div>
-        )}
+        {statusBadges}
         {hideAvatar ? (
           <div className="theme-avatar w-8 h-8 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted">
             <User size={14} strokeWidth={1.5} />
@@ -277,14 +413,7 @@ export function AccountRow({ account }: { account: Account }) {
       )}
 
       <div className="text-[12px] w-14 text-right flex-shrink-0 tabular-nums">
-        {isJoining ? (
-          <span className="inline-flex items-center gap-1 theme-accent">
-            <span className="w-2 h-2 border border-[var(--accent-color)] border-t-transparent rounded-full animate-spin" />
-            <span>{t("Join")}</span>
-          </span>
-        ) : (
-          <span className="theme-muted">{t(timeAgo(account.LastUse))}</span>
-        )}
+        {lastUse}
       </div>
 
       {/* Setas de ordem: o caminho que não depende de arrastar. */}

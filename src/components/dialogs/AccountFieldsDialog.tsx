@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { X } from "lucide-react";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
@@ -15,37 +15,67 @@ interface FieldRow {
 
 let nextId = 0;
 
+/** Os campos que as linhas gravariam: chave aparada, linha sem chave fica de fora. */
+function rowsToFields(rows: FieldRow[]): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const row of rows) {
+    if (row.key.trim()) fields[row.key.trim()] = row.value;
+  }
+  return fields;
+}
+
+function sameFields(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((k) => Object.prototype.hasOwnProperty.call(b, k) && a[k] === b[k])
+  );
+}
+
 export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useTr();
   const store = useStore();
-  const { visible, closing, handleClose } = useModalClose(open, onClose);
-  const backdropClose = useBackdropClose(handleClose);
   const account = store.selectedAccount;
   const [rows, setRows] = useState<FieldRow[]>([]);
   const [flash, setFlash] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
+  // Grava ao sair do campo e ao fechar (X, Esc, fundo), não só com Enter — como
+  // o RAM antigo fazia no Leave/FormClosing. `rowsRef` dá ao fechamento as
+  // linhas da última digitação; `savedRef` guarda o que já foi gravado, para
+  // blur seguido de fechar não gravar duas vezes, nem gravar sem mudança.
+  const rowsRef = useRef<FieldRow[]>([]);
+  rowsRef.current = rows;
+  const savedRef = useRef<Record<string, string>>({});
+  const accountRef = useRef(account);
+  accountRef.current = account;
+
+  const saveIfChanged = useCallback(async (updatedRows: FieldRow[]) => {
+    const acc = accountRef.current;
+    if (!acc) return;
+    const fields = rowsToFields(updatedRows);
+    if (sameFields(fields, savedRef.current)) return;
+    savedRef.current = fields;
+    await store.updateAccount({ ...acc, Fields: fields });
+    setFlash(true);
+    setTimeout(() => setFlash(false), 300);
+  }, [store]);
+
+  const saveAndClose = useCallback(() => {
+    void saveIfChanged(rowsRef.current);
+    onClose();
+  }, [saveIfChanged, onClose]);
+
+  const { visible, closing, handleClose } = useModalClose(open, saveAndClose, undefined, saveAndClose);
+  const backdropClose = useBackdropClose(handleClose);
 
   useEffect(() => {
     if (!open || !account) return;
     const entries = Object.entries(account.Fields || {});
+    savedRef.current = { ...(account.Fields || {}) };
     setRows(entries.map(([key, value]) => ({ id: nextId++, key, value })));
-  }, [open, account?.UserID, handleClose]);
+  }, [open, account?.UserID]);
 
   if (!visible || !account) return null;
-
-  function flashGreen() {
-    setFlash(true);
-    setTimeout(() => setFlash(false), 300);
-  }
-
-  async function saveFields(updatedRows: FieldRow[]) {
-    const fields: Record<string, string> = {};
-    for (const row of updatedRows) {
-      if (row.key.trim()) fields[row.key.trim()] = row.value;
-    }
-    await store.updateAccount({ ...account!, Fields: fields });
-    flashGreen();
-  }
 
   function handleKeyChange(id: number, newKey: string) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, key: newKey } : r)));
@@ -55,11 +85,10 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, value: newValue } : r)));
   }
 
-  function handleValueKeyDown(e: React.KeyboardEvent, id: number) {
+  function handleValueKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();
-      const updated = rows.map((r) => (r.id === id ? { ...r } : r));
-      void saveFields(updated);
+      void saveIfChanged(rows);
     }
   }
 
@@ -70,7 +99,7 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
   async function deleteRow(id: number) {
     const updated = rows.filter((r) => r.id !== id);
     setRows(updated);
-    await saveFields(updated);
+    await saveIfChanged(updated);
   }
 
   const title = t("Fields - {{name}}", { name: accountLabel(account, store) });
@@ -102,7 +131,7 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
                 +
               </button>
             </Tooltip>
-            <button onClick={handleClose} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+            <button onClick={handleClose} aria-label={t("Close")} className="text-zinc-600 hover:text-zinc-400 transition-colors">
               <X size={16} strokeWidth={2} />
             </button>
           </div>
@@ -117,6 +146,7 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
               <input
                 value={row.key}
                 onChange={(e) => handleKeyChange(row.id, e.target.value)}
+                onBlur={() => void saveIfChanged(rowsRef.current)}
                 className="flex-[45] min-w-0 px-2.5 py-1.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-xs text-zinc-300 focus:outline-none focus:border-zinc-600 transition-colors"
                 spellCheck={false}
                 placeholder={t("Key")}
@@ -124,7 +154,8 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
               <input
                 value={row.value}
                 onChange={(e) => handleValueChange(row.id, e.target.value)}
-                onKeyDown={(e) => handleValueKeyDown(e, row.id)}
+                onKeyDown={handleValueKeyDown}
+                onBlur={() => void saveIfChanged(rowsRef.current)}
                 className="flex-[45] min-w-0 px-2.5 py-1.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-xs text-zinc-300 focus:outline-none focus:border-zinc-600 transition-colors"
                 spellCheck={false}
                 placeholder={t("Value")}

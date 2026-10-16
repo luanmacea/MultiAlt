@@ -5,8 +5,10 @@
 // extensões de navegador) é indireto:
 //
 // 1. `POST gamejoin/v1/join-game-instance` para aquele Job ID devolve o
-//    `joinScript.MachineAddress`, que é o IP da máquina que hospeda o servidor;
-// 2. esse IP é geolocalizado por um serviço externo.
+//    endereço do servidor: o público do proxy UDMUX
+//    (`joinScript.UdmuxEndpoints[].Address`) quando há um, senão o
+//    `joinScript.MachineAddress` — que atrás do UDMUX é um IP interno `10.x`;
+// 2. esse IP é geolocalizado por um serviço externo (só se for público).
 //
 // Isso custa **uma** chamada de join por servidor, e o `join-game-instance` tem
 // rate limit. Por isso nada aqui resolve região sozinho: quem chama decide
@@ -221,6 +223,10 @@ pub async fn lookup_ip_region(ip: &str) -> IpRegion {
     if ip.is_empty() {
         return IpRegion::unknown("");
     }
+    // IP privado/reservado não sai do aparelho (ver `is_public_ip`).
+    if !is_public_ip(ip) {
+        return IpRegion::unknown(ip);
+    }
     if let Some(hit) = cached_region(ip) {
         return hit;
     }
@@ -250,7 +256,72 @@ pub async fn lookup_ip_region(ip: &str) -> IpRegion {
     }
 }
 
-/// IP da máquina que hospeda um Job ID, lido do join script.
+/// O IP serve para geolocalizar? Faixa privada, CGNAT, loopback, link-local,
+/// documentação e afins não dizem onde o servidor está — e mandar `10.x` para
+/// um serviço externo só devolve "faixa reservada" ou a cidade de outra rede.
+pub fn is_public_ip(ip: &str) -> bool {
+    match ip.trim().parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            let [a, b, c, _] = v4.octets();
+            !(v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_multicast()
+                || a == 0
+                || a >= 240
+                // 100.64.0.0/10: CGNAT.
+                || (a == 100 && (64..128).contains(&b))
+                // 192.0.0.0/24: atribuições do IETF.
+                || (a == 192 && b == 0 && c == 0)
+                // 198.18.0.0/15: benchmark.
+                || (a == 198 && (b == 18 || b == 19)))
+        }
+        Ok(std::net::IpAddr::V6(v6)) => {
+            let first = v6.segments()[0];
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                // fc00::/7: endereço local único.
+                || (first & 0xfe00) == 0xfc00
+                // fe80::/10: link-local.
+                || (first & 0xffc0) == 0xfe80
+                // 2001:db8::/32: documentação.
+                || (first == 0x2001 && v6.segments()[1] == 0x0db8))
+        }
+        Err(_) => false,
+    }
+}
+
+/// Endereço do servidor no join script. Atrás do proxy UDMUX do Roblox (o caso
+/// comum: todos os joins nos logs reais do dono em 14/10/2026) o
+/// `MachineAddress` é o IP **interno** da máquina (`10.x`) e o público vem em
+/// `UdmuxEndpoints[].Address` — o cliente registra os dois na linha
+/// `UDMUX Address = … | RCC Server Address = …`. Prefere o primeiro endereço
+/// público; sem nenhum, devolve o `MachineAddress` cru (a entrada foi aceita,
+/// só a região é que fica desconhecida — `lookup_ip_region` não o consulta).
+fn join_script_address(join_script: &serde_json::Value) -> Option<String> {
+    let machine = join_script["MachineAddress"]
+        .as_str()
+        .map(str::trim)
+        .filter(|a| !a.is_empty());
+    let udmux = join_script["UdmuxEndpoints"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|endpoint| endpoint["Address"].as_str())
+        .map(str::trim);
+
+    udmux
+        .chain(machine)
+        .find(|address| is_public_ip(address))
+        .or(machine)
+        .map(str::to_string)
+}
+
+/// Endereço de um Job ID, lido do join script (ver `join_script_address`).
 pub async fn server_machine_address(
     security_token: &str,
     place_id: i64,
@@ -259,13 +330,8 @@ pub async fn server_machine_address(
     let response = join_game_instance(security_token, place_id, job_id, false)
         .await
         .map_err(|message| JoinRefusal { message, status: None })?;
-    let address = response["joinScript"]["MachineAddress"]
-        .as_str()
-        .unwrap_or_default()
-        .trim()
-        .to_string();
 
-    if !address.is_empty() {
+    if let Some(address) = join_script_address(&response["joinScript"]) {
         return Ok(address);
     }
 

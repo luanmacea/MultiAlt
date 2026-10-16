@@ -25,6 +25,8 @@ export interface RecentTabProps {
   maxRecentJobs?: number;
   /** Ver `RecentGamesList.fill`. */
   fill?: boolean;
+  /** Ver `RecentGamesList.layout`. */
+  layout?: "list" | "rail";
 }
 
 export function RecentTab({
@@ -39,6 +41,7 @@ export function RecentTab({
   onSelectJob,
   maxRecentJobs = 12,
   fill = true,
+  layout = "list",
 }: RecentTabProps) {
   const t = useTr();
   const games = (
@@ -52,6 +55,7 @@ export function RecentTab({
       onBotting={onBotting}
       onScripts={onScripts}
       fill={fill}
+      layout={layout}
     />
   );
 

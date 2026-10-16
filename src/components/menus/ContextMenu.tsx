@@ -11,6 +11,7 @@ import { copyAccountSecret } from "../../utils/copySecret";
 import { useTr } from "../../i18n/text";
 import { MAX_ALIAS_LENGTH } from "../../types";
 import { accountLabel, maskAccountName } from "../../utils/accountName";
+import { canRenameGroup, useRenameGroup } from "../../hooks/useRenameGroup";
 import { MenuItemView } from "./MenuItemView";
 import type { MenuItem } from "./MenuItemView";
 
@@ -20,6 +21,7 @@ export function ContextMenu() {
   const prompt = usePrompt();
   const confirm = useConfirm();
   const confirmCopyCredential = useCopyCredentialWarning();
+  const renameGroup = useRenameGroup();
   const ref = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
 
@@ -391,6 +393,15 @@ export function ContextMenu() {
         store.sortGroupAlphabetically(single.Group || "Default");
       },
     },
+    // O `Default` não se renomeia (é o grupo implícito): o item nem aparece.
+    ...(single && canRenameGroup(single.Group || "Default")
+      ? [
+          {
+            label: t("Rename Group..."),
+            action: () => void renameGroup(single.Group),
+          },
+        ]
+      : []),
     {
       label: t("Toggle Group Visibility"),
       action: () => {

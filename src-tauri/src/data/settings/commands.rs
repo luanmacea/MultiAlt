@@ -21,6 +21,9 @@ pub fn update_setting(
     key: String,
     value: String,
 ) -> Result<(), String> {
+    // `Webhook.Url` só grava vazio ou um webhook do Discord (a tela confere
+    // antes; isto é a segunda trava — ver docs/features/webhook.md).
+    crate::api::discord_webhook::validate_setting(&section, &key, &value)?;
     state.set(&section, &key, &value)
 }
 

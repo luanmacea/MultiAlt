@@ -34,3 +34,28 @@ export const LAUNCH_ALREADY_ACTIVE_CODE = "launch-already-active";
 export function isLaunchAlreadyActiveError(error: unknown): boolean {
   return String(error ?? "").includes(LAUNCH_ALREADY_ACTIVE_CODE);
 }
+
+const EVENT_HELD_ADMIN =
+  "Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.";
+const EVENT_HELD =
+  "Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.";
+
+/**
+ * Erro de launch na língua da tela. As frases que o backend escreve em inglês
+ * quando pula o launch porque outro cliente ainda segura o
+ * `ROBLOX_singletonEvent` (`MULTI_ROBLOX_EVENT_HELD*` em
+ * platform/windows/core.rs — o teste lê a lista do fonte do Rust) são
+ * trocadas pela tradução, inclusive dentro de um texto maior. O resto passa
+ * como veio.
+ */
+export function launchErrorText(error: unknown, t: (text: string) => string): string {
+  const text = String(error ?? "");
+  const held = [
+    [EVENT_HELD_ADMIN, () => t("Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.")],
+    [EVENT_HELD, () => t("Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.")],
+  ] as const;
+  for (const [english, translated] of held) {
+    if (text.includes(english)) return text.replace(english, translated());
+  }
+  return text;
+}

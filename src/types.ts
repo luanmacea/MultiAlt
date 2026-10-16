@@ -519,6 +519,24 @@ export interface ClientHealth {
   notResponding?: boolean;
   /** O log diz que a conta está num jogo agora (entrou, sem queda nem saída). */
   inGame?: boolean;
+  /**
+   * O cliente que o app abriu entrou no jogo como **outra** conta do Roblox (o
+   * `userid` do log). O cliente continua aberto; `null`/ausente = a conta certa
+   * ou o log ainda não disse.
+   */
+  wrongAccountUserId?: number | null;
+  /**
+   * O servidor em que está, pelo log: região (já formatada por
+   * `General.ServerRegionFormat`, `null` enquanto não se sabe) e quando o
+   * servidor subiu (`Server Prefix`). Ausente/`null` = o log não disse.
+   */
+  server?: ClientServer | null;
+}
+
+/** O servidor de um cliente (`ClientServerView`, commands/client_health.rs). */
+export interface ClientServer {
+  region: string | null;
+  startedAtMs: number | null;
 }
 
 /**
@@ -662,6 +680,25 @@ export interface AccountAccess {
   denied: boolean;
   /** Outro motivo de não dar para saber (servidor cheio, rede, cookie). */
   error: string | null;
+}
+
+/** Um servidor privado que a conta pode acessar (`get_private_servers`). */
+export interface PrivateServer {
+  /** Job ID — nulo quando não há ninguém dentro. */
+  id: string | null;
+  name: string | null;
+  vipServerId: number | null;
+  /** O que o launch usa (`vip:<accessCode>`). */
+  accessCode: string | null;
+  maxPlayers: number;
+  playing: number;
+  owner: { id: number; name?: string | null; displayName?: string | null } | null;
+}
+
+/** Uma página de `get_private_servers`. */
+export interface PrivateServersPage {
+  data: PrivateServer[];
+  nextPageCursor: string | null;
 }
 
 /** Progresso do evento `server-region-progress`. */
@@ -917,7 +954,13 @@ export interface LaunchPreset {
   /** Vazio num preset novo: o backend gera. */
   id: string;
   name: string;
+  /** Contas fixas. Vazio num preset de grupo. */
   userIds: number[];
+  /**
+   * Grupo de contas (ideia 42): com ele, as contas saem do grupo a cada launch
+   * (quem está nele agora, na ordem da lista). Ausente/nulo = contas fixas.
+   */
+  group?: string | null;
   placeId: number;
   /** Vazio = servidor público; Job ID; ou `vip:<código>` de um VIP dos favoritos. */
   jobId: string;
@@ -971,6 +1014,8 @@ export interface LaunchPresetEvent {
   name: string;
   action: "open" | "close";
   scheduled: boolean;
+  /** De onde veio: botão da tela, horário ou menu da bandeja. */
+  source?: "button" | "schedule" | "tray";
   ok: boolean;
   count: number;
   error: string | null;

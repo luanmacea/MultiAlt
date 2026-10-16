@@ -3,7 +3,9 @@ import { Clock, Lock } from "lucide-react";
 import { useTr } from "../../i18n/text";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { formatDuration } from "../../utils/sessionHistory";
-import type { CurrentSession } from "../../types";
+import type { ClientServer, CurrentSession } from "../../types";
+import { ServerInfo } from "./InGameGroups";
+import { serverInfoParts } from "../../utils/serverUptime";
 
 /**
  * Tempo em jogo, andando sozinho ("45s", "12m", "1h 05m"). O relógio é da
@@ -30,10 +32,11 @@ export function SessionClock({ userId, sinceMs }: { userId: number; sinceMs: num
 /**
  * Segunda linha de uma conta no "Em jogo": o jogo (nome resolvido como nas
  * outras telas; sem nome, o Place ID), se o servidor é público ou privado
- * (quando se sabe) e há quanto tempo está nele. Nome longo é cortado, com o
- * texto inteiro no tooltip.
+ * (quando se sabe), a região e o tempo no ar do servidor (pelo log do cliente)
+ * e há quanto tempo está nele. Nome longo é cortado, com o texto inteiro no
+ * tooltip.
  */
-export function CurrentSessionLine({ session }: { session: CurrentSession }) {
+export function CurrentSessionLine({ session, server: info }: { session: CurrentSession; server?: ClientServer | null }) {
   const t = useTr();
   const identity = useGameIdentity(session.placeId, session.userId);
   const game = identity?.name ?? t("Place {{placeId}}", { placeId: session.placeId });
@@ -55,6 +58,12 @@ export function CurrentSessionLine({ session }: { session: CurrentSession }) {
             {session.privateServer && <Lock size={10} strokeWidth={1.75} aria-hidden="true" />}
             {server}
           </span>
+        </>
+      )}
+      {serverInfoParts(info, Date.now(), t).length > 0 && (
+        <>
+          <span aria-hidden="true">·</span>
+          <ServerInfo server={info} />
         </>
       )}
       <span aria-hidden="true">·</span>

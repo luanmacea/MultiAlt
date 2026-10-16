@@ -76,9 +76,27 @@ const ROBLOX_PLAYER_CHANNEL_KEY: &str =
 const PRODUCTION_CHANNEL: &str = "production";
 /// The CDN uses "LIVE" for what the client calls the production channel.
 const PRODUCTION_CHANNEL_CDN: &str = "LIVE";
-const PRODUCTION_VERSION_URL: &str =
-    "https://clientsettingscdn.roblox.com/v2/client-version/WindowsPlayer";
+/// Rota do clientsettings que diz a build do Windows de um canal.
+const CLIENT_VERSION_ROUTE: &str = "/v2/client-version/WindowsPlayer";
 const PRODUCTION_VERSION_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Plano da consulta de versão: (índice em `production_version_urls`, espera
+/// antes). CDN, servidor de origem na hora, e o CDN de novo depois de uma
+/// pausa curta. Pior caso (tudo em timeout) ~19 s — e só quando a rede está
+/// ruim; antes, uma falha só mandava o launch para o instalador do Roblox.
+const VERSION_LOOKUP_PLAN: &[(usize, Duration)] = &[
+    (0, Duration::ZERO),
+    (1, Duration::ZERO),
+    (0, Duration::from_millis(750)),
+];
+/// Depois de uma consulta que falhou em todos os hosts, as próximas (o mesmo
+/// launch chama a consulta mais de uma vez: pasta do ClientSettings, spawn)
+/// não voltam à rede por este tempo — senão cada uma repetiria o plano inteiro.
+const LOOKUP_FAILURE_BACKOFF: Duration = Duration::from_secs(20);
+/// Última build de produção resolvida, gravada para sobreviver a um restart
+/// (`app_data_root`, junto do catálogo de versões — é dado da máquina, não da
+/// conta). É o que o launch usa quando a consulta falha logo depois de abrir o
+/// app, com o cache em memória ainda vazio.
+const PRODUCTION_BUILD_FILE: &str = "RobloxProductionBuild.txt";
 /// Teto da consulta "qual build este canal exige". Fica **abaixo** do teto das
 /// chamadas de API de propósito: esta consulta tem fallback (o cache vencido, ou
 /// o canal de produção), então esperar mais tempo só atrasaria o launch sem
@@ -90,6 +108,9 @@ static CHANNEL_VERSION_CACHE: LazyLock<Mutex<HashMap<String, (std::time::Instant
     LazyLock::new(|| Mutex::new(HashMap::new()));
 /// Build resolved by the last lookup, for sync callers (`get_roblox_path`).
 static LAST_RESOLVED_BUILD: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+/// Quando a consulta de cada canal falhou em todos os hosts pela última vez.
+static CHANNEL_LOOKUP_FAILED_AT: LazyLock<Mutex<HashMap<String, std::time::Instant>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Why launches used to "update Roblox" and close the other clients:
 ///
@@ -115,7 +136,8 @@ static LAST_RESOLVED_BUILD: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| M
 /// silêncio quando faltar. O registro não é lido nem escrito neste caminho —
 /// quem joga pelo site continua com o que o Roblox configurou.
 ///
-/// O handler do protocolo só entra como último recurso, se o download falhar.
+/// O handler do protocolo só entra como último recurso: nenhuma build de
+/// produção instalada **e** o download falhou (ver `plan_production_build`).
 pub async fn launch_url(url: &str) -> Result<(), String> {
     if let Some(player_exe) = ensure_player_exe_for_channel(PRODUCTION_CHANNEL).await {
         std::process::Command::new(&player_exe)
@@ -344,12 +366,215 @@ fn emit_build_install(version: &str, stage: &str, current: u64, total: u64, mess
 /// Roblox, ou canal para o qual o Roblox acabou de trocar). `None` só quando
 /// não foi possível nem achar nem instalar.
 async fn ensure_player_exe_for_channel(channel: &str) -> Option<PathBuf> {
+    if channel_is_production(channel) {
+        return ensure_production_player_exe().await;
+    }
+    // Canal de teste (old join, que lê o canal do registro): sem os fallbacks
+    // de produção — uma build de outro canal faria o cliente pedir update. Quem
+    // chama cai na própria pasta de fallback, nunca no handler cru.
     if let Some(exe) = player_exe_for_channel(channel).await {
         return Some(exe);
     }
+    let version = build_version_for_channel(channel).await?;
+    install_player_build(channel, &version).await
+}
 
+/// O que fazer para ter uma build de **produção** para abrir.
+#[derive(Debug, PartialEq, Eq)]
+enum ProductionBuildPlan {
+    /// Abrir esta build, já instalada.
+    Use(String),
+    /// Baixar `version`; se o download falhar, abrir `fallback` (instalada).
+    Install {
+        version: String,
+        fallback: Option<String>,
+    },
+    /// Nada instalado e nada para baixar: só resta o último recurso.
+    Nothing,
+}
+
+/// Decide qual build de produção abrir. `resolved` é o que a consulta de
+/// versão respondeu (ou o cache vencido dela), `persisted` a última build de
+/// produção conhecida (gravada em disco), `installed` as builds instaladas,
+/// da mais nova para a mais antiga.
+///
+/// Por que uma build instalada vale mais que o instalador: o `launch_url`
+/// manda `channel:` vazio = produção, então a build certa é a de produção.
+/// Se a consulta falhou, a última de produção conhecida é a melhor aposta; na
+/// falta dela, a mais nova da pasta (pode ser de um canal de teste que o
+/// Roblox instalou — ainda assim é o que o handler cru abriria de pior). Uma
+/// build um pouco velha pode fazer o cliente se atualizar sozinho; o handler
+/// cru é **sempre** o instalador, que fecha todos os outros clientes.
+fn plan_production_build(
+    resolved: Option<&str>,
+    persisted: Option<&str>,
+    installed: &[String],
+) -> ProductionBuildPlan {
+    let is_installed = |v: &str| installed.iter().any(|i| i == v);
+    let installed_persisted = persisted.filter(|p| is_installed(p));
+    match resolved {
+        Some(version) if is_installed(version) => ProductionBuildPlan::Use(version.to_string()),
+        Some(version) => ProductionBuildPlan::Install {
+            version: version.to_string(),
+            fallback: installed_persisted
+                .filter(|p| *p != version)
+                .or_else(|| installed.iter().map(String::as_str).find(|i| *i != version))
+                .map(str::to_string),
+        },
+        None => match (installed_persisted, installed.first(), persisted) {
+            (Some(p), _, _) => ProductionBuildPlan::Use(p.to_string()),
+            (None, Some(newest), _) => ProductionBuildPlan::Use(newest.clone()),
+            (None, None, Some(p)) => ProductionBuildPlan::Install {
+                version: p.to_string(),
+                fallback: None,
+            },
+            (None, None, None) => ProductionBuildPlan::Nothing,
+        },
+    }
+}
+
+/// Builds instaladas em `versions_dir` (`version-<hex>` com o
+/// `RobloxPlayerBeta.exe`), da pasta modificada por último para a mais antiga.
+/// Pastas de staging/backup do instalador do app (`.staging-…`, `.old-…`)
+/// ficam de fora pelo nome.
+fn installed_builds_newest_first(versions_dir: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(versions_dir) else {
+        return Vec::new();
+    };
+    let found = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !is_valid_version_hash(&name) || !entry.path().join("RobloxPlayerBeta.exe").exists() {
+                return None;
+            }
+            let modified = entry.metadata().and_then(|m| m.modified()).ok()?;
+            Some((name, modified))
+        })
+        .collect();
+    order_builds_newest_first(found)
+}
+
+fn order_builds_newest_first(mut builds: Vec<(String, SystemTime)>) -> Vec<String> {
+    builds.sort_by(|a, b| b.1.cmp(&a.1));
+    builds.into_iter().map(|(name, _)| name).collect()
+}
+
+fn persisted_build_file() -> Option<PathBuf> {
+    crate::data::settings::app_data_root().map(|root| root.join(PRODUCTION_BUILD_FILE))
+}
+
+/// Lê a build gravada; qualquer coisa que não seja `version-<hex>` é ignorada
+/// (o nome vira caminho de pasta).
+fn read_persisted_build(file: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(file).ok()?;
+    let version = text.trim();
+    is_valid_version_hash(version).then(|| version.to_string())
+}
+
+/// Grava a build (só quando mudou). Falha de disco não é erro de launch.
+fn write_persisted_build(file: &std::path::Path, version: &str) {
+    if !is_valid_version_hash(version) || read_persisted_build(file).as_deref() == Some(version) {
+        return;
+    }
+    if let Some(parent) = file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(file, version) {
+        eprintln!("Could not save the last Roblox production build: {e}");
+    }
+}
+
+/// Build de produção já resolvida para o launch em curso. O `client_dir` (que
+/// recebe o patch do ClientSettings — FPS, fast flags) e o `launch_url` (o spawn)
+/// pedem a **mesma** build com milissegundos de diferença; sem o memo cada um
+/// refazia a resolução e, pior, um download que falhava na 1ª e passava na 2ª
+/// deixava o ClientSettings na pasta de fallback em vez da build aberta. A janela
+/// é curta (cobre o intervalo interno de um launch: resolução + auth + join) e
+/// menor que o espaçamento típico entre contas de uma leva (AccountJoinDelay),
+/// quando a build volta a ser reavaliada.
+static PRODUCTION_EXE_MEMO: LazyLock<Mutex<Option<(std::time::Instant, Option<PathBuf>)>>> =
+    LazyLock::new(|| Mutex::new(None));
+/// Validade do memo da build de produção. Igual ao backoff da consulta de
+/// versão (`LOOKUP_FAILURE_BACKOFF`): a mesma ideia de "não repetir a rede no
+/// mesmo launch". Guardar um `None` (falha) por essa janela é de propósito — a
+/// degradação graciosa é abrir a build instalada/fallback, nunca o instalador.
+const PRODUCTION_EXE_MEMO_TTL: Duration = LOOKUP_FAILURE_BACKOFF;
+
+/// Decide o que fazer com o memo da build de produção. `None` = resolver de
+/// novo; `Some(v)` = reusar `v` (inclusive um `None` guardado: "já tentei e
+/// falhou neste launch", para não baixar de novo). Uma build guardada que sumiu
+/// do disco força nova resolução.
+fn production_exe_memo_decision(
+    entry: Option<&(std::time::Instant, Option<PathBuf>)>,
+    now: std::time::Instant,
+    ttl: Duration,
+) -> Option<Option<PathBuf>> {
+    let (at, value) = entry?;
+    if now.duration_since(*at) >= ttl {
+        return None;
+    }
+    if value.as_ref().is_some_and(|exe| !exe.exists()) {
+        return None;
+    }
+    Some(value.clone())
+}
+
+/// Exe da build de produção, resolvida **uma vez por launch** (ver
+/// [`PRODUCTION_EXE_MEMO`]) e reusada pelo patch e pelo spawn.
+async fn ensure_production_player_exe() -> Option<PathBuf> {
+    let now = std::time::Instant::now();
+    if let Some(hit) = PRODUCTION_EXE_MEMO
+        .lock()
+        .ok()
+        .and_then(|guard| production_exe_memo_decision(guard.as_ref(), now, PRODUCTION_EXE_MEMO_TTL))
+    {
+        return hit;
+    }
+    let resolved = resolve_production_player_exe().await;
+    if let Ok(mut guard) = PRODUCTION_EXE_MEMO.lock() {
+        *guard = Some((now, resolved.clone()));
+    }
+    resolved
+}
+
+/// Exe da build de produção, com os fallbacks de `plan_production_build`.
+/// Sem memo: o invólucro [`ensure_production_player_exe`] é quem resolve uma vez
+/// por launch.
+async fn resolve_production_player_exe() -> Option<PathBuf> {
+    let resolved = build_version_for_channel(PRODUCTION_CHANNEL).await;
+    let installed = roblox_versions_dir()
+        .map(|dir| installed_builds_newest_first(&dir))
+        .unwrap_or_default();
+    let persisted = persisted_build_file().and_then(|file| read_persisted_build(&file));
+    match plan_production_build(resolved.as_deref(), persisted.as_deref(), &installed) {
+        ProductionBuildPlan::Use(version) => {
+            if resolved.as_deref() != Some(version.as_str()) {
+                eprintln!(
+                    "Roblox version lookup failed; opening the installed build {version} instead of Roblox's installer"
+                );
+            }
+            installed_player_exe(&version)
+        }
+        ProductionBuildPlan::Install { version, fallback } => {
+            match install_player_build(PRODUCTION_CHANNEL, &version).await {
+                Some(exe) => Some(exe),
+                None => fallback.and_then(|old| {
+                    eprintln!(
+                        "Could not install Roblox build {version}; opening the installed build {old} instead of Roblox's installer"
+                    );
+                    installed_player_exe(&old)
+                }),
+            }
+        }
+        ProductionBuildPlan::Nothing => None,
+    }
+}
+
+/// Baixa e instala `version` (do `channel`) em `%LOCALAPPDATA%\Roblox\Versions`.
+async fn install_player_build(channel: &str, version: &str) -> Option<PathBuf> {
     let channel = channel.to_string();
-    let version = build_version_for_channel(&channel).await?;
+    let version = version.to_string();
     let _serialize = BUILD_INSTALL_LOCK.lock().await;
     // Another launch may have installed it while we waited for the lock.
     if let Some(exe) = installed_player_exe(&version) {
@@ -413,10 +638,18 @@ enum ChannelBuild {
 /// build de produção (e no reparo do registro). Timeout, 429, 5xx ou resposta
 /// ilegível não dizem nada sobre o canal: dá `None`, e quem chama usa o cache
 /// vencido sem tocar no registro.
+///
+/// E só quando a consulta veio do **CDN** (`cdn = true`), o host que o próprio
+/// cliente do Roblox consulta. Um 401/404 do servidor de **origem**
+/// (`clientsettings.roblox.com`, o fallback) para um canal que o CDN ainda
+/// serve não prova aposentadoria: gravar `production` aí faria o launch pelo
+/// site divergir. Nesse caso o 4xx cai para `read_build`, que devolve `None`, e
+/// o registro fica intocado.
 async fn fetch_channel_build(
     client: &reqwest::Client,
     production_url: &str,
     channel: &str,
+    cdn: bool,
 ) -> Option<ChannelBuild> {
     let resp = client
         .get(channel_version_url(production_url, channel))
@@ -427,13 +660,51 @@ async fn fetch_channel_build(
         resp.status(),
         reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::NOT_FOUND
     );
-    if retired && !channel_is_production(channel) {
+    if retired && cdn && !channel_is_production(channel) {
         let production = client.get(production_url).send().await.ok()?;
         return read_build(production)
             .await
             .map(ChannelBuild::RetiredUseProduction);
     }
     read_build(resp).await.map(ChannelBuild::Channel)
+}
+
+/// URLs de produção do clientsettings, na ordem do plano: o CDN (o mesmo que
+/// o cliente consulta) e o servidor de origem, que responde a mesma rota.
+fn production_version_urls() -> Vec<String> {
+    ["clientsettingscdn", "clientsettings"]
+        .iter()
+        .map(|sub| format!("{}{}", crate::api::endpoints::host(sub), CLIENT_VERSION_ROUTE))
+        .collect()
+}
+
+/// `fetch_channel_build` seguindo `plan`: cada passo espera o seu tempo e
+/// consulta o host indicado; o primeiro que responde vence.
+async fn fetch_channel_build_with_retry(
+    client: &reqwest::Client,
+    production_urls: &[String],
+    channel: &str,
+    plan: &[(usize, Duration)],
+) -> Option<ChannelBuild> {
+    for (host, delay) in plan {
+        if !delay.is_zero() {
+            tokio::time::sleep(*delay).await;
+        }
+        let Some(url) = production_urls.get(*host) else {
+            continue;
+        };
+        // Só o CDN (índice 0, o host que o cliente consulta) é autoritativo para
+        // dizer que um canal foi aposentado; ver `fetch_channel_build`.
+        if let Some(found) = fetch_channel_build(client, url, channel, *host == 0).await {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// A consulta falhou há pouco (`elapsed` desde a falha)? Então não volta à rede.
+fn lookup_recently_failed(elapsed: Option<Duration>) -> bool {
+    elapsed.is_some_and(|e| e < LOOKUP_FAILURE_BACKOFF)
 }
 
 /// A build (`version-...`) de uma resposta do clientsettings.
@@ -469,37 +740,64 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         }
     }
 
-    let fetched = async {
-        // Teto próprio e curto: esta consulta tem fallback (o cache vencido),
-        // então esperar mais que isso só atrasa o launch. `connect_timeout` vem
-        // do builder compartilhado; o total continua sendo os 6 s de sempre.
-        let client = crate::api::http_client::builder_with(
-            CHANNEL_LOOKUP_TIMEOUT,
-            CHANNEL_LOOKUP_TIMEOUT,
-        )
-        .build()
-        .ok()?;
-        match fetch_channel_build(&client, PRODUCTION_VERSION_URL, &channel).await? {
-            ChannelBuild::Channel(version) => Some(version),
-            ChannelBuild::RetiredUseProduction(version) => {
-                set_player_channel(PRODUCTION_CHANNEL);
-                Some(version)
+    // Acabou de falhar em todos os hosts: não repete o plano inteiro a cada
+    // chamada do mesmo launch — quem chama decide com o que tem.
+    let failed_recently = CHANNEL_LOOKUP_FAILED_AT
+        .lock()
+        .ok()
+        .and_then(|failed| failed.get(&channel).map(|at| at.elapsed()));
+    let fetched = if lookup_recently_failed(failed_recently) {
+        None
+    } else {
+        async {
+            // Teto próprio e curto por tentativa: esta consulta tem fallback (o
+            // cache vencido, a build gravada, as instaladas), então esperar
+            // mais só atrasa o launch. `connect_timeout` vem do builder
+            // compartilhado.
+            let client = crate::api::http_client::builder_with(
+                CHANNEL_LOOKUP_TIMEOUT,
+                CHANNEL_LOOKUP_TIMEOUT,
+            )
+            .build()
+            .ok()?;
+            let urls = production_version_urls();
+            match fetch_channel_build_with_retry(&client, &urls, &channel, VERSION_LOOKUP_PLAN)
+                .await?
+            {
+                ChannelBuild::Channel(version) => Some(version),
+                ChannelBuild::RetiredUseProduction(version) => {
+                    set_player_channel(PRODUCTION_CHANNEL);
+                    Some(version)
+                }
             }
         }
-    }
-    .await;
+        .await
+    };
 
     match fetched {
         Some(version) => {
             remember_resolved_build(&channel, &version);
+            if channel_is_production(&channel) {
+                if let Some(file) = persisted_build_file() {
+                    write_persisted_build(&file, &version);
+                }
+            }
             if let Ok(mut cache) = CHANNEL_VERSION_CACHE.lock() {
-                cache.insert(channel, (std::time::Instant::now(), version.clone()));
+                cache.insert(channel.clone(), (std::time::Instant::now(), version.clone()));
+            }
+            if let Ok(mut failed) = CHANNEL_LOOKUP_FAILED_AT.lock() {
+                failed.remove(&channel);
             }
             Some(version)
         }
         // Network hiccup: a stale answer is still far better than the protocol
         // handler, whose build may not match the channel.
         None => {
+            if !lookup_recently_failed(failed_recently) {
+                if let Ok(mut failed) = CHANNEL_LOOKUP_FAILED_AT.lock() {
+                    failed.insert(channel.clone(), std::time::Instant::now());
+                }
+            }
             let stale = cached.map(|(_, version)| version);
             if let Some(version) = &stale {
                 remember_resolved_build(&channel, version);

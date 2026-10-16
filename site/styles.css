@@ -92,6 +92,11 @@ p { margin: 0; }
 .btn-ghost { padding: 15px 20px; }
 .btn-discord { gap: 10px; }
 .btn-discord svg { color: #8b93ff; flex: none; }
+.btn-star { gap: 10px; }
+.btn-star svg { color: #fbbf24; flex: none; }
+.star-ask { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 560px; margin-top: 8px; }
+.guide-star { color: var(--muted); }
+.star-ask p { color: var(--muted); font-size: 16px; line-height: 1.55; }
 .btn-small { padding: 8px 14px; font-size: 14px; }
 
 /* ---------- nav ---------- */

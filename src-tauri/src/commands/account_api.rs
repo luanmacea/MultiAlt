@@ -43,6 +43,16 @@ fn persist_cookie_update(state: &AccountStore, user_id: i64, new_cookie: &str) -
     Ok(())
 }
 
+/// Grava a senha nova depois de uma troca bem-sucedida. Sem isto a conta ficava
+/// com a senha ANTIGA guardada: a próxima troca (ou o lote do menu Ações) usava
+/// essa como "senha atual" e o Roblox respondia que estava errada.
+fn persist_password_update(state: &AccountStore, user_id: i64, new_password: &str) -> Result<(), String> {
+    let mut account = get_account(state, user_id)?;
+    account.password = new_password.to_string();
+    state.update(account)?;
+    Ok(())
+}
+
 async fn refresh_account_session(state: &AccountStore, user_id: i64) -> Result<String, String> {
     let account = mark_refresh_attempt(state, user_id)?;
     let result = api::auth::log_out_other_sessions(&account.security_token).await?;
@@ -915,6 +925,37 @@ async fn get_servers(
     .await
 }
 
+/// Os servidores privados deste place que **a conta** pode acessar (uma página),
+/// lidos com o cookie dela — a seção "Private servers" da aba Servers.
+///
+/// **Sem `run_with_session_retry`**: é leitura, e o refresh chama
+/// `signoutfromallsessionsandreauthenticate`, que derrubaria as sessões abertas
+/// da conta. Cookie vencido vira o erro desta conta, e só dela.
+#[tauri::command]
+async fn get_private_servers(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+    place_id: i64,
+    cursor: Option<String>,
+) -> Result<api::roblox::PrivateServersResponse, String> {
+    get_private_servers_inner(state.inner(), user_id, place_id, cursor).await
+}
+
+async fn get_private_servers_inner(
+    state: &AccountStore,
+    user_id: i64,
+    place_id: i64,
+    cursor: Option<String>,
+) -> Result<api::roblox::PrivateServersResponse, String> {
+    if place_id <= 0 {
+        return Err("Enter a valid Place ID".to_string());
+    }
+    read_without_refresh(state, user_id, |cookie| async move {
+        api::roblox::get_private_servers(place_id, cursor.as_deref(), &cookie).await
+    })
+    .await
+}
+
 /// A lista de servidores **na ordem da preferência**, já sem os que não cabem
 /// o lote.
 ///
@@ -1260,6 +1301,12 @@ fn pick_viewer_cookie(accounts: &[data::accounts::Account]) -> Option<String> {
 /// **Fallback obrigatório:** se a chamada autenticada falhar (cookie morto,
 /// rede, o que for), repete sem cookie em vez de propagar o erro — uma única
 /// conta com sessão inválida não pode apagar a presença de todo mundo.
+///
+/// **Exceção: rate limit (429).** Um 429 na chamada autenticada é propagado
+/// **com o `Retry-After`** em vez de cair no anônimo: o limite é por IP, o
+/// anônimo tomaria 429 igual, e um sucesso anônimo aqui zeraria o backoff da
+/// espera da aba Seguir ("Wait until they're in a game") — ela nunca
+/// desaceleraria sob rate limiting. Continua só leitura, sem refresh de sessão.
 async fn presence_with_viewer_cookie(
     state: &AccountStore,
     user_ids: &[i64],
@@ -1271,12 +1318,22 @@ async fn presence_with_viewer_cookie(
         .or_else(|| state.get_all().ok().and_then(|accounts| pick_viewer_cookie(&accounts)));
 
     if let Some(token) = cookie {
-        if let Ok(presences) = api::roblox::get_presence_as(Some(&token), user_ids).await {
-            return Ok(presences);
+        match api::roblox::get_presence_as(Some(&token), user_ids).await {
+            Ok(presences) => return Ok(presences),
+            // 429: propaga (leva o Retry-After); não mascara com o anônimo.
+            Err(err) if is_presence_rate_limited(&err) => return Err(err),
+            // Cookie morto, rede, 5xx, ilegível: cai para o anônimo.
+            Err(_) => {}
         }
     }
 
     api::roblox::get_presence(user_ids).await
+}
+
+/// Erro de presença que é rate limit (429). O formato vem de
+/// `social_presence::get_presence_as` ("Failed to get presence (status 429...)").
+fn is_presence_rate_limited(err: &str) -> bool {
+    err.contains("status 429")
 }
 
 #[tauri::command]
@@ -1572,6 +1629,7 @@ async fn get_server_regions(
 /// para o launch, e todas as contas entram no mesmo servidor.
 #[tauri::command]
 async fn pick_server(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AccountStore>,
     settings: tauri::State<'_, SettingsStore>,
     user_id: i64,
@@ -1584,7 +1642,13 @@ async fn pick_server(
     let cookie = get_cookie(state.inner(), user_id)?;
     let template = server_region_template(settings.inner());
 
-    api::roblox::pick_server(
+    // No Console: a escolha do servidor roda ANTES do launch e pode levar
+    // segundos (várias páginas de servidores; com filtro de região, uma
+    // consulta por servidor). Sem esta linha o tempo entre o clique e o
+    // "Iniciando launch" não aparecia em lugar nenhum (relato do dono, 15/10).
+    emit_launch_log(&app, user_id, "info", "server", format!("Escolhendo servidor ({preference})..."));
+    let started = std::time::Instant::now();
+    let result = api::roblox::pick_server(
         &cookie,
         place_id,
         api::roblox::parse_server_preference(&preference),
@@ -1593,7 +1657,25 @@ async fn pick_server(
         &template,
         max_lookups.unwrap_or(api::roblox::REGION_LOOKUP_MAX),
     )
-    .await
+    .await;
+    let secs = started.elapsed().as_secs_f32();
+    match &result {
+        Ok(picked) => emit_launch_log(
+            &app,
+            user_id,
+            "info",
+            "server",
+            format!("Servidor escolhido em {secs:.1} s: {}", picked.job_id),
+        ),
+        Err(e) => emit_launch_log(
+            &app,
+            user_id,
+            "warn",
+            "server",
+            format!("Não deu para escolher o servidor em {secs:.1} s: {e}"),
+        ),
+    }
+    result
 }
 
 #[tauri::command]
@@ -1664,6 +1746,7 @@ async fn change_password(
     if let Some(new_cookie) = new_cookie {
         persist_cookie_update(state.inner(), user_id, &new_cookie)?;
     }
+    persist_password_update(state.inner(), user_id, &new_password)?;
 
     Ok(())
 }
