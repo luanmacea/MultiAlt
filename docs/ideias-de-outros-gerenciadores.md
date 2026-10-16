@@ -71,6 +71,7 @@ trabalho e pacotes: [plano-ideias.md](plano-ideias.md).
 | 48 | Esperar o jogador ficar disponível e entrar | `develop` (15/10) | Aba Follow: confere a cada 30 s, recua em erro/429, desiste em 2 h |
 | 50 | Servidores privados da conta na aba Servers | `develop` (15/10) | `games/v1/games/{place}/private-servers`, entra pelo caminho de VIP que já existia |
 | 52 | Pequenas: preset pela bandeja, gravação depois de qualquer launch, desfazer remoção de contas, renomear grupo | `develop` (15/10) | |
+| #30 | Trocar senha/e-mail em massa (menu Ações) | `develop` (15/10) | Pedido de usuário (issue #30), autorizado pelo dono. Uma conta por vez; senha atual da conta ou compartilhada; conta sem senha é pulada; desafio do Roblox falha a conta e segue. Ver [accounts.md](features/accounts.md) |
 
 Além do catálogo, a 2.0.0 trouxe o que não veio de concorrente: página
 Session agrupada por jogo/servidor, estado ao vivo na lista de contas,
