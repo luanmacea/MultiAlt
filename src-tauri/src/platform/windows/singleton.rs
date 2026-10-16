@@ -28,7 +28,7 @@
 // Importados aqui (e não no topo de `windows.rs`) porque só este arquivo usa.
 use windows_sys::Win32::Foundation::{
     DuplicateHandle, GetLastError, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS,
-    ERROR_FILE_NOT_FOUND,
+    ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INVALID_HANDLE,
 };
 use windows_sys::Win32::System::Threading::{
     CreateEventW, GetCurrentProcess, OpenEventW, EVENT_MODIFY_STATE, PROCESS_DUP_HANDLE,
@@ -419,14 +419,34 @@ pub fn close_roblox_singleton_handles() -> SingletonCloseReport {
     report
 }
 
-/// O evento `name` existe nesta sessão? `OpenEventW` sem prefixo abre no mesmo
-/// namespace em que o cliente do Roblox cria o dele. Acesso negado conta como
-/// "existe": o objeto está lá, só não abre para nós.
+/// `OpenEventW` falhou (handle nulo) com `last_error`: esse nome segura um
+/// Event que faz o próximo cliente desistir?
+///
+/// - `ERROR_FILE_NOT_FOUND`: o nome não existe — nada barra.
+/// - `ERROR_INVALID_HANDLE`: o nome existe, mas como objeto de **outro tipo** —
+///   um Mutex, a mesma técnica da nossa própria reserva (`core.rs`) e de outras
+///   ferramentas de multi-instância. Um cliente do Roblox não cria o Event
+///   sobre esse nome, então não há instância antiga para sinalizar: não barra.
+///   (Antes qualquer erro que não fosse "não encontrado" contava como Event
+///   existente, e um Mutex de outra ferramenta com esse nome fazia o app pular
+///   todo segundo launch com "could not be unlocked".)
+/// - `ERROR_ACCESS_DENIED`: existe um Event, de um cliente **elevado**, que não
+///   conseguimos abrir — barra.
+/// - qualquer outro erro: conservador, trata como Event existente — barra.
+fn open_event_failure_blocks(last_error: u32) -> bool {
+    !matches!(last_error, ERROR_FILE_NOT_FOUND | ERROR_INVALID_HANDLE)
+}
+
+/// Existe, nesta sessão, um `ROBLOX_singletonEvent` (um Event de verdade) que
+/// faz o próximo cliente desistir? `OpenEventW` sem prefixo abre no mesmo
+/// namespace em que o cliente do Roblox cria o dele. Um objeto de outro tipo
+/// com o mesmo nome (um Mutex — a nossa reserva ou a de outra ferramenta) **não**
+/// conta: ver [`open_event_failure_blocks`].
 fn named_event_exists(name: &str) -> bool {
     let wide = encode_wide(name);
     let handle = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, wide.as_ptr()) };
     if handle.is_null() {
-        return unsafe { GetLastError() } != ERROR_FILE_NOT_FOUND;
+        return open_event_failure_blocks(unsafe { GetLastError() });
     }
     unsafe { CloseHandle(handle) };
     true
@@ -464,6 +484,21 @@ mod singleton_event_tests {
     #[test]
     fn without_a_size_hint_the_snapshot_doubles() {
         assert_eq!(next_handle_snapshot_size(0, 1024 * 1024), Some(2 * 1024 * 1024));
+    }
+
+    #[test]
+    fn a_wrong_type_object_of_the_same_name_does_not_block_the_next_client() {
+        // Nome livre: `OpenEventW` dá ERROR_FILE_NOT_FOUND — nada barra.
+        assert!(!open_event_failure_blocks(ERROR_FILE_NOT_FOUND));
+        // Nome ocupado por um objeto de outro tipo (um Mutex: a nossa reserva ou
+        // a de outra ferramenta de multi-instância): ERROR_INVALID_HANDLE. Não é
+        // um Event de cliente, então não barra — antes barrava e o app pulava
+        // todo segundo launch.
+        assert!(!open_event_failure_blocks(ERROR_INVALID_HANDLE));
+        // Event de um cliente elevado que não conseguimos abrir: barra.
+        assert!(open_event_failure_blocks(ERROR_ACCESS_DENIED));
+        // Qualquer outro erro: conservador, trata como Event existente.
+        assert!(open_event_failure_blocks(1_u32)); // ERROR_INVALID_FUNCTION
     }
 
     struct OwnedEvent(HANDLE);

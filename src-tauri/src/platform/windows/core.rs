@@ -256,9 +256,11 @@ fn can_open_another_client(closed_now: usize, roblox_running: bool, event_exists
     closed_now > 0 || (roblox_running && !event_exists)
 }
 
-/// O nome do Event "existe" também quando é a **nossa** reserva (um Mutex com o
-/// mesmo nome: `OpenEventW` falha com tipo errado, não com "não encontrado").
-/// Essa não barra o próximo cliente — é justamente o que impede o Event.
+/// Um `ROBLOX_singletonEvent` (um Event de verdade) barra o próximo cliente,
+/// a não ser que seja a **nossa** reserva. `named_event_exists` já ignora um
+/// objeto de outro tipo com o mesmo nome (um Mutex), então `reserved_by_us`
+/// fica como salvaguarda explícita do caso em que somos nós que seguramos o
+/// nome.
 fn event_blocks_next_client(name_exists: bool, reserved_by_us: bool) -> bool {
     name_exists && !reserved_by_us
 }
@@ -803,7 +805,14 @@ mod singleton_reservation_tests {
 
         let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, wide.as_ptr()) };
         assert!(event.is_null(), "an Event was created over the reserved name");
-        assert!(named_event_exists(&name), "the name reads as taken");
+        // Um Mutex com esse nome não é um Event de cliente: `named_event_exists`
+        // não pode lê-lo como instância antiga (senão o app pularia o launch).
+        // Quem a nossa própria reserva não barra é garantido por
+        // `event_blocks_next_client(_, reserved_by_us = true)`.
+        assert!(
+            !named_event_exists(&name),
+            "a Mutex of the same name is not a blocking Event"
+        );
 
         unsafe { CloseHandle(reservation) };
         let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, wide.as_ptr()) };

@@ -490,8 +490,63 @@ fn write_persisted_build(file: &std::path::Path, version: &str) {
     }
 }
 
-/// Exe da build de produção, com os fallbacks de `plan_production_build`.
+/// Build de produção já resolvida para o launch em curso. O `client_dir` (que
+/// recebe o patch do ClientSettings — FPS, fast flags) e o `launch_url` (o spawn)
+/// pedem a **mesma** build com milissegundos de diferença; sem o memo cada um
+/// refazia a resolução e, pior, um download que falhava na 1ª e passava na 2ª
+/// deixava o ClientSettings na pasta de fallback em vez da build aberta. A janela
+/// é curta (cobre o intervalo interno de um launch: resolução + auth + join) e
+/// menor que o espaçamento típico entre contas de uma leva (AccountJoinDelay),
+/// quando a build volta a ser reavaliada.
+static PRODUCTION_EXE_MEMO: LazyLock<Mutex<Option<(std::time::Instant, Option<PathBuf>)>>> =
+    LazyLock::new(|| Mutex::new(None));
+/// Validade do memo da build de produção. Igual ao backoff da consulta de
+/// versão (`LOOKUP_FAILURE_BACKOFF`): a mesma ideia de "não repetir a rede no
+/// mesmo launch". Guardar um `None` (falha) por essa janela é de propósito — a
+/// degradação graciosa é abrir a build instalada/fallback, nunca o instalador.
+const PRODUCTION_EXE_MEMO_TTL: Duration = LOOKUP_FAILURE_BACKOFF;
+
+/// Decide o que fazer com o memo da build de produção. `None` = resolver de
+/// novo; `Some(v)` = reusar `v` (inclusive um `None` guardado: "já tentei e
+/// falhou neste launch", para não baixar de novo). Uma build guardada que sumiu
+/// do disco força nova resolução.
+fn production_exe_memo_decision(
+    entry: Option<&(std::time::Instant, Option<PathBuf>)>,
+    now: std::time::Instant,
+    ttl: Duration,
+) -> Option<Option<PathBuf>> {
+    let (at, value) = entry?;
+    if now.duration_since(*at) >= ttl {
+        return None;
+    }
+    if value.as_ref().is_some_and(|exe| !exe.exists()) {
+        return None;
+    }
+    Some(value.clone())
+}
+
+/// Exe da build de produção, resolvida **uma vez por launch** (ver
+/// [`PRODUCTION_EXE_MEMO`]) e reusada pelo patch e pelo spawn.
 async fn ensure_production_player_exe() -> Option<PathBuf> {
+    let now = std::time::Instant::now();
+    if let Some(hit) = PRODUCTION_EXE_MEMO
+        .lock()
+        .ok()
+        .and_then(|guard| production_exe_memo_decision(guard.as_ref(), now, PRODUCTION_EXE_MEMO_TTL))
+    {
+        return hit;
+    }
+    let resolved = resolve_production_player_exe().await;
+    if let Ok(mut guard) = PRODUCTION_EXE_MEMO.lock() {
+        *guard = Some((now, resolved.clone()));
+    }
+    resolved
+}
+
+/// Exe da build de produção, com os fallbacks de `plan_production_build`.
+/// Sem memo: o invólucro [`ensure_production_player_exe`] é quem resolve uma vez
+/// por launch.
+async fn resolve_production_player_exe() -> Option<PathBuf> {
     let resolved = build_version_for_channel(PRODUCTION_CHANNEL).await;
     let installed = roblox_versions_dir()
         .map(|dir| installed_builds_newest_first(&dir))
@@ -588,10 +643,18 @@ enum ChannelBuild {
 /// build de produção (e no reparo do registro). Timeout, 429, 5xx ou resposta
 /// ilegível não dizem nada sobre o canal: dá `None`, e quem chama usa o cache
 /// vencido sem tocar no registro.
+///
+/// E só quando a consulta veio do **CDN** (`cdn = true`), o host que o próprio
+/// cliente do Roblox consulta. Um 401/404 do servidor de **origem**
+/// (`clientsettings.roblox.com`, o fallback) para um canal que o CDN ainda
+/// serve não prova aposentadoria: gravar `production` aí faria o launch pelo
+/// site divergir. Nesse caso o 4xx cai para `read_build`, que devolve `None`, e
+/// o registro fica intocado.
 async fn fetch_channel_build(
     client: &reqwest::Client,
     production_url: &str,
     channel: &str,
+    cdn: bool,
 ) -> Option<ChannelBuild> {
     let resp = client
         .get(channel_version_url(production_url, channel))
@@ -602,7 +665,7 @@ async fn fetch_channel_build(
         resp.status(),
         reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::NOT_FOUND
     );
-    if retired && !channel_is_production(channel) {
+    if retired && cdn && !channel_is_production(channel) {
         let production = client.get(production_url).send().await.ok()?;
         return read_build(production)
             .await
@@ -635,7 +698,9 @@ async fn fetch_channel_build_with_retry(
         let Some(url) = production_urls.get(*host) else {
             continue;
         };
-        if let Some(found) = fetch_channel_build(client, url, channel).await {
+        // Só o CDN (índice 0, o host que o cliente consulta) é autoritativo para
+        // dizer que um canal foi aposentado; ver `fetch_channel_build`.
+        if let Some(found) = fetch_channel_build(client, url, channel, *host == 0).await {
             return Some(found);
         }
     }
@@ -1184,6 +1249,11 @@ mod channel_repair_tests {
             .unwrap()
     }
 
+    /// O host CDN é autoritativo para aposentadoria (`cdn = true`).
+    const CDN: bool = true;
+    /// O servidor de origem é apenas fallback (`cdn = false`).
+    const ORIGIN: bool = false;
+
     #[tokio::test]
     async fn a_transient_failure_never_falls_back_to_production() {
         for status in [408, 429, 500, 502, 503, 504] {
@@ -1193,7 +1263,7 @@ mod channel_repair_tests {
             )
             .await;
             assert_eq!(
-                fetch_channel_build(&client(), &base, CHANNEL).await,
+                fetch_channel_build(&client(), &base, CHANNEL, CDN).await,
                 None,
                 "HTTP {status} no canal levou à build de produção (e ao reparo)"
             );
@@ -1207,7 +1277,7 @@ mod channel_repair_tests {
             build_answer("version-producao"),
         )
         .await;
-        assert_eq!(fetch_channel_build(&client(), &base, CHANNEL).await, None);
+        assert_eq!(fetch_channel_build(&client(), &base, CHANNEL, CDN).await, None);
     }
 
     #[tokio::test]
@@ -1219,7 +1289,7 @@ mod channel_repair_tests {
             )
             .await;
             assert_eq!(
-                fetch_channel_build(&client(), &base, CHANNEL).await,
+                fetch_channel_build(&client(), &base, CHANNEL, CDN).await,
                 Some(ChannelBuild::RetiredUseProduction(
                     "version-producao".into()
                 )),
@@ -1228,10 +1298,31 @@ mod channel_repair_tests {
         }
     }
 
+    /// Regressão (crítico): só o CDN pode sinalizar um canal aposentado. Um
+    /// 401/404 do servidor de **origem** para um canal que o CDN ainda serve
+    /// não pode virar `RetiredUseProduction` — senão gravaria `production` no
+    /// registro e o launch pelo site divergiria. Resultado esperado: `None`
+    /// (sem reparo).
+    #[tokio::test]
+    async fn the_origin_server_never_signals_a_retired_channel() {
+        for status in [401, 404] {
+            let (_server, base) = serve(
+                ResponseTemplate::new(status),
+                build_answer("version-producao"),
+            )
+            .await;
+            assert_eq!(
+                fetch_channel_build(&client(), &base, CHANNEL, ORIGIN).await,
+                None,
+                "HTTP {status} no servidor de origem não pode pedir o reparo"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn a_retired_channel_without_a_production_answer_asks_for_nothing() {
         let (_server, base) = serve(ResponseTemplate::new(404), ResponseTemplate::new(503)).await;
-        assert_eq!(fetch_channel_build(&client(), &base, CHANNEL).await, None);
+        assert_eq!(fetch_channel_build(&client(), &base, CHANNEL, CDN).await, None);
     }
 
     #[tokio::test]
@@ -1242,7 +1333,7 @@ mod channel_repair_tests {
         )
         .await;
         assert_eq!(
-            fetch_channel_build(&client(), &base, CHANNEL).await,
+            fetch_channel_build(&client(), &base, CHANNEL, CDN).await,
             Some(ChannelBuild::Channel("version-docanal".into()))
         );
     }
@@ -1487,6 +1578,44 @@ mod production_build_fallback_tests {
         )));
     }
 
+    /// Fix 4: a build de produção é resolvida uma vez por launch. O `client_dir`
+    /// (patch do ClientSettings) e o `launch_url` (spawn) reusam a mesma decisão
+    /// — inclusive uma falha —, então não há dois downloads nem ClientSettings
+    /// na pasta errada.
+    #[test]
+    fn the_production_build_is_resolved_once_per_launch() {
+        use std::time::Instant;
+        // Base fixa (somar a um Instant nunca estoura; subtrair poderia, se o
+        // processo tivesse acabado de subir).
+        let base = Instant::now();
+        let now = base + Duration::from_secs(60);
+        let ttl = Duration::from_secs(20);
+
+        // Sem entrada: resolve.
+        assert_eq!(production_exe_memo_decision(None, now, ttl), None);
+
+        // Sucesso fresco (build que existe): reusa a MESMA — é o que faz o patch
+        // e o spawn concordarem.
+        let exe = std::env::current_exe().expect("exe do teste existe");
+        let ok = (now, Some(exe.clone()));
+        assert_eq!(
+            production_exe_memo_decision(Some(&ok), now, ttl),
+            Some(Some(exe.clone()))
+        );
+
+        // Falha fresca (None): reusa a falha — não baixa de novo no mesmo launch.
+        let failed = (now, None);
+        assert_eq!(production_exe_memo_decision(Some(&failed), now, ttl), Some(None));
+
+        // Entrada vencida: resolve de novo (próximo launch da leva).
+        let stale = (base, None);
+        assert_eq!(production_exe_memo_decision(Some(&stale), now, ttl), None);
+
+        // Build guardada que sumiu do disco: resolve de novo.
+        let gone = (now, Some(PathBuf::from(r"C:\nao\existe\RobloxPlayerBeta.exe")));
+        assert_eq!(production_exe_memo_decision(Some(&gone), now, ttl), None);
+    }
+
     const ROUTE: &str = "/v2/client-version/WindowsPlayer";
 
     fn build_answer(upload: &str) -> ResponseTemplate {
@@ -1572,6 +1701,49 @@ mod production_build_fallback_tests {
             None
         );
         assert_eq!(cdn.received_requests().await.unwrap().len(), FAST_PLAN.len());
+    }
+
+    #[tokio::test]
+    async fn an_origin_404_with_a_live_cdn_never_triggers_a_channel_repair() {
+        // Crítico: canal de teste (old join). O CDN cai uma vez (transitório), o
+        // servidor de origem responde 404 para esse canal — mas só o CDN é
+        // autoritativo, então a origem NÃO pode pedir `RetiredUseProduction` (=
+        // gravar `production` no registro). O CDN se recupera na 2ª tentativa e a
+        // build dele vence. Com o bug, o 404 da origem virava o reparo.
+        const CH: &str = "ztestchannel";
+        let cdn = MockServer::start().await;
+        let origin = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("{ROUTE}/channel/{CH}")))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&cdn)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("{ROUTE}/channel/{CH}")))
+            .respond_with(build_answer("version-cdn"))
+            .mount(&cdn)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("{ROUTE}/channel/{CH}")))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&origin)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(ROUTE))
+            .respond_with(build_answer("version-producao"))
+            .mount(&origin)
+            .await;
+        let urls = vec![
+            format!("{}{ROUTE}", cdn.uri()),
+            format!("{}{ROUTE}", origin.uri()),
+        ];
+        assert_eq!(
+            fetch_channel_build_with_retry(&client(), &urls, CH, FAST_PLAN).await,
+            Some(ChannelBuild::Channel("version-cdn".into())),
+            "a origem 404 não pode pedir o reparo; a build do CDN vence"
+        );
     }
 
     /// O último recurso cru (`cmd /C start roblox-player:...`) continua um só,

@@ -60,11 +60,15 @@ async fn handle_launch_account(
             windows::set_singleton_reservation_enabled(
                 state.settings.get_bool("General", "ReserveSingletonEvent"),
             );
-            match windows::enable_multi_roblox() {
-                Ok(true) => {}
-                Ok(false) => {
+            // `enable_multi_roblox` é síncrona e pode dormir até 5 s (carência do
+            // cliente recém-aberto) e varrer a tabela de handles; `run_off_worker`
+            // a tira do worker async para não prender o servidor.
+            match crate::run_off_worker("Multi Roblox", windows::enable_multi_roblox).await {
+                Ok(Ok(true)) => {}
+                Ok(Ok(false)) => {
                     return reply(500, "Failed to enable Multi Roblox. Close all Roblox processes and try again.", v2);
                 }
+                Ok(Err(e)) => return reply(500, &e, v2),
                 Err(e) => return reply(500, &e, v2),
             }
         } else {
@@ -250,11 +254,15 @@ async fn handle_follow_user(
             windows::set_singleton_reservation_enabled(
                 state.settings.get_bool("General", "ReserveSingletonEvent"),
             );
-            match windows::enable_multi_roblox() {
-                Ok(true) => {}
-                Ok(false) => {
+            // `enable_multi_roblox` é síncrona e pode dormir até 5 s (carência do
+            // cliente recém-aberto) e varrer a tabela de handles; `run_off_worker`
+            // a tira do worker async para não prender o servidor.
+            match crate::run_off_worker("Multi Roblox", windows::enable_multi_roblox).await {
+                Ok(Ok(true)) => {}
+                Ok(Ok(false)) => {
                     return reply(500, "Failed to enable Multi Roblox. Close all Roblox processes and try again.", v2);
                 }
+                Ok(Err(e)) => return reply(500, &e, v2),
                 Err(e) => return reply(500, &e, v2),
             }
         } else {
