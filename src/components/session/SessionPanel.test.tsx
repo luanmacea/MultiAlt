@@ -120,6 +120,19 @@ function unidentified(
 afterEach(cleanup);
 
 describe("SessionPanel — rendering", () => {
+  /** Clique em Entrar: antes da fila existir, a Sessão já diz o que está acontecendo. */
+  it("shows the launch preparation before the queue exists", () => {
+    renderPanel({ launchQueue: null, launchPreparing: { userIds: [1, 2], step: "server" } });
+    expect(screen.getByTestId("launch-preparing")).toHaveTextContent(
+      "Preparing to open 2 account(s): choosing the best server..."
+    );
+  });
+
+  it("shows nothing about preparation when no launch is being prepared", () => {
+    renderPanel({ launchQueue: null, launchPreparing: null });
+    expect(screen.queryByTestId("launch-preparing")).not.toBeInTheDocument();
+  });
+
   it("lists the launch queue and the running clients", () => {
     renderPanel({
       launchQueue: queue([entry(1, "launching"), entry(2, "queued"), entry(3, "done")]),

@@ -182,6 +182,17 @@ interface OptimizationWarningPayload {
   message?: string;
 }
 
+/**
+ * O launch foi pedido mas a fila ainda não existe: a tela está conferindo se a
+ * conta já está online e escolhendo o servidor (preferência de servidor). A
+ * Sessão mostra isto para o clique ter resposta na hora (relato do dono,
+ * 15/10/2026: clicar em Entrar não mostrava nada por alguns segundos).
+ */
+export interface LaunchPreparing {
+  userIds: number[];
+  step: "checking" | "server" | "starting";
+}
+
 interface LaunchProgressState {
   mode: "single" | "multi";
   current: number;
@@ -571,6 +582,8 @@ export interface StoreValue {
 
   /** Fila de launch do lote atual (Painel de Sessão). */
   launchQueue: LaunchQueuePayload | null;
+  launchPreparing: LaunchPreparing | null;
+  setLaunchPreparing: (value: LaunchPreparing | null) => void;
   /**
    * Make Friends em andamento: uma entrada por conta, com o estado de cada uma.
    * Vem inteiro do backend (`friend-link-state`) — a tela que remonta no meio
@@ -1105,6 +1118,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   } | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [joiningAccounts, setJoiningAccounts] = useState<Set<number>>(new Set());
+  const [launchPreparing, setLaunchPreparing] = useState<LaunchPreparing | null>(null);
   const [launchProgress, setLaunchProgress] = useState<LaunchProgressState | null>(null);
   const [launchLogs, setLaunchLogs] = useState<LaunchLogEntry[]>([]);
   const launchLogIdRef = useRef(0);
@@ -1887,7 +1901,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         "success"
       );
     } else {
-      addToast(tr("Already waiting in the launch queue"));
+      addToast(tr("This account is already opening or was just opened"));
     }
   }
 
@@ -3940,6 +3954,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     reorderAccounts,
     reorderGroups,
     joiningAccounts,
+    launchPreparing,
+    setLaunchPreparing,
     launchProgress,
     launchLogs,
     clearLaunchLogs,

@@ -561,6 +561,38 @@ impl LaunchQueue {
     ///
     /// Conta que já espera a vez (`queued`/`launching`) não entra de novo; uma
     /// que já terminou neste lote volta para o fim, sem linha duplicada.
+    /// Esta conta abriu (`done`) há menos de `RELAUNCH_GUARD_MS`?
+    fn just_launched(&self, user_id: i64, now_ms: u64) -> bool {
+        self.entries.iter().any(|entry| {
+            entry.user_id == user_id
+                && entry.state == LaunchQueueState::Done
+                && now_ms.saturating_sub(entry.updated_at_ms) < RELAUNCH_GUARD_MS
+        })
+    }
+
+    /// `admit`, mas sem reabrir uma conta que **acabou de abrir e continua
+    /// rodando** (`still_running`). Duplo clique abria duas janelas da mesma
+    /// conta e o Roblox derrubava uma (erro 276). Conta cujo cliente já fechou
+    /// ("Reiniciar") passa direto, mesmo dentro da janela. Lote em que todas
+    /// foram filtradas volta como `Appended { added: 0 }` ("já está abrindo").
+    fn admit_guarded(
+        &mut self,
+        user_ids: &[i64],
+        request: &LaunchRequest,
+        now_ms: u64,
+        still_running: &dyn Fn(i64) -> bool,
+    ) -> Admission {
+        let fresh: Vec<i64> = user_ids
+            .iter()
+            .copied()
+            .filter(|&id| !(self.just_launched(id, now_ms) && still_running(id)))
+            .collect();
+        if fresh.is_empty() {
+            return Admission::Appended { added: 0 };
+        }
+        self.admit(&fresh, request, now_ms)
+    }
+
     fn admit(&mut self, user_ids: &[i64], request: &LaunchRequest, now_ms: u64) -> Admission {
         if user_ids.is_empty() {
             return Admission::Appended { added: 0 };
@@ -858,6 +890,11 @@ fn emit_launch_queue(app: &tauri::AppHandle, payload: &LaunchQueuePayload) {
 /// (`isLaunchAlreadyActiveError` em `src/utils/robloxErrors.ts`).
 const LAUNCH_ALREADY_ACTIVE: &str = "launch-already-active";
 
+/// Janela em que uma conta recém-aberta, com o cliente ainda rodando, não é
+/// aberta de novo (ver `LaunchQueue::admit_guarded`): segura o duplo clique sem
+/// barrar quem volta a um jogo minutos depois.
+const RELAUNCH_GUARD_MS: u64 = 20_000;
+
 /// A reserva da sequência de launch. Enquanto ela existe, nenhuma outra
 /// sequência entra; quando sai de escopo, a fila é liberada.
 ///
@@ -1034,6 +1071,21 @@ enum Admitted {
 /// — o "Close All Roblox" com o laço preso esperando um PID —, recusa como antes.
 const LAUNCH_CLOSING_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// O cliente desta conta ainda está aberto (rastreado pelo app)? Alimenta a
+/// trava do duplo clique (`admit_guarded`). Fora do Windows não há rastreador:
+/// vale só a janela de tempo.
+fn client_still_running(user_id: i64) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        platform::windows::tracker().get_pid(user_id).is_some()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = user_id;
+        true
+    }
+}
+
 /// Reserva a sequência para este launch ou põe as contas no fim da que já roda
 /// (ver `LaunchQueue::admit`), e publica o estado. Recusa com
 /// `LAUNCH_ALREADY_ACTIVE` só quando a sequência que roda não aceita lote (a da
@@ -1049,7 +1101,9 @@ async fn launch_queue_admit(
     let waiting_since = std::time::Instant::now();
     loop {
         let (admission, payload) =
-            with_launch_queue(|queue| queue.admit(user_ids, request, launch_queue_now_ms()));
+            with_launch_queue(|queue| {
+                queue.admit_guarded(user_ids, request, launch_queue_now_ms(), &client_still_running)
+            });
         match admission {
             Admission::Started(generation) => {
                 emit_launch_queue(app, &payload);
@@ -3226,6 +3280,67 @@ mod launch_queue_tests {
             Admission::Appended { added: 0 }
         );
         assert_eq!(ids(&queue), vec![1, 2, 3, 4]);
+    }
+
+    /// Duplo clique (relato do dono, 15/10/2026): o segundo clique chegou um
+    /// instante depois de o Roblox da primeira abrir — a conta já constava como
+    /// `done` e era enfileirada de novo. Abriam duas janelas da MESMA conta e o
+    /// Roblox derrubava uma ("Same account launched experience from different
+    /// device", erro 276).
+    #[test]
+    fn an_account_opened_seconds_ago_and_still_running_is_not_opened_again() {
+        let mut queue = appendable_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+
+        assert_eq!(
+            queue.admit_guarded(&[1], &request(123, "job-abc"), 2_200, &|_| true),
+            Admission::Appended { added: 0 }
+        );
+        assert_eq!(queue.state_of(1), Some(LaunchQueueState::Done));
+        assert_eq!(ids(&queue), vec![1]);
+    }
+
+    /// "Reiniciar" fecha o cliente e reabre na hora: sem cliente rodando a
+    /// trava não vale, mesmo dentro da janela.
+    #[test]
+    fn a_closed_client_can_be_opened_again_right_away() {
+        let mut queue = appendable_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+
+        assert_eq!(
+            queue.admit_guarded(&[1], &request(123, "job-abc"), 2_200, &|_| false),
+            Admission::Appended { added: 1 }
+        );
+    }
+
+    /// Passada a janela, abrir de novo é pedido de verdade (voltar a um jogo,
+    /// trocar de servidor) e segue normal.
+    #[test]
+    fn after_the_guard_window_an_account_can_be_opened_again() {
+        let mut queue = appendable_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+
+        assert_eq!(
+            queue.admit_guarded(&[1], &request(123, "job-abc"), 1_200 + RELAUNCH_GUARD_MS, &|_| true),
+            Admission::Appended { added: 1 }
+        );
+    }
+
+    /// No lote, só a conta recém-aberta é filtrada; as outras entram.
+    #[test]
+    fn the_guard_only_drops_the_accounts_that_were_just_opened() {
+        let mut queue = appendable_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+
+        assert_eq!(
+            queue.admit_guarded(&[1, 2], &request(123, "job-abc"), 2_000, &|_| true),
+            Admission::Appended { added: 1 }
+        );
+        assert_eq!(ids(&queue), vec![1, 2]);
     }
 
     #[test]

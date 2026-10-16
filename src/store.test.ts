@@ -941,7 +941,7 @@ describe("joinServer", () => {
     });
 
     expect(result.current.toasts.map((toast) => toast.message)).toContain(
-      "Already waiting in the launch queue"
+      "This account is already opening or was just opened"
     );
   });
 

@@ -21,6 +21,8 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 
 ### Preferência no launch
 
+> **Não vale na entrada rápida** (desde 15/10/2026, pedido do dono): o "Join Game" de Favorites, Games e Recent não usa a preferência nem o país. Uma conta entra direto (o Roblox escolhe o servidor, na hora — era a demora do clique); várias contas usam só o `bestfit` sem país, para caírem juntas. A preferência abaixo segue valendo para os outros caminhos sem servidor escolhido. Ver [ui-layout.md](ui-layout.md).
+
 1. O usuário escolhe a preferência na aba **Servers** da Choose Game e, se quiser, um país.
 
    | Preferência | O que escolhe |

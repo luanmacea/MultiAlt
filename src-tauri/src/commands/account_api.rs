@@ -1647,6 +1647,7 @@ async fn get_server_regions(
 /// para o launch, e todas as contas entram no mesmo servidor.
 #[tauri::command]
 async fn pick_server(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AccountStore>,
     settings: tauri::State<'_, SettingsStore>,
     user_id: i64,
@@ -1659,7 +1660,13 @@ async fn pick_server(
     let cookie = get_cookie(state.inner(), user_id)?;
     let template = server_region_template(settings.inner());
 
-    api::roblox::pick_server(
+    // No Console: a escolha do servidor roda ANTES do launch e pode levar
+    // segundos (várias páginas de servidores; com filtro de região, uma
+    // consulta por servidor). Sem esta linha o tempo entre o clique e o
+    // "Iniciando launch" não aparecia em lugar nenhum (relato do dono, 15/10).
+    emit_launch_log(&app, user_id, "info", "server", format!("Escolhendo servidor ({preference})..."));
+    let started = std::time::Instant::now();
+    let result = api::roblox::pick_server(
         &cookie,
         place_id,
         api::roblox::parse_server_preference(&preference),
@@ -1668,7 +1675,25 @@ async fn pick_server(
         &template,
         max_lookups.unwrap_or(api::roblox::REGION_LOOKUP_MAX),
     )
-    .await
+    .await;
+    let secs = started.elapsed().as_secs_f32();
+    match &result {
+        Ok(picked) => emit_launch_log(
+            &app,
+            user_id,
+            "info",
+            "server",
+            format!("Servidor escolhido em {secs:.1} s: {}", picked.job_id),
+        ),
+        Err(e) => emit_launch_log(
+            &app,
+            user_id,
+            "warn",
+            "server",
+            format!("Não deu para escolher o servidor em {secs:.1} s: {e}"),
+        ),
+    }
+    result
 }
 
 #[tauri::command]

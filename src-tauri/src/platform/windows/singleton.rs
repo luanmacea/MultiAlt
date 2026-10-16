@@ -28,7 +28,7 @@
 // Importados aqui (e não no topo de `windows.rs`) porque só este arquivo usa.
 use windows_sys::Win32::Foundation::{
     DuplicateHandle, GetLastError, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS,
-    ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INVALID_HANDLE,
+    ERROR_FILE_NOT_FOUND, ERROR_INVALID_HANDLE,
 };
 use windows_sys::Win32::System::Threading::{
     CreateEventW, GetCurrentProcess, OpenEventW, EVENT_MODIFY_STATE, PROCESS_DUP_HANDLE,
@@ -496,7 +496,7 @@ mod singleton_event_tests {
         // todo segundo launch.
         assert!(!open_event_failure_blocks(ERROR_INVALID_HANDLE));
         // Event de um cliente elevado que não conseguimos abrir: barra.
-        assert!(open_event_failure_blocks(ERROR_ACCESS_DENIED));
+        assert!(open_event_failure_blocks(windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED));
         // Qualquer outro erro: conservador, trata como Event existente.
         assert!(open_event_failure_blocks(1_u32)); // ERROR_INVALID_FUNCTION
     }

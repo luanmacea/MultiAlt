@@ -283,6 +283,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     renameGroup: vi.fn(async () => true),
     reorderAccounts: vi.fn(async () => {}),
     joiningAccounts: new Set<number>(),
+    launchPreparing: null,
+    setLaunchPreparing: vi.fn(),
     launchProgress: null,
     launchLogs: [],
     clearLaunchLogs: vi.fn(),

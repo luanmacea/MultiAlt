@@ -2527,7 +2527,6 @@
   "Stop AFK and recordings when I shake the mouse": "Parar o AFK e as gravações quando eu chacoalhar o mouse",
   "Added {{count}} account to the launch queue": "{{count}} conta entrou na fila de launch",
   "Added {{count}} accounts to the launch queue": "{{count}} contas entraram na fila de launch",
-  "Already waiting in the launch queue": "Já está esperando na fila de launch",
   "Off. To play the anti-AFK recording on every AFK turn, pick Play the recording under What to send in AFK clicks.": "Desligado. Para tocar a gravação do anti-AFK a cada volta do AFK, escolha Tocar a gravação em O que enviar, nos Cliques AFK.",
   "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks).": "Ligado: com o Modo AFK rodando, cada conta toca a sua gravação do anti-AFK a cada {{interval}} (definido em Cliques AFK).",
   "Emergency stop": "Parada de emergência",
@@ -2773,5 +2772,10 @@
   "That does not look like an email address.": "Isso não parece um endereço de e-mail.",
   "The new password needs at least {{min}} characters.": "A nova senha precisa de pelo menos {{min}} caracteres.",
   "This changes the real Roblox accounts. Using the same password on every account is less safe, and Roblox may ask some accounts to verify.": "Isso muda as contas Roblox de verdade. Usar a mesma senha em todas é menos seguro, e o Roblox pode pedir verificação em algumas contas.",
-  "and": "e"
+  "and": "e",
+  "Preparing to open {{count}} account(s): checking who is already online...": "Preparando para abrir {{count}} conta(s): conferindo quem já está online...",
+  "Preparing to open {{count}} account(s): choosing the best server...": "Preparando para abrir {{count}} conta(s): escolhendo o melhor servidor...",
+  "Starting the launch...": "Iniciando o launch...",
+  "This account is already opening or was just opened": "Esta conta já está abrindo ou acabou de abrir",
+  "This launch is already starting": "Este launch já está começando"
 }
