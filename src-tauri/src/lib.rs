@@ -684,6 +684,7 @@ pub fn run() {
             delete_launch_preset,
             launch_preset,
             close_preset_clients,
+            set_app_locked,
             send_test_webhook,
             get_session_history,
             get_current_sessions,

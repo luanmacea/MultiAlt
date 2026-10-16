@@ -3,22 +3,64 @@
 //
 // - Os itens levam **só o nome do preset** — nunca conta (o modo "Names
 //   hidden" vale também aqui, e o menu da bandeja aparece por cima de tudo).
-// - Clicar num preset chama o mesmo caminho do botão Launch da tela
-//   (`launch_preset_with` → `run_launch_preset`), sem a pergunta de "conta
-//   online" (a tela pode estar escondida; é como o horário).
-// - O submenu é refeito quando os presets mudam: salvar, apagar, restaurar
-//   backup (`refresh_tray_menu`).
+// - Clicar num preset **traz a janela à frente** e manda a tela rodar o launch
+//   normal (evento `tray-launch-preset`): assim vale a pergunta de "conta
+//   online" (Fix 4), que a janela conhece e o backend não. Com o app trancado
+//   por inatividade (`app_is_locked`), a bandeja **recusa** (`tray-launch-blocked`),
+//   e o submenu aparece desabilitado.
+// - O submenu é refeito quando os presets mudam (salvar, apagar, restaurar
+//   backup) e quando o app tranca/destranca (`refresh_tray_menu`).
 
 const TRAY_ID: &str = "main";
 const TRAY_SHOW_ID: &str = "show";
 const TRAY_QUIT_ID: &str = "quit";
 const TRAY_NO_PRESETS_ID: &str = "presets-none";
+/// Item desabilitado mostrado no lugar dos presets quando o app está trancado.
+const TRAY_LOCKED_ID: &str = "presets-locked";
 /// Prefixo do id de cada item de preset no menu: `preset:<id do preset>`.
 const TRAY_PRESET_PREFIX: &str = "preset:";
 /// Nome comprido no menu: corta aqui (com "…").
 const TRAY_PRESET_LABEL_CHARS: usize = 40;
 /// Mais que isto não cabe num menu de bandeja; o resto fica na tela.
 const TRAY_MAX_PRESETS: usize = 30;
+
+/// A tela está trancada por inatividade (ideia 27)? A sobreposição de bloqueio
+/// é só do frontend (deixa a janela `inert`), mas o lançar pela bandeja roda no
+/// **backend** e não passa por ela — sem este sinal, qualquer um no PC abriria
+/// um preset com o app trancado. O frontend liga/desliga via `set_app_locked`.
+/// Começa destrancado; reinicia destrancado a cada processo, que é o certo.
+static APP_LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn app_is_locked() -> bool {
+    APP_LOCKED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// O frontend liga ao trancar por inatividade e desliga ao destrancar.
+#[tauri::command]
+fn set_app_locked(app: AppHandle<Wry>, locked: bool) {
+    APP_LOCKED.store(locked, std::sync::atomic::Ordering::SeqCst);
+    // O submenu "Launch preset" passa a aparecer desabilitado enquanto trancado.
+    refresh_tray_menu(&app);
+}
+
+/// O que a bandeja faz ao clicar num preset, dado o estado de bloqueio.
+///
+/// O launch de verdade acontece **na janela** (ela pergunta "conta online?" e é
+/// quem conhece a presença): a bandeja traz a janela à frente e, destrancada,
+/// manda a janela rodar o launch normal. Trancada, recusa.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrayPresetClick {
+    Blocked,
+    Launch,
+}
+
+fn tray_preset_click(locked: bool) -> TrayPresetClick {
+    if locked {
+        TrayPresetClick::Blocked
+    } else {
+        TrayPresetClick::Launch
+    }
+}
 
 /// Um item do submenu "Launch preset".
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +106,14 @@ fn build_tray_menu(app: &AppHandle<Wry>) -> tauri::Result<tauri::menu::Menu<Wry>
     let entries = tray_preset_entries(&presets);
 
     let mut submenu = SubmenuBuilder::new(app, "Launch preset");
-    if entries.is_empty() {
+    if app_is_locked() {
+        // Trancado: nada de lançar pela bandeja. O item fica desabilitado em vez
+        // de sumir, para o usuário entender por quê.
+        let locked = MenuItemBuilder::with_id(TRAY_LOCKED_ID, "Unlock MultiAlt first")
+            .enabled(false)
+            .build(app)?;
+        submenu = submenu.item(&locked);
+    } else if entries.is_empty() {
         let none = MenuItemBuilder::with_id(TRAY_NO_PRESETS_ID, "No presets")
             .enabled(false)
             .build(app)?;
@@ -117,13 +166,25 @@ fn handle_tray_menu_event(app: &AppHandle<Wry>, menu_id: &str) {
         TRAY_QUIT_ID => app.exit(0),
         other => {
             if let Some(preset_id) = preset_id_from_menu_id(other) {
-                let app = app.clone();
-                let preset_id = preset_id.to_string();
-                tauri::async_runtime::spawn(async move {
-                    // O resultado vai para o Console e vira toast (evento
-                    // `launch-preset` com `source: "tray"`).
-                    let _ = launch_preset_with(&app, &preset_id, PresetTrigger::Tray).await;
-                });
+                // Traz a janela à frente e deixa o launch rodar o **fluxo
+                // normal da tela** — que pergunta antes de entrar com uma conta
+                // que já está num jogo (Fix 4). Abrir direto no backend, como
+                // antes, derrubava a sessão dessa conta em outro aparelho. A
+                // janela conhece a presença; o backend, não (seria rede).
+                show_main_window(app);
+                match tray_preset_click(app_is_locked()) {
+                    // Trancado (Fix 3): o backend recusa. A janela já está à
+                    // frente mostrando a tela de senha; o toast reforça.
+                    TrayPresetClick::Blocked => {
+                        let _ = app.emit("tray-launch-blocked", ());
+                    }
+                    TrayPresetClick::Launch => {
+                        let _ = app.emit(
+                            "tray-launch-preset",
+                            serde_json::json!({ "presetId": preset_id }),
+                        );
+                    }
+                }
             }
         }
     }
@@ -169,7 +230,17 @@ mod tray_menu_tests {
         assert_eq!(preset_id_from_menu_id(TRAY_SHOW_ID), None);
         assert_eq!(preset_id_from_menu_id(TRAY_QUIT_ID), None);
         assert_eq!(preset_id_from_menu_id(TRAY_NO_PRESETS_ID), None);
+        assert_eq!(preset_id_from_menu_id(TRAY_LOCKED_ID), None);
         assert_eq!(preset_id_from_menu_id("preset:"), None);
+    }
+
+    /// Fix 3: com o app trancado por inatividade a bandeja recusa o launch
+    /// (ninguém no PC abre um preset com a tela trancada); destrancada, ela
+    /// delega o launch à janela, que roda o fluxo normal (Fix 4).
+    #[test]
+    fn a_locked_app_blocks_the_tray_launch_and_an_unlocked_one_delegates() {
+        assert_eq!(tray_preset_click(true), TrayPresetClick::Blocked);
+        assert_eq!(tray_preset_click(false), TrayPresetClick::Launch);
     }
 
     #[test]

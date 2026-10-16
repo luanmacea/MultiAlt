@@ -14,6 +14,7 @@ import { VaultKeyBanner } from "./components/layout/VaultKeyBanner";
 import { LockOverlay } from "./components/layout/LockOverlay";
 import { EmergencyStopAlert } from "./components/afk-mode/EmergencyStopAlert";
 import { useInactivityLock } from "./hooks/useInactivityLock";
+import { useTrayPresetLaunch } from "./hooks/useTrayPresetLaunch";
 import { inactivityLockActive, normalizeLockMinutes } from "./utils/inactivityLock";
 import { Toolbar } from "./components/layout/Toolbar";
 import { AccountList } from "./components/accounts/AccountList";
@@ -105,6 +106,10 @@ function AppContent() {
     store.appLocked,
     store.lockApp
   );
+
+  // Launch preset da bandeja: traz a janela à frente e roda o launch normal
+  // (com a pergunta de conta online), ou avisa que é preciso destrancar.
+  useTrayPresetLaunch();
 
   // Botões laterais do mouse (Voltar/Avançar) e Alt+setas, como no navegador:
   // Voltar fecha o que está aberto por cima ou volta à página anterior. Fora da

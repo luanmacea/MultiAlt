@@ -962,22 +962,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [needsPassword, setNeedsPassword] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [appLocked, setAppLocked] = useState(false);
-  const lockApp = useCallback(() => setAppLocked(true), []);
-  const unlockApp = useCallback(async (password: string): Promise<string | null> => {
-    try {
-      await invoke("verify_app_password", { password });
-      setAppLocked(false);
-      return null;
-    } catch (e) {
-      // Sem senha não há o que conferir (não deveria acontecer: a opção só
-      // vale com senha). Destrancar é melhor que prender a pessoa para sempre.
-      if (String(e).includes("No app password is set")) {
-        setAppLocked(false);
-        return null;
-      }
-      return String(e);
-    }
+  // O backend também precisa saber que a tela trancou: o launch pela bandeja
+  // roda nele e não passa pela sobreposição de bloqueio (que é só do frontend),
+  // então sem este aviso qualquer um no PC abriria um preset com o app trancado.
+  const setBackendAppLocked = useCallback((locked: boolean) => {
+    void invoke("set_app_locked", { locked }).catch(() => {});
   }, []);
+  const lockApp = useCallback(() => {
+    setAppLocked(true);
+    setBackendAppLocked(true);
+  }, [setBackendAppLocked]);
+  const unlockApp = useCallback(
+    async (password: string): Promise<string | null> => {
+      try {
+        await invoke("verify_app_password", { password });
+        setAppLocked(false);
+        setBackendAppLocked(false);
+        return null;
+      } catch (e) {
+        // Sem senha não há o que conferir (não deveria acontecer: a opção só
+        // vale com senha). Destrancar é melhor que prender a pessoa para sempre.
+        if (String(e).includes("No app password is set")) {
+          setAppLocked(false);
+          setBackendAppLocked(false);
+          return null;
+        }
+        return String(e);
+      }
+    },
+    [setBackendAppLocked]
+  );
   const [encryptionSetupOpen, setEncryptionSetupOpen] = useState(false);
   const [encryptionSetupMode, setEncryptionSetupMode] = useState<"firstRun" | "settings">("firstRun");
   const [accountsEncrypted, setAccountsEncrypted] = useState<boolean | null>(null);
@@ -3115,16 +3129,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addToast(wrongAccountToast(name, loggedUserId, queueStopped === true, tr), "warn");
       }),
       // Presets (ideia 13). O resultado de quem clicou já aparece onde o clique
-      // foi; o que vem do horário precisa de um toast, porque ninguém clicou.
+      // foi; o que vem do horário precisa de um toast, porque ninguém clicou. A
+      // bandeja não cai aqui: ela traz a janela à frente e roda o launch normal
+      // (evento `tray-launch-preset`), então o resultado aparece como o do botão.
       listen<LaunchPresetEvent>("launch-preset", (e) => {
         const p = e.payload;
         setPresetsRevision((n) => n + 1);
-        // Menu da bandeja: ninguém clicou na tela, então o resultado vira toast.
-        if (p.source === "tray") {
-          if (!p.ok) addToast(tr("Preset {{name}} failed: {{error}}", { name: p.name, error: p.error ?? "" }), "error");
-          else addToast(tr("Preset {{name}} opened {{count}} account(s)", { name: p.name, count: p.count }), "success");
-          return;
-        }
         if (!p.scheduled) return;
         if (!p.ok) {
           addToast(tr("Preset {{name}} failed: {{error}}", { name: p.name, error: p.error ?? "" }), "error");
