@@ -7,6 +7,7 @@ import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useAccountLabel } from "../../hooks/useAccountLabel";
 import { useTr } from "../../i18n/text";
+import { credentialErrorText, isRetryLater } from "../../utils/credentialErrors";
 import {
   MIN_ROBLOX_PASSWORD,
   planBulkCredentials,
@@ -20,7 +21,16 @@ type RowState =
   | { kind: "running" }
   | { kind: "done" }
   | { kind: "skipped" }
-  | { kind: "error"; message: string };
+  /** `passwordDone`: a senha já trocou e só o e-mail falhou — tentar de novo
+   *  não pode trocar a senha outra vez. */
+  | { kind: "error"; message: string; passwordDone: boolean };
+
+/**
+ * Pausa entre uma conta e a próxima. Trocas seguidas demais fazem o Roblox
+ * recusar por um tempo (relato do dono, 15/10/2026: umas davam certo e outras
+ * não). Exportada para o teste encurtar.
+ */
+export const BULK_CREDENTIALS_GAP_MS = { value: 4_000 };
 
 /**
  * Trocar senha e/ou e-mail de VÁRIAS contas de uma vez (menu Ações, issue #30).
@@ -72,45 +82,60 @@ export function BulkCredentialsDialog({ open, onClose }: { open: boolean; onClos
     return t("That does not look like an email address.");
   };
 
-  async function run() {
+  async function run(onlyRetry = false) {
     if (validationError || willRun === 0 || running) return;
+    const retryIds = onlyRetry
+      ? new Set([...rows.entries()].filter(([, r]) => r.kind === "error").map(([id]) => id))
+      : null;
+    const count = retryIds ? retryIds.size : willRun;
+    if (count === 0) return;
     const summary = [changePassword && t("password"), changeEmail && t("email")].filter(Boolean).join(` ${t("and")} `);
     const confirmed = await confirm(
       t(
         "Change the {{what}} on {{count}} real Roblox account(s)? This changes the live accounts, not just this app, and cannot be undone from here. Roblox may ask some accounts to verify — those are reported as failed.",
-        { what: summary, count: willRun }
+        { what: summary, count }
       ),
       true
     );
     if (!confirmed) return;
 
     setRunning(true);
-    const next = new Map<number, RowState>();
-    for (const step of plan) next.set(step.userId, { kind: step.skip ? "skipped" : "pending" });
+    const previous = rows;
+    const next = new Map<number, RowState>(retryIds ? previous : []);
+    if (!retryIds) {
+      for (const step of plan) next.set(step.userId, { kind: step.skip ? "skipped" : "pending" });
+    }
     setRows(new Map(next));
 
+    let first = true;
     for (const step of plan) {
       if (step.skip || step.currentPassword === null) continue;
+      if (retryIds && !retryIds.has(step.userId)) continue;
+      // Pausa entre contas: trocas seguidas demais o Roblox recusa por um tempo.
+      if (!first) await new Promise((r) => setTimeout(r, BULK_CREDENTIALS_GAP_MS.value));
+      first = false;
+
+      const before = previous.get(step.userId);
+      let passwordDone = before?.kind === "error" && before.passwordDone;
       next.set(step.userId, { kind: "running" });
       setRows(new Map(next));
       try {
-        if (changePassword) {
+        if (changePassword && !passwordDone) {
           await invoke("change_password", {
             userId: step.userId,
             currentPassword: step.currentPassword,
             newPassword,
           });
+          passwordDone = true;
         }
         if (changeEmail) {
-          // A troca de e-mail usa a senha ATUAL (não a nova): a conta ainda não
-          // mudou a senha se só o e-mail está marcado; se os dois, a senha já
-          // mudou acima, então o e-mail passa a nova.
+          // O e-mail pede a senha da conta: a nova, se ela já trocou.
           const passForEmail = changePassword ? newPassword : step.currentPassword;
           await invoke("change_email", { userId: step.userId, password: passForEmail, newEmail });
         }
         next.set(step.userId, { kind: "done" });
       } catch (e) {
-        next.set(step.userId, { kind: "error", message: String(e) });
+        next.set(step.userId, { kind: "error", message: String(e), passwordDone });
       }
       setRows(new Map(next));
     }
@@ -119,6 +144,9 @@ export function BulkCredentialsDialog({ open, onClose }: { open: boolean; onClos
     const ok = [...next.values()].filter((r) => r.kind === "done").length;
     store.addToast(t("Changed {{ok}} of {{total}} account(s)", { ok, total: willRun }));
   }
+
+  const failedCount = [...rows.values()].filter((r) => r.kind === "error").length;
+  const laterCount = [...rows.values()].filter((r) => r.kind === "error" && isRetryLater(r.message)).length;
 
   if (!visible) return null;
 
@@ -232,9 +260,12 @@ export function BulkCredentialsDialog({ open, onClose }: { open: boolean; onClos
                   >
                     {rowIcon(state)}
                     <span className="text-zinc-300 truncate flex-1">{accountLabel(account, step.userId)}</span>
-                    <span className="text-[11px] theme-muted truncate max-w-[55%] text-right">
+                    <span
+                      className={`text-[11px] max-w-[60%] text-right ${state?.kind === "error" ? "text-red-300/90 whitespace-normal leading-snug" : "theme-muted truncate"}`}
+                      title={state?.kind === "error" ? state.message : undefined}
+                    >
                       {state?.kind === "error"
-                        ? state.message
+                        ? credentialErrorText(state.message, t)
                         : state?.kind === "skipped"
                           ? t("skipped — no current password")
                           : state?.kind === "done"
@@ -251,7 +282,14 @@ export function BulkCredentialsDialog({ open, onClose }: { open: boolean; onClos
         </div>
 
         <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-3 border-t theme-border">
-          <span className="text-[12px] text-red-400 min-h-[1em]">{errorText(validationError)}</span>
+          <span className="text-[12px] text-red-400 min-h-[1em]">
+            {errorText(validationError) ||
+              (laterCount > 0 && !running
+                ? t("{{count}} were blocked for now by Roblox. Wait a few minutes, then use Retry failed.", {
+                    count: laterCount,
+                  })
+                : "")}
+          </span>
           <div className="flex items-center gap-2">
             <button
               onClick={handleClose}
@@ -259,6 +297,15 @@ export function BulkCredentialsDialog({ open, onClose }: { open: boolean; onClos
             >
               {t("Close")}
             </button>
+            {failedCount > 0 && !running && (
+              <button
+                onClick={() => void run(true)}
+                data-testid="bulk-cred-retry"
+                className="px-3 py-1.5 rounded-lg text-[12px] theme-btn-ghost border theme-border"
+              >
+                {t("Retry failed ({{count}})", { count: failedCount })}
+              </button>
+            )}
             <button
               onClick={() => void run()}
               disabled={!!validationError || willRun === 0 || running}

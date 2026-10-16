@@ -2777,5 +2777,19 @@
   "Preparing to open {{count}} account(s): choosing the best server...": "Preparando para abrir {{count}} conta(s): escolhendo o melhor servidor...",
   "Starting the launch...": "Iniciando o launch...",
   "This account is already opening or was just opened": "Esta conta já está abrindo ou acabou de abrir",
-  "This launch is already starting": "Este launch já está começando"
+  "This launch is already starting": "Este launch já está começando",
+  "(Roblox: \"{{detail}}\")": "(o Roblox disse: \"{{detail}}\")",
+  "{{count}} were blocked for now by Roblox. Wait a few minutes, then use Retry failed.": "{{count}} foram bloqueadas por enquanto pelo Roblox. Espere alguns minutos e use Tentar de novo as que falharam.",
+  "Retry failed ({{count}})": "Tentar de novo as que falharam ({{count}})",
+  "Roblox asked for a CAPTCHA on this account. Open it in the browser, finish the check, then try again.": "O Roblox pediu um CAPTCHA nesta conta. Abra ela no navegador, resolva a verificação e tente de novo.",
+  "Roblox asked for a security check on this account. Open it in the browser, finish it, then try again.": "O Roblox pediu uma verificação de segurança nesta conta. Abra ela no navegador, conclua e tente de novo.",
+  "Roblox asked to confirm the password again. Open the account in the browser, confirm it, then try again.": "O Roblox pediu para confirmar a senha de novo. Abra a conta no navegador, confirme e tente de novo.",
+  "Roblox blocked it for now: too many changes in a row. Wait a few minutes and use Retry failed.": "O Roblox bloqueou por enquanto: muitas trocas seguidas. Espere alguns minutos e use Tentar de novo as que falharam.",
+  "Roblox refused the change (error {{status}}).": "O Roblox recusou a troca (erro {{status}}).",
+  "Roblox refused the new email.": "O Roblox recusou o novo e-mail.",
+  "Roblox refused the new password (too simple, too common or contains the username).": "O Roblox recusou a nova senha (simples demais, comum demais ou contém o nome de usuário).",
+  "Roblox says the current password is wrong. Check the password saved for this account.": "O Roblox diz que a senha atual está errada. Confira a senha guardada desta conta.",
+  "This account has 2-step verification and Roblox asked for the code. Change it in the browser.": "Esta conta tem verificação em 2 etapas e o Roblox pediu o código. Troque pelo navegador.",
+  "This account has a PIN lock. Unlock it first (Account Utilities › PIN).": "Esta conta tem PIN. Desbloqueie primeiro (Utilitários da conta › PIN).",
+  "This account's session expired. Log in to it again, then try again.": "A sessão desta conta expirou. Entre nela de novo e tente outra vez."
 }

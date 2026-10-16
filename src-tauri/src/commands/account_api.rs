@@ -43,6 +43,16 @@ fn persist_cookie_update(state: &AccountStore, user_id: i64, new_cookie: &str) -
     Ok(())
 }
 
+/// Grava a senha nova depois de uma troca bem-sucedida. Sem isto a conta ficava
+/// com a senha ANTIGA guardada: a próxima troca (ou o lote do menu Ações) usava
+/// essa como "senha atual" e o Roblox respondia que estava errada.
+fn persist_password_update(state: &AccountStore, user_id: i64, new_password: &str) -> Result<(), String> {
+    let mut account = get_account(state, user_id)?;
+    account.password = new_password.to_string();
+    state.update(account)?;
+    Ok(())
+}
+
 async fn refresh_account_session(state: &AccountStore, user_id: i64) -> Result<String, String> {
     let account = mark_refresh_attempt(state, user_id)?;
     let result = api::auth::log_out_other_sessions(&account.security_token).await?;
@@ -1764,6 +1774,7 @@ async fn change_password(
     if let Some(new_cookie) = new_cookie {
         persist_cookie_update(state.inner(), user_id, &new_cookie)?;
     }
+    persist_password_update(state.inner(), user_id, &new_password)?;
 
     Ok(())
 }
@@ -1946,6 +1957,22 @@ mod account_api_tests {
         let stored = store.get_all().unwrap().remove(0);
         assert_eq!(stored.security_token, "NEW");
         assert!(stored.valid);
+    }
+
+    /// Troca de senha bem-sucedida: a senha guardada passa a ser a nova (antes
+    /// ficava a antiga, e a próxima troca falhava com "senha atual errada").
+    #[test]
+    fn persist_password_update_keeps_the_new_password_and_the_cookie() {
+        let store = temp_store("persist-password");
+        let mut acc = account(41, "COOKIE");
+        acc.password = "old-pass".into();
+        store.add(acc).unwrap();
+
+        persist_password_update(&store, 41, "new-pass-123").unwrap();
+
+        let stored = store.get_all().unwrap().remove(0);
+        assert_eq!(stored.password, "new-pass-123");
+        assert_eq!(stored.security_token, "COOKIE");
     }
 
     #[test]

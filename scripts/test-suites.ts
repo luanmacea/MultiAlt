@@ -158,6 +158,7 @@ export const SUITES: Record<string, TestSuite> = {
       // Trocar senha/e-mail em massa (menu Acoes, issue 30).
       "src/components/dialogs/BulkCredentialsDialog.test.tsx",
       "src/utils/bulkCredentials.test.ts",
+      "src/utils/credentialErrors.test.ts",
       "src/components/dialogs/ImportDialog.test.tsx",
       // Fields da conta: grava ao sair do campo e ao fechar, não só com Enter.
       "src/components/dialogs/AccountFieldsDialog.test.tsx",
@@ -299,6 +300,8 @@ export const SUITES: Record<string, TestSuite> = {
       "auth_http_tests",
       "auth_extra_tests",
       "auth_challenge_tests",
+      // Motivo de recusa na troca de senha/e-mail (lote do menu Acoes).
+      "credential_failure_tests",
       "cookie_rotation_tests",
       "csrf_retry_tests",
       "user_api_tests",
