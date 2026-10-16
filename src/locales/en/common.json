@@ -2777,5 +2777,19 @@
   "Preparing to open {{count}} account(s): choosing the best server...": "Preparing to open {{count}} account(s): choosing the best server...",
   "Starting the launch...": "Starting the launch...",
   "This account is already opening or was just opened": "This account is already opening or was just opened",
-  "This launch is already starting": "This launch is already starting"
+  "This launch is already starting": "This launch is already starting",
+  "(Roblox: \"{{detail}}\")": "(Roblox: \"{{detail}}\")",
+  "{{count}} were blocked for now by Roblox. Wait a few minutes, then use Retry failed.": "{{count}} were blocked for now by Roblox. Wait a few minutes, then use Retry failed.",
+  "Retry failed ({{count}})": "Retry failed ({{count}})",
+  "Roblox asked for a CAPTCHA on this account. Open it in the browser, finish the check, then try again.": "Roblox asked for a CAPTCHA on this account. Open it in the browser, finish the check, then try again.",
+  "Roblox asked for a security check on this account. Open it in the browser, finish it, then try again.": "Roblox asked for a security check on this account. Open it in the browser, finish it, then try again.",
+  "Roblox asked to confirm the password again. Open the account in the browser, confirm it, then try again.": "Roblox asked to confirm the password again. Open the account in the browser, confirm it, then try again.",
+  "Roblox blocked it for now: too many changes in a row. Wait a few minutes and use Retry failed.": "Roblox blocked it for now: too many changes in a row. Wait a few minutes and use Retry failed.",
+  "Roblox refused the change (error {{status}}).": "Roblox refused the change (error {{status}}).",
+  "Roblox refused the new email.": "Roblox refused the new email.",
+  "Roblox refused the new password (too simple, too common or contains the username).": "Roblox refused the new password (too simple, too common or contains the username).",
+  "Roblox says the current password is wrong. Check the password saved for this account.": "Roblox says the current password is wrong. Check the password saved for this account.",
+  "This account has 2-step verification and Roblox asked for the code. Change it in the browser.": "This account has 2-step verification and Roblox asked for the code. Change it in the browser.",
+  "This account has a PIN lock. Unlock it first (Account Utilities › PIN).": "This account has a PIN lock. Unlock it first (Account Utilities › PIN).",
+  "This account's session expired. Log in to it again, then try again.": "This account's session expired. Log in to it again, then try again."
 }
