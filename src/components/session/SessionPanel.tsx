@@ -6,6 +6,7 @@ import {
   Crosshair,
   Gamepad2,
   Globe,
+  Loader2,
   PowerOff,
   RotateCw,
   SquareStop,
@@ -922,6 +923,30 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-400"
         >
           {error}
+        </div>
+      )}
+
+      {store.launchPreparing && (
+        // Clique em Entrar: a fila ainda não existe (conferindo quem está
+        // online, escolhendo o servidor). Sem isto o clique ficava sem
+        // resposta por alguns segundos (relato do dono, 15/10/2026).
+        <div
+          role="status"
+          data-testid="launch-preparing"
+          className="flex items-center gap-2 rounded-lg border theme-border bg-[var(--panel-soft)] px-3 py-2 text-[12px] text-[var(--panel-fg)]"
+        >
+          <Loader2 size={13} className="shrink-0 animate-spin text-[var(--accent-color)]" aria-hidden="true" />
+          <span>
+            {store.launchPreparing.step === "checking"
+              ? t("Preparing to open {{count}} account(s): checking who is already online...", {
+                  count: store.launchPreparing.userIds.length,
+                })
+              : store.launchPreparing.step === "server"
+                ? t("Preparing to open {{count}} account(s): choosing the best server...", {
+                    count: store.launchPreparing.userIds.length,
+                  })
+                : t("Starting the launch...")}
+          </span>
         </div>
       )}
 

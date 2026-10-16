@@ -28,7 +28,7 @@
 // Importados aqui (e não no topo de `windows.rs`) porque só este arquivo usa.
 use windows_sys::Win32::Foundation::{
     DuplicateHandle, GetLastError, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS,
-    ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_INVALID_HANDLE,
+    ERROR_FILE_NOT_FOUND, ERROR_INVALID_HANDLE,
 };
 use windows_sys::Win32::System::Threading::{
     CreateEventW, GetCurrentProcess, OpenEventW, EVENT_MODIFY_STATE, PROCESS_DUP_HANDLE,

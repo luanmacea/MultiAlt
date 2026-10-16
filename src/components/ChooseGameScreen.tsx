@@ -37,11 +37,29 @@ type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow"
 
 /** Extra launch parameters for targets that were already resolved (join links). */
 type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode" | "followUserId">;
+/**
+ * `quickJoin`: "Entrar no jogo" dos Favoritos, Jogos e Recentes — sem servidor
+ * escolhido. Os filtros da aba Servidores (preferência, região) não valem aí
+ * (pedido do dono, 15/10/2026): uma conta entra direto (o Roblox escolhe o
+ * servidor, na hora); várias procuram só um servidor onde caibam juntas.
+ */
+type LaunchOptions = LaunchExtras & { quickJoin?: boolean };
 
 /** Result of a launch attempt, so callers can surface the failure inline. */
 type LaunchResult = { ok: boolean; error?: string };
 
 /** Launches all selected accounts into a given place/job. */
+/**
+ * Contas cujo launch está na preparação (conferindo presença, escolhendo
+ * servidor) — compartilhado entre todas as abas, que têm cada uma o seu
+ * `useLauncher`. Ver a trava de duplo clique em `launchAll`.
+ */
+const launchesPreparing = new Set<number>();
+
+export function resetLaunchesPreparingForTests() {
+  launchesPreparing.clear();
+}
+
 function useLauncher() {
   const store = useStore();
   const confirmJoinOnline = useJoinOnlineWarning();
@@ -60,9 +78,13 @@ function useLauncher() {
    */
   async function resolvePreferredJob(
     userIds: number[],
-    placeId: number
+    placeId: number,
+    quickJoin = false
   ): Promise<{ jobId: string; cancelled: boolean }> {
-    const preference = store.serverPreference;
+    // Entrada rápida com várias contas: só o "mesmo servidor com vaga para
+    // todas" (melhor encaixe), sem a preferência nem o filtro de região.
+    const preference = quickJoin ? "bestfit" : store.serverPreference;
+    const regionFilter = quickJoin ? "" : store.serverRegionFilter;
     if (preference === "none" || userIds.length === 0) {
       return { jobId: "", cancelled: false };
     }
@@ -72,12 +94,12 @@ function useLauncher() {
         placeId,
         preference,
         accounts: userIds.length,
-        countryCode: store.serverRegionFilter || null,
+        countryCode: regionFilter || null,
       });
       if (picked.regionFallback) {
         const ok = await confirm(
           tr("No server found in {{region}}. Join the best available one instead?", {
-            region: store.serverRegionFilter,
+            region: regionFilter,
           })
         );
         if (!ok) return { jobId: "", cancelled: true };
@@ -94,18 +116,52 @@ function useLauncher() {
     placeId: number,
     jobId: string = "",
     onStarted?: () => void,
+    options?: LaunchOptions
+  ): Promise<LaunchResult> {
+    const { quickJoin = false, ...extras } = options ?? {};
+    // Duplo clique (relato do dono, 15/10/2026): entre o clique e a fila
+    // existir, a tela confere quem está online e escolhe o servidor — alguns
+    // segundos sem resposta. O segundo clique abria a mesma conta de novo e o
+    // Roblox derrubava uma das duas (erro 276). Conta já em preparação aqui
+    // não começa outro launch.
+    if (userIds.some((id) => launchesPreparing.has(id))) {
+      const error = tr("This launch is already starting");
+      store.addToast(error);
+      return { ok: false, error };
+    }
+    userIds.forEach((id) => launchesPreparing.add(id));
+    // Resposta na hora: fecha a Escolher jogo e vai para a Sessão, que mostra
+    // a preparação ("Escolhendo servidor...") e, depois, a fila.
+    onStarted?.();
+    store.setLaunchPreparing({ userIds, step: "checking" });
+    try {
+      if (!(await confirmJoinOnline(userIds))) return { ok: false };
+
+      // A preferência só entra quando o usuário não escolheu servidor (e não
+      // quando se segue alguém: aí quem escolhe o servidor é o Roblox).
+      // Uma conta na entrada rápida: nada a buscar — o Roblox põe a conta num
+      // servidor na hora. Era aqui que o clique demorava segundos.
+      const needsServer = !jobId.trim() && !extras.joinVip && !extras.followUserId;
+      if (needsServer && !(quickJoin && userIds.length === 1)) {
+        store.setLaunchPreparing({ userIds, step: "server" });
+        const preferred = await resolvePreferredJob(userIds, placeId, quickJoin);
+        if (preferred.cancelled) return { ok: false };
+        jobId = preferred.jobId;
+      }
+      store.setLaunchPreparing({ userIds, step: "starting" });
+      return await startLaunch(userIds, placeId, jobId, extras);
+    } finally {
+      userIds.forEach((id) => launchesPreparing.delete(id));
+      store.setLaunchPreparing(null);
+    }
+  }
+
+  async function startLaunch(
+    userIds: number[],
+    placeId: number,
+    jobId: string,
     extras?: LaunchExtras
   ): Promise<LaunchResult> {
-    if (!(await confirmJoinOnline(userIds))) return { ok: false };
-
-    // A preferência só entra quando o usuário não escolheu servidor (e não
-    // quando se segue alguém: aí quem escolhe o servidor é o Roblox).
-    if (!jobId.trim() && !extras?.joinVip && !extras?.followUserId) {
-      const preferred = await resolvePreferredJob(userIds, placeId);
-      if (preferred.cancelled) return { ok: false };
-      jobId = preferred.jobId;
-    }
-    onStarted?.();
     // Keep the launch input fields in sync for the UI, but pass the target
     // explicitly to the launch call. setPlaceId/setJobId are async state
     // updates, so the launch closure would otherwise read the PREVIOUS
@@ -574,8 +630,12 @@ export function ChooseGameScreen() {
    */
   const goToSession = () => store.setActivePage("session");
   const backToAccounts = () => {
+    // 15/10/2026 (pedido do dono): o launch leva para a Sessão, onde a
+    // preparação e a fila aparecem na hora. A Escolher jogo fecha junto — em
+    // 12/10 o problema era ela ficar aberta por baixo da Sessão e reabrir com
+    // as contas do lote anterior ao clicar em Contas.
     store.setChooseGameOpen(false);
-    store.setActivePage("accounts");
+    store.setActivePage("session");
   };
 
   /**
@@ -627,11 +687,11 @@ export function ChooseGameScreen() {
   }
 
   async function handleFavoritesSelectGame(placeId: number, privateServer?: string) {
-    await launchAll(userIds, placeId, privateServer || "", backToAccounts);
+    await launchAll(userIds, placeId, privateServer || "", backToAccounts, { quickJoin: true });
   }
 
   async function handleJoinGame(placeId: number) {
-    await launchAll(userIds, placeId, "", backToAccounts);
+    await launchAll(userIds, placeId, "", backToAccounts, { quickJoin: true });
   }
 
   /** Vai para a aba Servers já com o place do jogo clicado. */

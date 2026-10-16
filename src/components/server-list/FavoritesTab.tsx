@@ -298,11 +298,11 @@ export function FavoritesTab({
                 />
 
                 {expanded && (
-                  <div className="col-span-full mb-2 p-3 rounded-xl border theme-border bg-[var(--panel-soft)] flex flex-col gap-1.5">
+                  <div className="col-span-full mb-2 p-3 rounded-xl border theme-border bg-[var(--panel-soft)] flex flex-col items-start gap-1.5">
                     <div className="text-[12px] font-medium text-[var(--panel-fg)] truncate">{game.name}</div>
                     <button
                       onClick={() => onSelectGame(game.placeId)}
-                      className="flex items-center justify-center gap-2 w-full px-3 py-1.5 rounded-lg text-[12px] font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors"
+                      className="flex items-center justify-center gap-2 px-4 py-1.5 rounded-lg text-[12px] font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors"
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <polygon points="5 3 19 12 5 21 5 3" />
@@ -311,7 +311,7 @@ export function FavoritesTab({
                     </button>
 
                     {vips.length > 0 && (
-                      <div className="flex flex-col gap-1 mt-1">
+                      <div className="flex flex-col gap-1 mt-1 w-full max-w-xl">
                         {vips.map((vip) => (
                           <div key={vip.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-zinc-800/40">
                             <div className="flex-1 min-w-0">
@@ -342,7 +342,7 @@ export function FavoritesTab({
                     )}
 
                     {addingVipFor === game.placeId ? (
-                      <div className="flex flex-col gap-1.5 mt-1 p-2 rounded-lg border border-dashed border-zinc-700">
+                      <div className="flex flex-col gap-1.5 mt-1 p-2 rounded-lg border border-dashed border-zinc-700 w-full max-w-md">
                         <input
                           autoFocus
                           value={vipDraftLink}
@@ -388,7 +388,7 @@ export function FavoritesTab({
                     ) : (
                       <button
                         onClick={() => startAddVip(game.placeId)}
-                        className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-[12px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors mt-1"
+                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors mt-1"
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <line x1="12" y1="5" x2="12" y2="19" />
