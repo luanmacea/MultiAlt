@@ -169,7 +169,7 @@ export const isSecretSettingKey = (key: string) =>
 // Segredos cujo NOME não casa com o padrão acima: valor sensível preso a uma
 // seção+chave específica. `Webhook.Url` carrega o token do webhook do Discord
 // na própria URL — tem que sair, enquanto as flags booleanas do Webhook
-// (Enabled, NotifyDropped, HideNames, ...) continuam visíveis. Chave em
+// (Enabled, NotifyDropped, MaskNames, ...) continuam visíveis. Chave em
 // minúsculas no formato "secao.chave".
 const SECRET_SETTING_PATHS = new Set<string>(["webhook.url"]);
 
