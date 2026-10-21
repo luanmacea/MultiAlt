@@ -128,7 +128,10 @@ a última linha dele vira o erro da execução que falhou.
 
 Captura: `screen.capture` publica os bytes BGRA numa memória compartilhada
 nomeada `Local\multialt-cap-<pid>-<run>-<n>` (o Python abre com
-`mmap.mmap(-1, n, tagname=...)`); as 4 últimas de cada execução ficam vivas
+`mmap.mmap(-1, n, tagname=...)`). Janela "Não respondendo" (`IsHungAppWindow`)
+não é capturada — o `PrintWindow` espera a janela se desenhar e travaria junto:
+`capture_failed` "window is not responding" (`a_hung_window_is_not_captured`;
+vale para o inspetor também). As 4 últimas capturas de cada execução ficam vivas
 (contrato dizia "até a próxima": no modo "todas juntas" duas threads capturam
 ao mesmo tempo). `screen.pixel` é um ponto dessa captura.
 

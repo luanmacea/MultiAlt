@@ -38,11 +38,12 @@ fn capture_client_size(hwnd: HWND) -> Option<(i32, i32)> {
 /// Os pixels BGRA da área interna (`largura`, `altura`, `largura*altura*4`
 /// bytes, de cima para baixo). O alfa sai sempre 255.
 pub fn capture_client_bgra(hwnd: HWND) -> Result<(u32, u32, Vec<u8>), String> {
-    if !window_exists(hwnd) {
-        return Err("the window is gone".into());
-    }
-    if window_is_minimized(hwnd) {
-        return Err("the window is minimized".into());
+    let exists = window_exists(hwnd);
+    let minimized = exists && window_is_minimized(hwnd);
+    // `PrintWindow` espera a janela se desenhar: travada, ele trava junto.
+    let hung = exists && !minimized && is_window_hung(hwnd);
+    if let Some(reason) = capture_blocker(exists, minimized, hung) {
+        return Err(reason.into());
     }
     let (w, h) = capture_client_size(hwnd).ok_or("the window has no game area")?;
     let mut pixels = unsafe { render_with(hwnd, w, h, false)? };
@@ -53,6 +54,19 @@ pub fn capture_client_bgra(hwnd: HWND) -> Result<(u32, u32, Vec<u8>), String> {
         px[3] = 255;
     }
     Ok((w as u32, h as u32, pixels))
+}
+
+/// Por que a janela não pode ser capturada agora (`None`: pode).
+fn capture_blocker(exists: bool, minimized: bool, hung: bool) -> Option<&'static str> {
+    if !exists {
+        Some("the window is gone")
+    } else if minimized {
+        Some("the window is minimized")
+    } else if hung {
+        Some("window is not responding")
+    } else {
+        None
+    }
 }
 
 fn all_black(pixels: &[u8]) -> bool {
@@ -216,6 +230,16 @@ mod python_capture_tests {
     fn a_null_window_cannot_be_captured() {
         assert!(capture_client_bgra(std::ptr::null_mut()).is_err());
         assert_eq!(capture_client_size(std::ptr::null_mut()), None);
+    }
+
+    /// `PrintWindow` manda a janela se desenhar e espera: com ela "Não
+    /// respondendo" a captura travaria a thread. Pula com erro claro.
+    #[test]
+    fn a_hung_window_is_not_captured() {
+        assert_eq!(capture_blocker(false, false, false), Some("the window is gone"));
+        assert_eq!(capture_blocker(true, true, false), Some("the window is minimized"));
+        assert_eq!(capture_blocker(true, false, true), Some("window is not responding"));
+        assert_eq!(capture_blocker(true, false, false), None);
     }
 
     #[test]
