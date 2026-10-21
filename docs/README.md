@@ -51,6 +51,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico) e a tela do **Modo AFK**, que junta Auto Rejoin e cliques AFK em abas.
 - [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.
 - [features/recordings.md](features/recordings.md) — Gravações: sequências de teclas, cliques e esperas tocadas na janela de cada conta, uma por vez (Modo AFK, depois da reconexão, ou na hora).
+- [features/python-automation.md](features/python-automation.md) — Automação do Roblox Player em Python (página Scripts): Python portátil baixado sob demanda, pasta de trabalho com blocos padrão editáveis, primitivas com travas (fila de foco do AFK, só cliente do tracker), execuções com gatilho, dashboard, inspetor e o canal do terminal do Modo desenvolvedor.
 - [features/avatars.md](features/avatars.md) — avatares grátis: montar avatares só com itens oficiais gratuitos do Roblox e distribuí-los entre as contas (resgata o que falta de graça, nunca gasta Robux).
 - [features/groups.md](features/groups.md) — página Groups: busca de grupos do Roblox e entrada das contas marcadas, uma por vez; captcha resolvido pela pessoa no navegador da conta.
 - [features/isolation.md](features/isolation.md) — isolamento pré-launch (cache, registro, MachineGuid/MAC).
