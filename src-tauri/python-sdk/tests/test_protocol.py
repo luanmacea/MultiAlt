@@ -259,6 +259,24 @@ class HostProcessTests(unittest.TestCase):
             process.stderr.close()
             return process.returncode, lines, stderr
 
+    def test_a_child_process_of_the_script_does_not_get_the_protocol_stdin(self) -> None:
+        # A subprocess started by the script inherits the standard handles. It must
+        # see an empty stdin, not the app's protocol pipe (it would block on it or
+        # eat the app's answers).
+        code, lines, stderr = self._run(
+            "import subprocess, sys\n"
+            "import multialt\n"
+            "def main(account):\n"
+            "    out = subprocess.run([sys.executable, '-c', 'import sys; print(repr(sys.stdin.read()))'],\n"
+            "                         capture_output=True, timeout=10)\n"
+            "    multialt.log('child read', out.stdout.decode().strip())\n"
+            "    multialt.log('accounts', len(multialt.accounts()))\n"
+        )
+        self.assertEqual(code, 0, stderr)
+        logs = [l["args"]["message"] for l in lines if l.get("op") == "run.log"]
+        self.assertIn("child read ''", logs)
+        self.assertIn("accounts 1", logs, "the protocol still works after the child ran")
+
     def test_print_never_corrupts_the_protocol(self) -> None:
         code, lines, stderr = self._run(
             "import multialt\n"

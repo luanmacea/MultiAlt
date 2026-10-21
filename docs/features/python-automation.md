@@ -124,7 +124,12 @@ qualquer outra resposta). Pedido `{"id","op","args"}` → `{"id","ok":true,
 (log, status) não tem resposta. Cada pedido roda numa task: no modo "todas
 juntas" várias threads esperam ao mesmo tempo. Linha que não é JSON vira aviso
 no log, sem derrubar a execução. O stderr do Python vai para o log como `error`;
-a última linha dele vira o erro da execução que falhou.
+a última linha dele vira o erro da execução que falhou. Antes de qualquer
+código do usuário, o host (`protocol.stdio_transport`) duplica o stdin e o
+stdout do protocolo (cópias não herdáveis) e aponta o descritor 0 para o
+`NUL` e o 1 para o stderr: um programa que o script abre (`subprocess.run`)
+herda stdin vazio, não o pipe do app — antes ele travava lendo o protocolo ou
+comia as respostas (`test_a_child_process_of_the_script_does_not_get_the_protocol_stdin`).
 
 Captura: `screen.capture` publica os bytes BGRA numa memória compartilhada
 nomeada `Local\multialt-cap-<pid>-<run>-<n>` (o Python abre com

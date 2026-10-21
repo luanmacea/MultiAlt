@@ -441,8 +441,21 @@ def stdio_transport() -> Transport:
     Must run before the host swaps ``sys.stdout``: it duplicates the original
     stdout descriptor for the protocol, then points descriptor 1 at stderr so
     any native code that writes to stdout cannot corrupt the protocol.
+
+    Same for stdin: the protocol reads from a duplicate (not inheritable), and
+    descriptor 0 is pointed at the null device, so a program the script starts
+    (``subprocess.run(...)``) gets an empty stdin instead of the app's pipe.
     """
-    stdin = sys.stdin.buffer
+    in_fd = os.dup(sys.stdin.fileno())
+    stdin = os.fdopen(in_fd, "rb")
+    try:
+        null_fd = os.open(os.devnull, os.O_RDONLY)
+        try:
+            os.dup2(null_fd, sys.stdin.fileno())
+        finally:
+            os.close(null_fd)
+    except (OSError, ValueError):
+        pass
     out_fd = os.dup(sys.stdout.fileno())
     writer = os.fdopen(out_fd, "wb", buffering=0)
     try:
