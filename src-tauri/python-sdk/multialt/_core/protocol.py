@@ -407,6 +407,20 @@ def stop_requested() -> bool:
     return get_transport().stop_requested
 
 
+_log_echo: Optional[Callable[[str, str, Optional[int]], None]] = None
+
+
+def set_log_echo(echo: Optional[Callable[[str, str, Optional[int]], None]]) -> None:
+    """Also show every log line somewhere else (the terminal CLI uses this)."""
+    global _log_echo
+    _log_echo = echo
+
+
+def echo_log(level: str, message: str, user_id: Optional[int]) -> None:
+    if _log_echo is not None:
+        _log_echo(level, message, user_id)
+
+
 def set_current_user(user_id: Optional[int]) -> None:
     """Tag this thread's log lines with an account (the runner does this)."""
     _local.user_id = user_id

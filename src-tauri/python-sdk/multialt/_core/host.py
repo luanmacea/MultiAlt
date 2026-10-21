@@ -38,13 +38,11 @@ class LogWriter(io.TextIOBase):
     """A file-like object that turns written text into ``run.log`` lines.
 
     ``print()`` goes through it, so output shows up in the app's log terminal.
-    With ``echo`` (the terminal CLI) the text is also written to the real terminal.
     """
 
-    def __init__(self, level: str, echo: Optional[TextIO] = None) -> None:
+    def __init__(self, level: str) -> None:
         super().__init__()
         self._level = level
-        self._echo = echo
         self._buffer = ""
 
     def writable(self) -> bool:
@@ -60,12 +58,6 @@ class LogWriter(io.TextIOBase):
     def write(self, text: str) -> int:
         if not isinstance(text, str):
             raise TypeError(f"write() argument must be str, not {type(text).__name__}")
-        if self._echo is not None:
-            try:
-                self._echo.write(text)
-                self._echo.flush()
-            except (OSError, ValueError):
-                pass
         self._buffer += text
         while "\n" in self._buffer:
             line, self._buffer = self._buffer.split("\n", 1)
@@ -115,7 +107,7 @@ def run_script(
     """Run ``script`` against ``transport``. Returns the process exit code.
 
     ``hello`` is the first line from the app. With ``echo`` the log is also
-    printed to the terminal (the ``python -m multialt run`` command).
+    printed to the terminal (the ``python -m multialt run`` command), tagged with the account name.
     """
     import multialt
 
@@ -126,8 +118,14 @@ def run_script(
     transport.start()
 
     # Step 1 of the module doc: from here on, print() is a log line.
-    sys.stdout = LogWriter("log", real_stdout if echo else None)
-    sys.stderr = LogWriter("error", real_stderr if echo else None)
+    sys.stdout = LogWriter("log")
+    sys.stderr = LogWriter("error")
+    if echo:
+        # Terminal CLI: every log line (print, multialt.log, account.log) is
+        # also shown in the terminal, tagged with the account it belongs to.
+        names = {account.user_id: account.name for account in ctx.accounts}
+        protocol.set_log_echo(lambda level, message, user_id: _echo_to_terminal(
+            real_stdout, real_stderr, names, level, message, user_id))
     if swap_stdin:
         sys.stdin = io.StringIO("")  # input() must never read protocol lines
 
@@ -160,7 +158,20 @@ def run_script(
             pass
         transport.close()
         protocol.set_transport(None)
+        protocol.set_log_echo(None)
     return code
+
+
+def _echo_to_terminal(
+    out: TextIO, err: TextIO, names: dict[int, str], level: str, message: str, user_id: Optional[int]
+) -> None:
+    prefix = f"[{names.get(user_id, user_id)}] " if user_id is not None else ""
+    stream = err if level == "error" else out
+    try:
+        stream.write(f"{prefix}{message}\n")
+        stream.flush()
+    except (OSError, ValueError):
+        pass
 
 
 def main(argv: Optional[list[str]] = None) -> int:

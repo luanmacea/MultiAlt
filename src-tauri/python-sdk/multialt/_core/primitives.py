@@ -147,6 +147,7 @@ def run_log(level: str, message: str, user_id: Optional[int] = None) -> None:
     uid = user_id if user_id is not None else protocol.current_user()
     if uid is not None:
         args["user_id"] = uid
+    protocol.echo_log(level, message, uid)
     protocol.notify("run.log", args)
 
 
