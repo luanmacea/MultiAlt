@@ -379,8 +379,11 @@ fn get_report_environment(app: tauri::AppHandle) -> ReportEnvironment {
 fn open_url_in_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        // Sem `CREATE_NO_WINDOW`, o `cmd` acende um console preto na tela.
         std::process::Command::new("cmd")
             .args(["/C", "start", "", url])
+            .creation_flags(0x0800_0000)
             .spawn()
             .map_err(|e| format!("Failed to open URL: {}", e))?;
         return Ok(());
@@ -567,5 +570,68 @@ mod services_command_tests {
         assert!(get_nexus_elements().expect("elements").is_empty());
         // The log may already hold startup lines; it must at least be readable.
         assert!(get_nexus_log().is_ok());
+    }
+}
+
+/// Programa de console aberto sem `CREATE_NO_WINDOW` acende uma janela preta na
+/// tela — no app (para o usuário, ao abrir um link) e nos testes (para quem roda
+/// `cargo test` por um terminal escondido, como os agentes). Relato do dono
+/// (21/10/2026): terminais abrindo sozinhos durante os testes.
+#[cfg(test)]
+mod console_window_tests {
+    use std::path::{Path, PathBuf};
+
+    /// Programas de console que o backend abre (literal ou pelos ajudantes dos
+    /// testes do Chromium).
+    const CONSOLE_SPAWNS: &[&str] = &[
+        "Command::new(\"cmd\")",
+        "Command::new(\"powershell\")",
+        "Command::new(\"ping\")",
+        "Command::new(\"reg\")",
+        "Command::new(\"tasklist\")",
+        "Command::new(exit_immediately_program())",
+        "Command::new(sleep_program())",
+    ];
+
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("read src dir").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().map(|e| e == "rs").unwrap_or(false) {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn console_programs_are_spawned_without_a_window() {
+        let mut files = Vec::new();
+        walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let mut offenders = Vec::new();
+        for file in files {
+            let text = std::fs::read_to_string(&file).expect("read source");
+            // A lista acima também aparece aqui; este arquivo se confere pelas
+            // chamadas reais, não pela tabela.
+            let lines: Vec<&str> = text.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("\"Command::new(") {
+                    continue;
+                }
+                if !CONSOLE_SPAWNS.iter().any(|needle| line.contains(needle)) {
+                    continue;
+                }
+                let window = lines[i..lines.len().min(i + 12)].join("\n");
+                let until_spawn = window.split(".spawn()").next().unwrap_or(&window);
+                if !until_spawn.contains("creation_flags") {
+                    offenders.push(format!("{}:{}", file.display(), i + 1));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "console program spawned without CREATE_NO_WINDOW: {offenders:?}"
+        );
     }
 }

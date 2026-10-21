@@ -197,7 +197,7 @@ async function main() {
     "--no-default-browser-check",
     "--hide-scrollbars=false",
     "about:blank",
-  ], { stdio: "ignore" });
+  ], { stdio: "ignore", windowsHide: true });
 
   try {
     let wsUrl = "";
