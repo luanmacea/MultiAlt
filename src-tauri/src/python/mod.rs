@@ -41,6 +41,27 @@ pub fn emergency_stop() -> usize {
     0
 }
 
+/// O app está fechando (`RunEvent::ExitRequested`/`Exit`): para todas as
+/// execuções, espera até 1 s elas saírem e solta o lease e as teclas que
+/// sobraram. Uma vez só. Não fecha cliente do Roblox.
+pub fn shutdown_on_exit() {
+    #[cfg(feature = "python-scripts")]
+    {
+        static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        if let Some(service) = service::existing() {
+            let _ = runs::shutdown(
+                &service.manager,
+                &focus::FocusQueue::global(),
+                &primitives::RealDesk,
+                std::time::Duration::from_millis(1_000),
+            );
+        }
+    }
+}
+
 /// Quantas execuções Python estão vivas (rodando ou esperando o intervalo).
 pub fn runs_active() -> usize {
     #[cfg(feature = "python-scripts")]

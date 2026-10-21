@@ -174,6 +174,13 @@ terminadas continuam na lista. O log guarda as últimas 5 000 linhas
 (`python_get_logs`) e cada linha sai também em `python-log`; trava sai com nível
 `blocked`, `code` e `hint`; `run.status` vira linha `system` "Status: ...".
 
+**Fechar o MultiAlt** com execução viva (`RunEvent::ExitRequested`/`Exit` →
+`python::shutdown_on_exit`, uma vez só): para todas, espera até 1 s elas saírem
+e solta o lease e as teclas que sobraram (`runs::shutdown`,
+`closing_the_app_stops_runs_and_releases_held_keys`). Antes, o Python morria
+com o job object e a tecla apertada ficava presa no Windows. Nenhum cliente do
+Roblox é fechado.
+
 Chacoalhar o mouse (`Afk.ShakeToStop`) para **todas** as execuções Python: o
 vigia liga com execução viva (`python::runs_active()`) — a cada Run da tela e a
 cada execução do terminal aceita pelo pipe (`handle_client` chama o

@@ -366,6 +366,21 @@ impl RunManager {
     }
 }
 
+/// O app está fechando: para todas as execuções, espera no máximo `wait` elas
+/// saírem (o `serve` solta lease e teclas de quem sai) e então solta o lease e
+/// as teclas que sobraram — tecla presa faz o personagem andar sozinho depois
+/// que o app fecha. Bloqueia (roda no fechamento). Não toca em cliente do
+/// Roblox: o processo Python morre com o app pelo job object. Devolve quantas
+/// execuções estavam vivas e as teclas soltas aqui.
+pub fn shutdown(manager: &RunManager, focus: &FocusQueue, desk: &dyn Desk, wait: Duration) -> (usize, Vec<String>) {
+    let stopped = manager.stop_all();
+    let deadline = std::time::Instant::now() + wait;
+    while manager.active() > 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    (stopped, focus.release_current(desk))
+}
+
 // ── o log (as últimas 5 000 linhas) ───────────────────────────────────────
 
 pub struct LogBook {
@@ -706,6 +721,56 @@ pub mod python_runs_tests {
         let id = m.start(config("bad.py", PythonTrigger::Manual), vec![account(1, "Main_01")], "app", fake(1, 1));
         let failed = wait_for(&m, &id, "failed").await;
         assert_eq!(failed.error.as_deref(), Some("ValueError: boom"));
+    }
+
+    /// Uma rodada que pega a fila, aperta W e então ignora o Parar (um script
+    /// travado, ou o app fechando antes de o Python soltar).
+    struct StuckExec;
+    impl Executor for StuckExec {
+        fn execute(&self, ctx: RunCtx, _hello: Value) -> BoxFuture<'static, ExecOutcome> {
+            Box::pin(async move {
+                let lease = crate::python::primitives::dispatch(&ctx, "focus.acquire", json!({"user_id": 1})).await;
+                assert!(lease.is_ok(), "{lease:?}");
+                crate::python::primitives::dispatch(&ctx, "input.key_down", json!({"user_id": 1, "key": "W"})).await.unwrap();
+                std::future::pending::<()>().await;
+                unreachable!()
+            })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn closing_the_app_stops_runs_and_releases_held_keys() {
+        let desk = FakeDesk::with_window(1, 11);
+        *desk.front.lock().unwrap() = 11;
+        let queue = own_queue();
+        let rec = Arc::new(Recorder::default());
+        let m = Arc::new(RunManager::with_minute(rec, desk.clone(), queue.clone(), 60_000));
+        let stuck = m.start(config("stuck.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", Arc::new(StuckExec));
+        let quick = m.start(config("quick.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", fake(60_000, 0));
+        for _ in 0..200 {
+            if desk.sent().contains(&"down:W".to_string()) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(queue.holds(&stuck, 1));
+
+        let started = std::time::Instant::now();
+        let (stopped, released) = {
+            let (m, queue, desk) = (m.clone(), queue.clone(), desk.clone());
+            tokio::task::spawn_blocking(move || shutdown(&m, &queue, desk.as_ref(), Duration::from_millis(300)))
+                .await
+                .unwrap()
+        };
+        assert_eq!(stopped, 2);
+        assert!(started.elapsed() < Duration::from_secs(2), "the app does not wait long to close");
+        assert_eq!(released, vec!["W".to_string()]);
+        assert_eq!(desk.sent().last().map(String::as_str), Some("up:W"), "no key stays held when the app closes");
+        assert!(!queue.holds(&stuck, 1));
+        // A que obedece ao Parar terminou dentro da espera.
+        wait_for(&m, &quick, "finished").await;
+        // Nada de Roblox: só teclas e o lease.
+        assert!(desk.sent().iter().all(|s| s.starts_with("down:") || s.starts_with("up:")));
     }
 
     #[test]

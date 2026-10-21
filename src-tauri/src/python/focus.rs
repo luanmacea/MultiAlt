@@ -203,6 +203,12 @@ impl FocusQueue {
         })
     }
 
+    /// O app está fechando: solta o lease de quem for, com as teclas.
+    pub fn release_current(&self, desk: &dyn Desk) -> Vec<String> {
+        let taken = self.lease.lock().unwrap().take();
+        taken.map(|lease| release_keys(lease, desk)).unwrap_or_default()
+    }
+
     /// Fim da execução: o lease dela (se houver) é solto, com as teclas.
     pub fn release_all_for_run(&self, run_id: &str, desk: &dyn Desk) -> Vec<String> {
         let taken = {
