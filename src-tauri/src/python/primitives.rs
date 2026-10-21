@@ -29,6 +29,16 @@ pub trait RunSink: Send + Sync {
     fn dashboard(&self, op: &str, args: &Value) -> Result<Value, PyError>;
 }
 
+/// O que o app sabe agora do cliente de uma conta (`accounts` lê isto a cada
+/// chamada): aberto pelo MultiAlt e no jogo, e o lugar/servidor do último
+/// "Joining game" do log do Roblox (0 / "" quando o log ainda não disse).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LiveSession {
+    pub in_game: bool,
+    pub place_id: i64,
+    pub job_id: String,
+}
+
 /// O que as primitivas usam do Windows — o real no app, um dublê nos testes.
 /// Janelas como `isize` (o HWND).
 pub trait Desk: Send + Sync {
@@ -49,6 +59,19 @@ pub trait Desk: Send + Sync {
     fn click(&self, hwnd: isize, x: f64, y: f64, focus_click: bool) -> Result<(), String>;
     /// `(largura, altura, BGRA)` da área interna.
     fn capture(&self, hwnd: isize) -> Result<(u32, u32, Vec<u8>), String>;
+    /// O estado de agora do cliente da conta.
+    fn session(&self, user_id: i64) -> LiveSession;
+}
+
+/// A conta como o script a vê agora (o resto vem do começo da execução).
+pub fn live_view(desk: &dyn Desk, account: &AccountView) -> AccountView {
+    let live = desk.session(account.user_id);
+    AccountView {
+        in_game: live.in_game,
+        place_id: live.place_id,
+        job_id: live.job_id,
+        ..account.clone()
+    }
 }
 
 /// Estado de uma execução que as primitivas precisam lembrar entre chamadas.
@@ -332,7 +355,10 @@ pub async fn dispatch(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyEr
         return Err(PyError::bad_args(op, "args must be an object"));
     }
     match op {
-        "accounts" => Ok(serde_json::to_value(&ctx.accounts).unwrap_or_default()),
+        "accounts" => {
+            let live: Vec<AccountView> = ctx.accounts.iter().map(|a| live_view(ctx.desk.as_ref(), a)).collect();
+            Ok(serde_json::to_value(&live).unwrap_or_default())
+        }
         "windows" => {
             let front = ctx.desk.foreground();
             let list: Vec<Value> = ctx
@@ -632,6 +658,21 @@ impl Desk for RealDesk {
     fn capture(&self, hwnd: isize) -> Result<(u32, u32, Vec<u8>), String> {
         crate::platform::windows::capture_client_bgra(hwnd as _)
     }
+    fn session(&self, user_id: i64) -> LiveSession {
+        // Só leitura do que o monitor de saúde já sabe (log do Roblox): nada
+        // novo é lido por causa disto.
+        let Some(pid) = crate::platform::windows::tracker().get_pid(user_id) else {
+            return LiveSession::default();
+        };
+        let health = crate::client_health_of(user_id, pid);
+        let destination = health.as_ref().and_then(|h| h.destination.clone());
+        LiveSession {
+            // Sem o log ainda, o cliente aberto pelo app conta como no jogo.
+            in_game: health.as_ref().map(|h| h.in_game || !h.log_found).unwrap_or(true),
+            place_id: destination.as_ref().map(|d| d.place_id).unwrap_or(0),
+            job_id: destination.and_then(|d| d.job_id).unwrap_or_default(),
+        }
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -666,6 +707,9 @@ impl Desk for RealDesk {
     fn capture(&self, _hwnd: isize) -> Result<(u32, u32, Vec<u8>), String> {
         Err("capture is only available on Windows".into())
     }
+    fn session(&self, _user_id: i64) -> LiveSession {
+        LiveSession::default()
+    }
 }
 
 #[cfg(test)]
@@ -683,6 +727,7 @@ pub mod python_primitives_tests {
         pub front: Mutex<isize>,
         pub sent: Mutex<Vec<String>>,
         pub image: Mutex<Option<(u32, u32, Vec<u8>)>>,
+        pub sessions: Mutex<HashMap<i64, LiveSession>>,
     }
 
     impl FakeDesk {
@@ -731,6 +776,15 @@ pub mod python_primitives_tests {
         }
         fn capture(&self, _hwnd: isize) -> Result<(u32, u32, Vec<u8>), String> {
             self.image.lock().unwrap().clone().ok_or_else(|| "no image".to_string())
+        }
+        fn session(&self, user_id: i64) -> LiveSession {
+            if self.window_of(user_id).is_none() {
+                return LiveSession::default();
+            }
+            self.sessions.lock().unwrap().get(&user_id).cloned().unwrap_or(LiveSession {
+                in_game: true,
+                ..Default::default()
+            })
         }
     }
 
@@ -896,6 +950,27 @@ pub mod python_primitives_tests {
     }
 
     const LEASE_IDLE_PLUS: u64 = super::super::focus::LEASE_IDLE_MS + 1_000;
+
+    /// `accounts` é o estado de agora, não o do começo da execução: cliente que
+    /// abriu ou fechou e o jogo/servidor em que está.
+    #[tokio::test]
+    async fn accounts_are_read_live() {
+        let desk = Arc::new(FakeDesk::default());
+        let ctx = ctx_with(desk.clone(), own_queue());
+        let first = dispatch(&ctx, "accounts", json!({})).await.unwrap();
+        assert_eq!(first[0]["in_game"], json!(false), "no client yet");
+        desk.windows.lock().unwrap().insert(1, 11);
+        desk.sessions.lock().unwrap().insert(1, LiveSession { in_game: true, place_id: 920587237, job_id: "abc-123".into() });
+        let now = dispatch(&ctx, "accounts", json!({})).await.unwrap();
+        assert_eq!(now[0]["user_id"], json!(1));
+        assert_eq!(now[0]["name"], json!("Main_01"));
+        assert_eq!(now[0]["in_game"], json!(true));
+        assert_eq!(now[0]["place_id"], json!(920587237));
+        assert_eq!(now[0]["job_id"], json!("abc-123"));
+        // Sem cliente para a conta 2: nada de jogo.
+        assert_eq!(now[1]["in_game"], json!(false));
+        assert_eq!(now[1]["place_id"], json!(0));
+    }
 
     #[tokio::test]
     async fn sleep_stops_when_the_run_is_stopped() {

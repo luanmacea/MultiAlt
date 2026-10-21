@@ -142,6 +142,12 @@ ao mesmo tempo). `screen.pixel` é um ponto dessa captura.
 - `forbidden` para qualquer op fora da lista ou com `cookie`, `password`,
   `token` ou `secret` no nome. As contas que o Python vê são
   `{user_id, name, alias, group, in_game, place_id, job_id}` — nunca segredo.
+  `in_game`, `place_id` e `job_id` são lidos **na hora** a cada `accounts`
+  (`Desk::session`): cliente no tracker e o último "Joining game" que o monitor
+  de saúde já leu do log do Roblox (`client_health_of`), sem ler nada novo.
+  Sem cliente, `false/0/""`; sem o log ainda, o cliente aberto conta como no
+  jogo e place/job ficam `0/""` (`accounts_are_read_live`). O `hello` leva o
+  mesmo retrato do começo.
 - Teclas só da lista das Gravações (`RECORDING_KEYS`); `type_text` só letra
   (maiúscula com Shift), dígito e espaço, e confere tudo antes de mandar a
   primeira tecla. Envio pelas portas do `input.rs` (`press_recording_key`,

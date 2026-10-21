@@ -273,7 +273,12 @@ def _uid(account: Union[Account, int, None]) -> Optional[int]:
 
 
 def accounts() -> list[Account]:
-    """The accounts of this run, fresh from the app (``in_game`` and place are current)."""
+    """The accounts of this run, fresh from the app.
+
+    ``in_game``, ``place_id`` and ``job_id`` are read now: a client opened by
+    MultiAlt that is in a game, and the place and server the Roblox log
+    reported for it (``0`` / ``""`` until the log says so, or with no client).
+    """
     return [Account.from_json(a) for a in _p.accounts()]
 
 

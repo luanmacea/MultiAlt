@@ -141,19 +141,16 @@ pub fn account_views_by_name(app: &tauri::AppHandle, names: &[String]) -> Result
 }
 
 fn view_of(account: &crate::data::accounts::Account) -> AccountView {
-    #[cfg(target_os = "windows")]
-    let in_game = crate::platform::windows::tracker().get_pid(account.user_id).is_some();
-    #[cfg(not(target_os = "windows"))]
-    let in_game = false;
-    AccountView {
+    let base = AccountView {
         user_id: account.user_id,
         name: account.username.clone(),
         alias: account.alias.clone(),
         group: account.group.clone(),
-        in_game,
+        in_game: false,
         place_id: 0,
         job_id: String::new(),
-    }
+    };
+    super::primitives::live_view(&RealDesk, &base)
 }
 
 /// Garante a pasta de trabalho e o `._pth` antes de uma execução.

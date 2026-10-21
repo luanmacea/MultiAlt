@@ -44,6 +44,10 @@ Use the Inspector tab to read the fractions and colours of what you see.
 
 `Account` is what `main` receives. Fields: `user_id: int`, `name: str`,
 `alias: str`, `group: str`, `in_game: bool`, `place_id: int`, `job_id: str`.
+The `Account` your `main` receives is a snapshot from the start of the run;
+`multialt.accounts()` asks the app again: `in_game` (a client opened by
+MultiAlt, in a game), and the `place_id` / `job_id` the Roblox log reported
+for it (`0` / `""` until the log says so, or without a client).
 `str(account)` is the name. `Account.from_json(data)` builds one from the
 protocol object (you rarely need it).
 
