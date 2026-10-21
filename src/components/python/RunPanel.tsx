@@ -141,7 +141,9 @@ export function RunPanel({ script, runtimeInstalled, runs, onToast }: RunPanelPr
     }
   }
 
-  const canRun = runtimeInstalled && selected.size > 0 && !starting && loaded;
+  // One live run per script (the backend refuses a second one too).
+  const alreadyRunning = activeRuns.length > 0;
+  const canRun = runtimeInstalled && selected.size > 0 && !starting && loaded && !alreadyRunning;
   const modeHint = MODES.find((mode) => mode.id === config.mode)?.hint ?? "";
   const triggerHint =
     config.trigger.kind === "loop"
@@ -294,9 +296,11 @@ export function RunPanel({ script, runtimeInstalled, runs, onToast }: RunPanelPr
         <span className="text-[11.5px] text-zinc-500">
           {!runtimeInstalled
             ? "Install Python to run scripts."
-            : selected.size === 0
-              ? "Pick at least one account."
-              : "Only accounts with a client opened by MultiAlt receive input."}
+            : alreadyRunning
+              ? "This script is already running. Stop it first."
+              : selected.size === 0
+                ? "Pick at least one account."
+                : "Only accounts with a client opened by MultiAlt receive input."}
         </span>
       </div>
     </section>

@@ -159,7 +159,19 @@ where
     let executor = Arc::new(PipeExecutor {
         halves: Mutex::new(Some((reader, write))),
     });
-    let id = manager.start(config, accounts, "terminal", executor);
+    let id = match manager.start(config, accounts, "terminal", executor.clone()) {
+        Ok(id) => id,
+        Err(message) => {
+            // Recusada: o canal volta para cá só para dar a resposta.
+            let halves = executor.halves.lock().unwrap().take();
+            if let Some((_, mut write)) = halves {
+                let reply = refuse(&message, "Stop it in MultiAlt (Running) or wait for it to finish.");
+                let _ = write.write_all(format!("{reply}\n").as_bytes()).await;
+                let _ = write.flush().await;
+            }
+            return Err(message);
+        }
+    };
     on_started();
     Ok(id)
 }
@@ -422,6 +434,25 @@ mod python_devpipe_tests {
         assert_eq!(reply["error"]["message"], json!("Unknown account(s): Nobody"));
         assert!(reply["error"]["hint"].is_string());
         assert!(m.list().is_empty(), "no run is registered");
+    }
+
+    #[tokio::test]
+    async fn cli_start_of_a_running_script_is_refused() {
+        let m = manager();
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        let (_cr, mut cw) = tokio::io::split(client);
+        cw.write_all(b"{\"op\":\"cli.start\",\"args\":{\"script\":\"farm.py\",\"accounts\":[\"Main_01\"]}}\n").await.unwrap();
+        let first = handle_client(server, &resolver, &m, &|| {}).await.unwrap();
+        let (client2, server2) = tokio::io::duplex(8192);
+        let (cr2, mut cw2) = tokio::io::split(client2);
+        cw2.write_all(b"{\"op\":\"cli.start\",\"args\":{\"script\":\"farm.py\",\"accounts\":[\"Alt_02\"]}}\n").await.unwrap();
+        let error = handle_client(server2, &resolver, &m, &|| {}).await.unwrap_err();
+        assert_eq!(error, crate::python::runs::ALREADY_RUNNING);
+        let mut lines = BufReader::new(cr2).lines();
+        let reply: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+        assert_eq!(reply["error"]["message"], json!("This script is already running. Stop it first."));
+        assert_eq!(m.list().len(), 1);
+        m.stop(&first).unwrap();
     }
 
     #[tokio::test]

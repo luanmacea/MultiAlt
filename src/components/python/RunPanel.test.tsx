@@ -155,6 +155,26 @@ describe("RunPanel", () => {
     await waitFor(() => expect(onToast).toHaveBeenCalledWith("Python automation is not available in this build", "error"));
   });
 
+  it("keeps Run off while this script is running", async () => {
+    savedConfigs["farm.py"] = { script: "farm.py", accounts: [1001], mode: "one_at_a_time", trigger: { kind: "manual" } };
+    const { rerender } = render(
+      <RunPanel script="farm.py" runtimeInstalled runs={[run({ id: "r1", source: "terminal" })]} onToast={vi.fn()} />
+    );
+    expect(await screen.findByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Run/ })).toBeDisabled();
+    expect(screen.getByText("This script is already running. Stop it first.")).toBeInTheDocument();
+    // Another script running does not count; a finished run of this one neither.
+    rerender(
+      <RunPanel
+        script="farm.py"
+        runtimeInstalled
+        runs={[run({ id: "r1", state: "finished" }), run({ id: "r2", script: "other.py" })]}
+        onToast={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("button", { name: /Run/ })).toBeEnabled();
+  });
+
   it("stops the active runs of this script only", async () => {
     render(
       <RunPanel

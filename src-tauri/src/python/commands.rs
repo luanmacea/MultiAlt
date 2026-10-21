@@ -297,7 +297,7 @@ fn start_app_run(app: &tauri::AppHandle, config: PythonRunConfig) -> Result<Stri
         python_exe,
         workspace: root,
     });
-    let id = svc.manager.start(config, accounts, "app", executor);
+    let id = svc.manager.start(config, accounts, "app", executor)?;
     // Chacoalhar o mouse para as execuções (`Afk.ShakeToStop`).
     #[cfg(target_os = "windows")]
     crate::ensure_shake_watch(app);

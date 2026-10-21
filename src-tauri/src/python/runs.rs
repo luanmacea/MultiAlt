@@ -25,6 +25,8 @@ use super::types::*;
 pub const LOG_CAPACITY: usize = 5_000;
 /// Execuções terminadas que continuam na lista.
 const FINISHED_KEPT: usize = 30;
+/// Resposta a quem tenta rodar um script que já está rodando.
+pub const ALREADY_RUNNING: &str = "This script is already running. Stop it first.";
 /// Espera do Parar antes de matar o processo Python.
 pub const STOP_GRACE: Duration = Duration::from_secs(3);
 
@@ -175,14 +177,20 @@ impl RunManager {
         Some(info)
     }
 
-    /// Registra e começa uma execução. Devolve o id.
+    /// Registra e começa uma execução. Devolve o id. Um script com execução
+    /// viva (de qualquer origem) não começa de novo: duas cópias do mesmo
+    /// script disputariam as mesmas contas e o mesmo dashboard.
     pub fn start(
         self: &Arc<Self>,
         config: PythonRunConfig,
         accounts: Vec<AccountView>,
         source: &str,
         executor: Arc<dyn Executor>,
-    ) -> String {
+    ) -> Result<String, String> {
+        let mut runs = self.runs.lock().unwrap();
+        if runs.values().any(|e| live(&e.info.state) && e.info.script.eq_ignore_ascii_case(&config.script)) {
+            return Err(ALREADY_RUNNING.into());
+        }
         let id = format!("r{}", self.seq.fetch_add(1, Ordering::SeqCst) + 1);
         let info = PythonRunInfo {
             id: id.clone(),
@@ -198,7 +206,7 @@ impl RunManager {
             error: None,
         };
         let user_stop = Arc::new(AtomicBool::new(false));
-        self.runs.lock().unwrap().insert(
+        runs.insert(
             id.clone(),
             Entry {
                 info: info.clone(),
@@ -206,6 +214,7 @@ impl RunManager {
                 exec_stop: None,
             },
         );
+        drop(runs);
         self.order.lock().unwrap().push(id.clone());
         self.prune();
         self.events.run_update(&info);
@@ -219,7 +228,7 @@ impl RunManager {
         tokio::spawn(async move {
             manager.run_loop(run_id, config, accounts, user_stop, executor).await;
         });
-        id
+        Ok(id)
     }
 
     async fn run_loop(
@@ -662,8 +671,8 @@ pub mod python_runs_tests {
     #[tokio::test]
     async fn two_runs_coexist() {
         let (m, rec) = manager(60_000);
-        let a = m.start(config("a.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", fake(10_000, 0));
-        let b = m.start(config("b.py", PythonTrigger::Manual), vec![account(1, "Main_01")], "terminal", fake(10_000, 0));
+        let a = m.start(config("a.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", fake(10_000, 0)).unwrap();
+        let b = m.start(config("b.py", PythonTrigger::Manual), vec![account(1, "Main_01")], "terminal", fake(10_000, 0)).unwrap();
         assert_ne!(a, b);
         wait_for(&m, &a, "running").await;
         let info_b = wait_for(&m, &b, "running").await;
@@ -678,10 +687,34 @@ pub mod python_runs_tests {
     }
 
     #[tokio::test]
+    async fn the_same_script_cannot_run_twice() {
+        let (m, _) = manager(60_000);
+        let first = m.start(config("farm.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", fake(60_000, 0)).unwrap();
+        wait_for(&m, &first, "running").await;
+        // Nem pela tela nem pelo terminal, nem com outras contas.
+        for source in ["app", "terminal"] {
+            let error = m
+                .start(config("farm.py", PythonTrigger::Manual), vec![account(2, "Alt_02")], source, fake(1, 0))
+                .unwrap_err();
+            assert_eq!(error, ALREADY_RUNNING);
+        }
+        assert_eq!(m.active(), 1);
+        assert_eq!(m.list().len(), 1, "the refused start is not listed");
+        // Outro script pode.
+        let other = m.start(config("other.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", fake(60_000, 0)).unwrap();
+        // Parado, o mesmo script volta a poder.
+        m.stop(&first).unwrap();
+        wait_for(&m, &first, "finished").await;
+        let again = m.start(config("farm.py", PythonTrigger::Manual), vec![account(1, "Main_01")], "app", fake(1, 0)).unwrap();
+        assert_ne!(again, first);
+        m.stop(&other).unwrap();
+    }
+
+    #[tokio::test]
     async fn interval_reschedules_after_finish() {
         let (m, _) = manager(40); // "minuto" de 40 ms
         let exec = fake(5, 0);
-        let id = m.start(config("farm.py", PythonTrigger::Interval { minutes: 2 }), vec![account(1, "Main_01")], "app", exec.clone());
+        let id = m.start(config("farm.py", PythonTrigger::Interval { minutes: 2 }), vec![account(1, "Main_01")], "app", exec.clone()).unwrap();
         let waiting = wait_for(&m, &id, "waiting").await;
         assert!(waiting.next_run_ms.is_some());
         for _ in 0..200 {
@@ -703,7 +736,7 @@ pub mod python_runs_tests {
     async fn stop_all_stops_every_run() {
         let (m, _) = manager(60_000);
         let ids: Vec<String> = (0..3)
-            .map(|i| m.start(config(&format!("s{i}.py"), PythonTrigger::Loop), vec![account(1, "Main_01")], "app", fake(60_000, 0)))
+            .map(|i| m.start(config(&format!("s{i}.py"), PythonTrigger::Loop), vec![account(1, "Main_01")], "app", fake(60_000, 0)).unwrap())
             .collect();
         for id in &ids {
             wait_for(&m, id, "running").await;
@@ -718,7 +751,7 @@ pub mod python_runs_tests {
     #[tokio::test]
     async fn a_failing_script_is_reported_with_its_last_traceback_line() {
         let (m, _) = manager(60_000);
-        let id = m.start(config("bad.py", PythonTrigger::Manual), vec![account(1, "Main_01")], "app", fake(1, 1));
+        let id = m.start(config("bad.py", PythonTrigger::Manual), vec![account(1, "Main_01")], "app", fake(1, 1)).unwrap();
         let failed = wait_for(&m, &id, "failed").await;
         assert_eq!(failed.error.as_deref(), Some("ValueError: boom"));
     }
@@ -745,8 +778,8 @@ pub mod python_runs_tests {
         let queue = own_queue();
         let rec = Arc::new(Recorder::default());
         let m = Arc::new(RunManager::with_minute(rec, desk.clone(), queue.clone(), 60_000));
-        let stuck = m.start(config("stuck.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", Arc::new(StuckExec));
-        let quick = m.start(config("quick.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", fake(60_000, 0));
+        let stuck = m.start(config("stuck.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", Arc::new(StuckExec)).unwrap();
+        let quick = m.start(config("quick.py", PythonTrigger::Loop), vec![account(1, "Main_01")], "app", fake(60_000, 0)).unwrap();
         for _ in 0..200 {
             if desk.sent().contains(&"down:W".to_string()) {
                 break;

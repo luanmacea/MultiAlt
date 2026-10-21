@@ -165,7 +165,11 @@ soltar por último devolve (`restore_focus_only_runs_when_the_queue_is_free`).
 
 Uma execução = script + contas + modo (`one_at_a_time` | `all_together`) +
 gatilho (`manual` | `interval` N min | `loop`), um processo Python por rodada.
-Várias convivem. **Stop** marca a parada (o `serve` manda o `stop`), espera 3 s e
+Várias convivem, mas **um script só tem uma execução viva por vez**
+(`starting`/`running`/`waiting`/`stopping`), venha da tela ou do terminal: a
+segunda é recusada com "This script is already running. Stop it first."
+(`RunManager::start`, `the_same_script_cannot_run_twice`) e o Run da tela fica
+desligado enquanto o script roda. **Stop** marca a parada (o `serve` manda o `stop`), espera 3 s e
 mata o processo Python e só a árvore dele (job object com
 `KILL_ON_JOB_CLOSE`). **Stop all** para todas. O gatilho de intervalo reabre a
 execução N minutos depois de a rodada terminar (também depois de uma falha),
