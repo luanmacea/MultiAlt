@@ -398,7 +398,7 @@ impl Default for LogBook {
 
 // ── o processo Python ─────────────────────────────────────────────────────
 
-/// Roda `"<python>" -u -X utf8 -m multialt._core.host scripts/<nome>` na pasta
+/// Roda `"<python>" -s -E -B -X utf8 -u -m multialt._core.host scripts/<nome>` na pasta
 /// de trabalho, sem janela de console, com stdin/stdout no protocolo e o
 /// stderr no log (nível `error`).
 pub struct ProcessExecutor {
@@ -421,11 +421,13 @@ async fn run_process(exe: PathBuf, workspace: PathBuf, script: String, ctx: RunC
 
     let mut command = tokio::process::Command::new(&exe);
     command
-        .args(["-u", "-X", "utf8", "-m", "multialt._core.host"])
+        .args(super::runtime::ISOLATION_FLAGS)
+        .args(["-u", "-m", "multialt._core.host"])
         .arg(format!("scripts/{script}"))
         .current_dir(&workspace)
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("PYTHONNOUSERSITE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

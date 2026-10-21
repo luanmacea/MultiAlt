@@ -61,9 +61,9 @@ pub const PYTHON_ZIP_URL: &str =
 pub const PYTHON_ZIP_SHA256: &str =
     "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3";
 
-/// pip 25.1.1 em wheel (PyPI). No lugar do `get-pip.py` do plano: o pip roda de
-/// dentro do próprio wheel (`python pip.whl/pip install pip.whl`, uso
-/// documentado no `pip/__main__.py`), e o hash do wheel é o publicado pelo PyPI.
+/// pip 25.1.1 em wheel (PyPI). No lugar do `get-pip.py` do plano: o wheel
+/// (hash publicado pelo PyPI) é aberto no `Lib\site-packages` do runtime, e
+/// daí em diante é `python -m pip`.
 pub const PIP_VERSION: &str = "25.1.1";
 pub const PIP_WHEEL_URL: &str = "https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl";
 pub const PIP_WHEEL_SHA256: &str =
@@ -239,6 +239,13 @@ pub trait StepRunner: Send + Sync {
     fn run(&self, exe: &Path, args: &[String], cwd: &Path, on_line: &mut dyn FnMut(String)) -> Result<i32, String>;
 }
 
+/// Flags de todo `python.exe` que o app abre: `-s` tira o *site-packages do
+/// usuário* (`%APPDATA%\Python\Python312`) do caminho, `-E` ignora as
+/// variáveis `PYTHON*` do PC, `-B` não grava `.pyc`. Sem o `-s`, o pip do
+/// runtime enxergava os pacotes do Python do próprio usuário e **desinstalava**
+/// o numpy dele para pôr o fixado (visto na instalação real de 21/10/2026).
+pub const ISOLATION_FLAGS: &[&str] = &["-s", "-E", "-B", "-X", "utf8"];
+
 pub struct RealStepRunner;
 
 impl StepRunner for RealStepRunner {
@@ -247,7 +254,9 @@ impl StepRunner for RealStepRunner {
         use std::process::{Command, Stdio};
         let mut command = Command::new(exe);
         command
+            .args(ISOLATION_FLAGS)
             .args(args)
+            .env("PYTHONNOUSERSITE", "1")
             .current_dir(cwd)
             .env("PYTHONIOENCODING", "utf-8")
             .env("PYTHONDONTWRITEBYTECODE", "1")
@@ -429,16 +438,13 @@ async fn install_steps(
     std::fs::write(&pth, patch_pth(&text, workspace)).map_err(|e| e.to_string())?;
     let exe = home.join("python.exe");
 
-    // 2. pip, rodando de dentro do próprio wheel.
+    // 2. pip: o wheel (conferido) é aberto direto no `Lib\site-packages` — um
+    //    wheel é um zip com o pacote e o `.dist-info`. Rodar o pip de dentro
+    //    do wheel para ele se instalar é recusado no Windows ("To modify pip,
+    //    please run python -m pip", visto na instalação real de 21/10/2026).
     let pip = download_verified(&client, &spec.pip, &downloads, "pip", on_progress).await?;
-    let pip_arg = pip.to_string_lossy().to_string();
-    let args = vec![
-        format!("{pip_arg}/pip"),
-        "install".into(),
-        "--no-index".into(),
-        "--no-warn-script-location".into(),
-        pip_arg.clone(),
-    ];
+    extract_zip(&pip, &home.join("Lib").join("site-packages"))?;
+    let args = vec!["-m".to_string(), "pip".into(), "--version".into()];
     run_step(runner, &exe, &args, &home, "pip", on_progress)?;
 
     // 3. Pacotes: os wheels já conferidos aqui, e o pip confere de novo
@@ -462,6 +468,8 @@ async fn install_steps(
             "--find-links".into(),
             downloads.to_string_lossy().to_string(),
             "--require-hashes".into(),
+            // Nunca desinstala nada: o runtime nasce vazio.
+            "--ignore-installed".into(),
             "--only-binary=:all:".into(),
             "--no-warn-script-location".into(),
             "-r".into(),
@@ -665,7 +673,7 @@ mod python_runtime_tests {
 
         let calls = runner.calls.lock().unwrap().clone();
         assert_eq!(calls.len(), 2);
-        assert!(calls[0][0].ends_with("pip.whl/pip") && calls[0].contains(&"--no-index".to_string()));
+        assert_eq!(calls[0], vec!["-m".to_string(), "pip".into(), "--version".into()]);
         assert!(calls[1].contains(&"--require-hashes".to_string()));
 
         // Reinstall: o runtime é trocado, a pasta de trabalho fica.
@@ -676,10 +684,57 @@ mod python_runtime_tests {
     }
 
     #[test]
+    fn python_never_sees_the_users_own_site_packages() {
+        assert!(ISOLATION_FLAGS.contains(&"-s"));
+        assert!(ISOLATION_FLAGS.contains(&"-E"));
+    }
+
+    #[test]
     fn a_second_concurrent_install_is_refused() {
         let first = begin_install().expect("first");
         assert!(begin_install().is_none());
         drop(first);
         assert!(begin_install().is_some());
+    }
+
+    /// Instalação de verdade (python.org + PyPI, ~65 MB) numa pasta temporária,
+    /// conferindo que `numpy` e `cv2` importam no Python portátil. Manual:
+    /// `cargo test --all-features --lib real_install -- --ignored --nocapture`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore]
+    async fn real_install_from_the_official_sources() {
+        let base = TempDir::new("real");
+        let ws = TempDir::new("real-ws");
+        let spec = RuntimeSpec::official();
+        let base_path = base.0.clone();
+        let ws_path = ws.0.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            tauri::async_runtime::block_on(install_into(&base_path, &ws_path, &spec, &RealStepRunner, &mut |p| {
+                if p.downloaded == 0 {
+                    eprintln!("[{}] {}", p.stage, p.message);
+                }
+            }))
+        })
+        .await
+        .unwrap();
+        result.expect("install");
+        let exe = python_exe_in(&base.0).expect("python.exe");
+        let mut lines = Vec::new();
+        let code = RealStepRunner
+            .run(
+                &exe,
+                &["-c".into(), "import sys, numpy, cv2; print(sys.version.split()[0], numpy.__version__, cv2.__version__); print(sys.path)".into()],
+                &base.0,
+                &mut |l| lines.push(l),
+            )
+            .unwrap();
+        eprintln!("{}", lines.join("
+"));
+        assert_eq!(code, 0);
+        assert!(lines[0].starts_with("3.12.10 2.2.6 4.12.0"), "{lines:?}");
+        // A pasta de trabalho está no sys.path (pelo ._pth); o site-packages do
+        // usuário, não.
+        assert!(lines[1].contains("ram-pyrt-real-ws"), "{lines:?}");
+        assert!(!lines[1].contains("Roaming"), "{lines:?}");
     }
 }
