@@ -58,3 +58,6 @@ include!("windows/versions.rs");
 include!("windows/external_clients.rs");
 include!("windows/clipboard.rs");
 include!("windows/power.rs");
+// Captura de janela da automação Python (docs/features/python-automation.md).
+#[cfg(feature = "python-scripts")]
+include!("windows/capture.rs");
