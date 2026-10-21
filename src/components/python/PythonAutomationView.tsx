@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Code2, LayoutDashboard, ScanSearch, ShieldAlert, Terminal, type LucideIcon } from "lucide-react";
 import { useStore } from "../../store";
 import { DashboardView } from "./DashboardView";
+import { DeveloperPanel } from "./DeveloperPanel";
+import { InspectorView } from "./InspectorView";
 import { InstallCard } from "./InstallCard";
 import { PythonTerminal } from "./PythonTerminal";
 import { RunPanel } from "./RunPanel";
@@ -156,11 +158,9 @@ export function PythonAutomationView() {
 
         {tab === "dashboard" && <DashboardView />}
 
-        {(tab === "inspector" || tab === "developer") && (
-          <div className="rounded-lg border border-dashed theme-border px-6 py-10 text-center text-[12.5px] text-zinc-500">
-            Coming up.
-          </div>
-        )}
+        {tab === "inspector" && <InspectorView />}
+
+        {tab === "developer" && <DeveloperPanel />}
       </div>
     </div>
   );
