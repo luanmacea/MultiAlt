@@ -13,7 +13,10 @@ Examples::
 
     python -m multialt run farm.py --account Main_01
     python -m multialt run scripts/farm.py --account Main_01 --account Alt_02 --mode all_together
-    python -m multialt run farm.py --account Main_01 --trigger interval:5
+    python -m multialt run farm.py --account Main_01 --trigger loop
+
+A terminal run happens once (``loop`` just tells the script it may loop on its
+own). "Every N minutes" is only for the Run button in the app.
 
 Exit code: the script's (0 = finished or stopped, 1 = failed), 2 = could not start.
 """
@@ -32,19 +35,23 @@ DEVELOPER_MODE_OFF = (
 )
 
 
+INTERVAL_NOT_FOR_TERMINAL = (
+    "terminal runs do not repeat every N minutes: use --trigger manual or loop (or a loop in your script). "
+    "For every N minutes, start the script with the Run button in MultiAlt."
+)
+
+
 def parse_trigger(text: str) -> dict[str, Any]:
-    """``manual``, ``loop`` or ``interval:<minutes>`` -> the trigger object of the protocol."""
+    """``manual`` or ``loop`` -> the trigger object of the protocol.
+
+    ``interval:<minutes>`` is refused: a terminal run happens once.
+    """
     value = text.strip().lower()
     if value in ("manual", "loop"):
         return {"kind": value}
-    if value.startswith("interval:"):
-        try:
-            minutes = int(value.split(":", 1)[1])
-        except ValueError:
-            minutes = 0
-        if minutes >= 1:
-            return {"kind": "interval", "minutes": minutes}
-    raise argparse.ArgumentTypeError("trigger must be manual, loop or interval:<minutes> (for example interval:5)")
+    if value.startswith("interval"):
+        raise argparse.ArgumentTypeError(INTERVAL_NOT_FOR_TERMINAL)
+    raise argparse.ArgumentTypeError("trigger must be manual or loop")
 
 
 def resolve_script(text: str) -> Optional[Path]:
@@ -70,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="account name as shown in MultiAlt (repeat the flag or list several names)",
     )
     run.add_argument("--mode", choices=("one_at_a_time", "all_together"), default="one_at_a_time")
-    run.add_argument("--trigger", type=parse_trigger, default={"kind": "manual"}, metavar="manual|loop|interval:<min>")
+    run.add_argument("--trigger", type=parse_trigger, default={"kind": "manual"}, metavar="manual|loop")
     return parser
 
 

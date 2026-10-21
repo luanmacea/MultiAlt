@@ -75,8 +75,17 @@ pub fn parse_cli_start(line: &str) -> Result<CliStart, String> {
     };
     let trigger = match args.get("trigger").cloned() {
         None | Some(Value::Null) => PythonTrigger::Manual,
-        Some(v) => serde_json::from_value(v).map_err(|_| bad("trigger must be manual, loop or interval:<minutes>"))?,
+        Some(v) => serde_json::from_value(v).map_err(|_| bad("trigger must be manual or loop"))?,
     };
+    // A rodada do terminal é a conexão do CLI: não há "de novo daqui a N
+    // minutos" (o `RunManager` não repete execução do terminal). Recusado,
+    // em vez de aceito e ignorado calado.
+    if matches!(trigger, PythonTrigger::Interval { .. }) {
+        return Err(refuse(
+            "Terminal runs do not repeat every N minutes.",
+            "Use --trigger manual or loop (or a loop in your script). For every N minutes, start the script with the Run button in MultiAlt.",
+        ));
+    }
     Ok(CliStart {
         script,
         accounts,
@@ -400,9 +409,18 @@ mod python_devpipe_tests {
 
     #[test]
     fn cli_start_is_parsed_and_checked() {
-        let ok = parse_cli_start(r#"{"op":"cli.start","args":{"script":"farm.py","accounts":["Main_01"],"mode":"all_together","trigger":{"kind":"interval","minutes":5}}}"#).unwrap();
+        let ok = parse_cli_start(r#"{"op":"cli.start","args":{"script":"farm.py","accounts":["Main_01"],"mode":"all_together","trigger":{"kind":"loop"}}}"#).unwrap();
         assert_eq!(ok.mode, PythonRunMode::AllTogether);
-        assert_eq!(ok.trigger, PythonTrigger::Interval { minutes: 5 });
+        assert_eq!(ok.trigger, PythonTrigger::Loop);
+        // Execução do terminal roda uma vez (o laço é do script): "a cada N
+        // minutos" é recusado com a dica, em vez de aceito e ignorado.
+        let reply: Value = serde_json::from_str(
+            &parse_cli_start(r#"{"op":"cli.start","args":{"script":"farm.py","accounts":["Main_01"],"trigger":{"kind":"interval","minutes":5}}}"#)
+                .unwrap_err(),
+        )
+        .unwrap();
+        assert_eq!(reply["error"]["message"], json!("Terminal runs do not repeat every N minutes."));
+        assert!(reply["error"]["hint"].as_str().unwrap().contains("Run button"), "{reply}");
         for bad in [
             "nope",
             r#"{"op":"run.sleep"}"#,

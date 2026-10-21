@@ -327,4 +327,6 @@ imagem preta (não erro) — conferir no primeiro teste com cliente real.
   disputar o foco); `window.restore_focus` não, mas responde `denied` com a
   fila ocupada (lease de qualquer thread, ciclo do AFK ou alguém esperando).
 - Execução do terminal não repete pelo gatilho de intervalo (a rodada é a
-  conexão do CLI).
+  conexão do CLI), e por isso o `cli.start` com `interval` é **recusado** com
+  dica ("Terminal runs do not repeat every N minutes."; o CLI já recusa
+  `--trigger interval:<min>` antes de conectar) — antes era aceito e ignorado.

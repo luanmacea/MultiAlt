@@ -222,10 +222,12 @@ loops forever, call `dashboard.report_loop(account)` once per lap.
 - From a terminal (developer mode on):
 
   ```
-  "<python>" -m multialt run farm.py --account Main_01 --account Alt_02 --mode all_together --trigger interval:5
+  "<python>" -m multialt run farm.py --account Main_01 --account Alt_02 --mode all_together --trigger loop
   ```
 
-  The exact `<python>` path is shown in the Developer tab. The run appears in
+  `--trigger` is `manual` (default) or `loop`. A terminal run happens once, so
+  `interval:<minutes>` is refused: for "every N minutes" use the Run button in
+  the app. The exact `<python>` path is shown in the Developer tab. The run appears in
   the app as "terminal" and its log shows in both places. Exit code: 0 done or
   stopped, 1 the script failed, 2 it could not start.
 

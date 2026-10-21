@@ -27,10 +27,15 @@ class ParsingTests(unittest.TestCase):
     def test_trigger_forms(self) -> None:
         self.assertEqual(cli.parse_trigger("manual"), {"kind": "manual"})
         self.assertEqual(cli.parse_trigger("loop"), {"kind": "loop"})
-        self.assertEqual(cli.parse_trigger("interval:5"), {"kind": "interval", "minutes": 5})
-        for bad in ("interval:0", "interval:x", "every5", ""):
+        for bad in ("interval:0", "interval:x", "every5", "", "interval:5"):
             with self.assertRaises(argparse.ArgumentTypeError):
                 cli.parse_trigger(bad)
+
+    def test_interval_is_refused_with_a_hint(self) -> None:
+        # A terminal run happens once; "every N minutes" is for the app's Run button.
+        with self.assertRaises(argparse.ArgumentTypeError) as caught:
+            cli.parse_trigger("interval:5")
+        self.assertIn("Run button", str(caught.exception))
 
     def test_account_flag_repeats_and_takes_several_names(self) -> None:
         args = cli.build_parser().parse_args(
@@ -120,7 +125,7 @@ class EndToEndTests(unittest.TestCase):
             pipe_file = Path(tmp) / "pipe.txt"
             pipe_file.write_text(name, encoding="utf-8")
             with mock.patch.object(cli, "PIPE_FILE", pipe_file), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                code = cli.main(["run", str(script), "--account", "Main_01", "--mode", "all_together", "--trigger", "interval:5"])
+                code = cli.main(["run", str(script), "--account", "Main_01", "--mode", "all_together", "--trigger", "loop"])
         return code, out.getvalue(), err.getvalue()
 
     def test_a_terminal_run_logs_to_the_app_and_the_terminal(self) -> None:
@@ -131,7 +136,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(
             received[0],
-            {"op": "cli.start", "args": {"script": "case.py", "accounts": ["Main_01"], "mode": "all_together", "trigger": {"kind": "interval", "minutes": 5}}},
+            {"op": "cli.start", "args": {"script": "case.py", "accounts": ["Main_01"], "mode": "all_together", "trigger": {"kind": "loop"}}},
         )
         logs = [r["args"]["message"] for r in received if r.get("op") == "run.log"]
         self.assertIn("hello from Main_01", logs)

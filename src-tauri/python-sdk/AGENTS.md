@@ -64,10 +64,10 @@ from the terminal, using the Python path shown in the Developer tab:
 
 ```
 "<python>" -m multialt run farm.py --account Main_01
-"<python>" -m multialt run farm.py --account Main_01 --account Alt_02 --mode all_together --trigger interval:5
+"<python>" -m multialt run farm.py --account Main_01 --account Alt_02 --mode all_together --trigger loop
 ```
 
-- `--mode one_at_a_time` (default) or `all_together`; `--trigger manual` (default), `loop` or `interval:<minutes>`.
+- `--mode one_at_a_time` (default) or `all_together`; `--trigger manual` (default) or `loop`. A terminal run happens once: `interval:<minutes>` is refused (the user sets "every N minutes" with the Run button in the app).
 - The log prints in the terminal as `[AccountName] message`; errors have the full traceback.
 - Exit code: 0 finished or stopped, 1 script failed, 2 could not start (the message says why).
 - Stop a run with Ctrl+C in the terminal or the Stop button in the app.
