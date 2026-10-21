@@ -10,7 +10,7 @@
 // de soltar), e soltar um lease solta as teclas que a execução deixou
 // apertadas, na ordem inversa: tecla presa faz o personagem andar sozinho.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -33,7 +33,18 @@ pub struct FocusQueue {
     lock: &'static tokio::sync::Mutex<()>,
     lease: Mutex<Option<Lease>>,
     seq: AtomicU64,
+    /// Quantos pedidos de lease estão esperando a vez agora.
+    waiting: AtomicUsize,
     idle: Duration,
+}
+
+/// Desconta a espera ao sair do `acquire` (inclusive cancelado no meio).
+struct WaitingGuard<'a>(&'a AtomicUsize);
+
+impl Drop for WaitingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// O lease solto pelo vigia: de quem era.
@@ -54,6 +65,7 @@ impl FocusQueue {
             lock,
             lease: Mutex::new(None),
             seq: AtomicU64::new(0),
+            waiting: AtomicUsize::new(0),
             idle: Duration::from_millis(LEASE_IDLE_MS),
         }
     }
@@ -87,6 +99,8 @@ impl FocusQueue {
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
         };
+        self.waiting.fetch_add(1, Ordering::SeqCst);
+        let waiting = WaitingGuard(&self.waiting);
         let guard = tokio::select! {
             guard = self.lock.lock() => guard,
             _ = tokio::time::sleep(Duration::from_millis(timeout_ms)) => {
@@ -94,6 +108,7 @@ impl FocusQueue {
             }
             _ = stop_watch => return Err(PyError::stopped()),
         };
+        drop(waiting);
         let id = format!("L{}", self.seq.fetch_add(1, Ordering::SeqCst) + 1);
         *self.lease.lock().unwrap() = Some(Lease {
             id: id.clone(),
@@ -130,14 +145,26 @@ impl FocusQueue {
         taken.map(|lease| release_keys(lease, desk)).unwrap_or_default()
     }
 
+    /// A fila livre de verdade — sem lease, sem ciclo do AFK ou gravação e sem
+    /// ninguém esperando a vez — devolve o lock, para a volta do foco rodar
+    /// segurando-o (ninguém entra no meio). Ocupada, `None`: devolver o foco
+    /// agora roubaria a janela de quem vem a seguir (outra execução, outra
+    /// thread desta mesma execução, ou o Modo AFK, que não usa lease).
+    pub fn hold_if_free(&self) -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        if self.waiting.load(Ordering::SeqCst) > 0 || self.lease.lock().unwrap().is_some() {
+            return None;
+        }
+        let guard = self.lock.try_lock().ok()?;
+        // Alguém pode ter entrado na fila entre a conferência e o lock.
+        if self.waiting.load(Ordering::SeqCst) > 0 {
+            return None;
+        }
+        Some(guard)
+    }
+
     /// Esta execução segura o lease desta conta?
     pub fn holds(&self, run_id: &str, user_id: i64) -> bool {
         matches!(self.lease.lock().unwrap().as_ref(), Some(l) if l.run_id == run_id && l.user_id == user_id)
-    }
-
-    /// Outra execução (não `run_id`) segura a fila?
-    pub fn held_by_other(&self, run_id: &str) -> bool {
-        matches!(self.lease.lock().unwrap().as_ref(), Some(l) if l.run_id != run_id)
     }
 
     pub fn note_key_down(&self, run_id: &str, key: &str) {

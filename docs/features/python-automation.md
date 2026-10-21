@@ -153,8 +153,13 @@ script segurando a fila, o ciclo do AFK espera, e vice-versa
 do `serve` (com linha `system`); soltar o lease — pelo script, pelo vigia ou no
 fim da execução — solta as teclas que ela deixou apertadas, na ordem inversa.
 `window.restore_focus` devolve o foco à janela que estava na frente antes do
-primeiro `bring_forward` (`give_focus_back_after_cycle`), e responde `denied`
-se outra execução segura a fila.
+primeiro `bring_forward` (`give_focus_back_after_cycle`) **só com a fila livre
+de verdade**: sem lease nenhum (nem de outra thread da mesma execução), sem
+ciclo do Modo AFK ou gravação (que seguram o lock sem lease) e sem ninguém
+esperando a vez (`FocusQueue::hold_if_free`, que usa `try_lock` no mesmo lock e
+o contador de quem espera). A volta roda segurando o lock, então ninguém entra
+no meio. Fila ocupada → `denied`, e a janela a devolver continua guardada: quem
+soltar por último devolve (`restore_focus_only_runs_when_the_queue_is_free`).
 
 ## Execuções
 
@@ -263,6 +268,6 @@ imagem preta (não erro) — conferir no primeiro teste com cliente real.
 - `screen.capture` mantém os 4 últimos quadros por execução, não só o último.
 - `window.bring_forward` também exige o lease (trocar a janela da frente é
   disputar o foco); `window.restore_focus` não, mas responde `denied` com a
-  fila nas mãos de outra execução.
+  fila ocupada (lease de qualquer thread, ciclo do AFK ou alguém esperando).
 - Execução do terminal não repete pelo gatilho de intervalo (a rodada é a
   conexão do CLI).

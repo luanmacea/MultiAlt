@@ -396,9 +396,11 @@ pub async fn dispatch(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyEr
             Ok(json!(true))
         }
         "window.restore_focus" => {
-            if ctx.focus.held_by_other(&ctx.run_id) {
+            // Só com a fila livre (e segurando-a até o fim): com alguém na vez
+            // ou esperando, a volta fica para quem soltar por último.
+            let Some(queue_guard) = ctx.focus.hold_if_free() else {
                 return Ok(json!("denied"));
-            }
+            };
             let (target, cycle) = {
                 let mut state = ctx.state.lock().unwrap();
                 let target = state.return_to.take();
@@ -410,6 +412,7 @@ pub async fn dispatch(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyEr
             };
             let desk = ctx.desk.clone();
             let outcome = blocking(move || desk.give_focus_back(target, &cycle)).await;
+            drop(queue_guard);
             Ok(json!(outcome))
         }
         "input.key" => {
@@ -813,7 +816,7 @@ pub mod python_primitives_tests {
         let desk = FakeDesk::with_window(1, 11);
         *desk.front.lock().unwrap() = 99; // a janela do usuário
         let ctx = ctx_with(desk.clone(), own_queue());
-        lease(&ctx, 1).await;
+        let id = lease(&ctx, 1).await;
         let error = dispatch(&ctx, "input.key", json!({"user_id": 1, "key": "Space"})).await.unwrap_err();
         assert_eq!(error.code.as_str(), "not_foreground");
         assert!(error.message.contains("Main_01"));
@@ -828,7 +831,11 @@ pub mod python_primitives_tests {
         dispatch(&ctx, "input.click", json!({"user_id": 1, "x": 0.25, "y": 0.75})).await.unwrap();
         dispatch(&ctx, "input.click", json!({"user_id": 1, "x": 0.25, "y": 0.75})).await.unwrap();
         assert_eq!(desk.sent(), vec!["click:11:0.25:0.75:true", "click:11:0.25:0.75:false"]);
-        // E a volta do foco vai para a janela do usuário.
+        // Com o lease ainda na mão a fila não está livre: nada volta ainda.
+        assert_eq!(dispatch(&ctx, "window.restore_focus", json!({})).await.unwrap(), json!("denied"));
+        assert_eq!(*desk.front.lock().unwrap(), 11);
+        // Solto o lease, a volta do foco vai para a janela do usuário.
+        dispatch(&ctx, "focus.release", json!({"lease": id})).await.unwrap();
         assert_eq!(dispatch(&ctx, "window.restore_focus", json!({})).await.unwrap(), json!("restored"));
         assert_eq!(*desk.front.lock().unwrap(), 99);
     }
@@ -987,6 +994,54 @@ pub mod python_primitives_tests {
         assert!(crate::AFK_CYCLE_LOCK.try_lock().is_err(), "AFK must wait for the Python lease");
         dispatch(&ctx, "focus.release", json!({"lease": lease})).await.unwrap();
         assert!(crate::AFK_CYCLE_LOCK.try_lock().is_ok());
+    }
+
+    /// A volta do foco não rouba a janela de quem vem a seguir: outra thread
+    /// da mesma execução com o lease, o Modo AFK (que segura a fila sem lease)
+    /// ou alguém esperando a vez.
+    #[tokio::test]
+    async fn restore_focus_only_runs_when_the_queue_is_free() {
+        let desk = FakeDesk::with_window(1, 11);
+        desk.windows.lock().unwrap().insert(2, 22);
+        *desk.front.lock().unwrap() = 99; // a janela do usuário
+        let lock: &'static tokio::sync::Mutex<()> = Box::leak(Box::new(tokio::sync::Mutex::new(())));
+        let queue = Arc::new(FocusQueue::new(lock));
+        let ctx = Arc::new(ctx_with(desk.clone(), queue.clone()));
+
+        // A thread da conta 1 usa a janela e solta o lease...
+        let first = lease(&ctx, 1).await;
+        dispatch(&ctx, "window.bring_forward", json!({"user_id": 1})).await.unwrap();
+        dispatch(&ctx, "focus.release", json!({"lease": first})).await.unwrap();
+        // ... mas a da conta 2 (mesma execução) já pegou a vez.
+        let second = lease(&ctx, 2).await;
+        dispatch(&ctx, "window.bring_forward", json!({"user_id": 2})).await.unwrap();
+        assert_eq!(dispatch(&ctx, "window.restore_focus", json!({})).await.unwrap(), json!("denied"));
+        assert_eq!(*desk.front.lock().unwrap(), 22, "the window of whoever holds the queue stays in front");
+        dispatch(&ctx, "focus.release", json!({"lease": second})).await.unwrap();
+
+        // Um ciclo do Modo AFK segura a fila sem lease.
+        let afk = lock.lock().await;
+        assert_eq!(dispatch(&ctx, "window.restore_focus", json!({})).await.unwrap(), json!("denied"));
+        assert_eq!(*desk.front.lock().unwrap(), 22);
+        drop(afk);
+
+        // Alguém esperando a vez também conta.
+        let holder = lease(&ctx, 1).await;
+        let waiter_ctx = ctx.clone();
+        let waiter = tokio::spawn(async move {
+            dispatch(&waiter_ctx, "focus.acquire", json!({"user_id": 2, "timeout_ms": 5000})).await
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(queue.hold_if_free().is_none());
+        dispatch(&ctx, "focus.release", json!({"lease": holder})).await.unwrap();
+        let next = waiter.await.unwrap().unwrap()["lease"].as_str().unwrap().to_string();
+        assert_eq!(dispatch(&ctx, "window.restore_focus", json!({})).await.unwrap(), json!("denied"));
+        dispatch(&ctx, "focus.release", json!({"lease": next})).await.unwrap();
+
+        // Fila livre: quem solta por último devolve a janela do usuário.
+        assert_eq!(dispatch(&ctx, "window.restore_focus", json!({})).await.unwrap(), json!("restored"));
+        assert_eq!(*desk.front.lock().unwrap(), 99);
+        assert!(lock.try_lock().is_ok(), "the restore lets go of the queue");
     }
 
     #[tokio::test]

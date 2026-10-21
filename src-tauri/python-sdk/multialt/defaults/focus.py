@@ -12,7 +12,11 @@ before any input a script must:
    there (``window.bring_forward``);
 3. act (your keys and clicks);
 4. give the queue back (``focus.release``) and put back the window that was in
-   front before (``window.restore_focus``).
+   front before (``window.restore_focus``). MultiAlt only does that last step
+   when the queue is really free: if another account (even another thread of
+   this run), AFK mode or a recording already has its turn, or is waiting for
+   it, the answer is ``"denied"`` and whoever releases last gives the screen
+   back.
 
 MultiAlt checks all of this on its side too: input without a lease is
 refused with ``no_focus_lease``, input to a window that is not in front with
