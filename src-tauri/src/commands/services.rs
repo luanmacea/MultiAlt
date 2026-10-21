@@ -379,8 +379,11 @@ fn get_report_environment(app: tauri::AppHandle) -> ReportEnvironment {
 fn open_url_in_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        // Sem `CREATE_NO_WINDOW`, o `cmd` acende um console preto na tela.
         std::process::Command::new("cmd")
             .args(["/C", "start", "", url])
+            .creation_flags(0x0800_0000)
             .spawn()
             .map_err(|e| format!("Failed to open URL: {}", e))?;
         return Ok(());
