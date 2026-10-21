@@ -14,7 +14,7 @@ import { PythonAutomationView } from "./PythonAutomationView";
 import type { PythonRunConfig, PythonRunInfo } from "./pythonApi";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
-import { resetPromptMocks } from "../../test-utils/promptMocks";
+import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 
 function run(overrides: Partial<PythonRunInfo> = {}): PythonRunInfo {
   return {
@@ -271,6 +271,52 @@ describe("PythonAutomationView", () => {
     const source = await screen.findByRole("textbox", { name: "Source of farm.py" });
     await waitFor(() => expect(source).toHaveValue("print(1)"));
     expect(screen.getByRole("log")).toBeInTheDocument();
+  });
+
+  it("asks before switching scripts when the editor has unsaved changes", async () => {
+    setInvokeHandler((cmd, args) => {
+      switch (cmd) {
+        case "python_runtime_status":
+          return { installed: true, version: "3.12.7", pythonExe: "python.exe", packages: [], installing: false };
+        case "python_list_scripts":
+          return [
+            { name: "farm.py", size: 10, modifiedMs: 1 },
+            { name: "other.py", size: 10, modifiedMs: 1 },
+          ];
+        case "python_read_script":
+          return `# ${(args as { name: string }).name}`;
+        case "python_list_runs":
+        case "python_get_logs":
+          return [];
+        case "python_get_run_configs":
+          return {};
+        default:
+          return undefined;
+      }
+    });
+    render(<PythonAutomationView />);
+    const source = await screen.findByRole("textbox", { name: "Source of farm.py" });
+    await waitFor(() => expect(source).toHaveValue("# farm.py"));
+    await userEvent.type(source, "\nprint('unsaved')");
+
+    // Cancel: nothing is lost.
+    promptAnswers.confirm = false;
+    await userEvent.click(screen.getByRole("button", { name: /^other\.py/ }));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    expect(confirmMock.mock.calls[0][0]).toContain("farm.py");
+    expect(screen.getByRole("textbox", { name: "Source of farm.py" })).toHaveValue("# farm.py\nprint('unsaved')");
+
+    // Discard: the other script opens.
+    promptAnswers.confirm = true;
+    await userEvent.click(screen.getByRole("button", { name: /^other\.py/ }));
+    const other = await screen.findByRole("textbox", { name: "Source of other.py" });
+    await waitFor(() => expect(other).toHaveValue("# other.py"));
+
+    // No unsaved changes: no question.
+    confirmMock.mockClear();
+    await userEvent.click(screen.getByRole("button", { name: /^farm\.py/ }));
+    await screen.findByRole("textbox", { name: "Source of farm.py" });
+    expect(confirmMock).not.toHaveBeenCalled();
   });
 
   it("adds a run started from a terminal as soon as the backend announces it", async () => {

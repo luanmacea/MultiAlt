@@ -113,6 +113,11 @@ como edição). Editar bloco exige `Python.DeveloperMode = true`.
 script: se o `.py` estiver associado a um Python (`python.exe`, `py.exe`,
 `pythonw.exe`), abre no Bloco de Notas — "abrir" ali seria executar.
 
+O editor da tela avisa a vista (`onDirtyChange`) quando tem edição não salva:
+trocar de script ou sair da aba Scripts pergunta antes ("<script> has unsaved
+changes. Discard them and open ...?"); cancelar deixa tudo como estava. Script
+apagado não pergunta (não há o que guardar).
+
 ## Protocolo
 
 JSON por linha, UTF-8, pelo stdin/stdout do processo filho

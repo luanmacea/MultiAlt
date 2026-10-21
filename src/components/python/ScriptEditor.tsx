@@ -6,6 +6,8 @@ interface ScriptEditorProps {
   name: string;
   /** From the folder listing: changes when the file is touched on disk. */
   modifiedMs: number;
+  /** Told whenever the editor gains or loses unsaved changes. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 /**
@@ -14,7 +16,7 @@ interface ScriptEditorProps {
  * changes and nothing is unsaved here the new text is loaded with a notice;
  * with unsaved edits a banner asks which side wins.
  */
-export function ScriptEditor({ name, modifiedMs }: ScriptEditorProps) {
+export function ScriptEditor({ name, modifiedMs, onDirtyChange }: ScriptEditorProps) {
   const [source, setSource] = useState("");
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(true);
@@ -36,6 +38,14 @@ export function ScriptEditor({ name, modifiedMs }: ScriptEditorProps) {
     modifiedRef.current = modifiedMs;
     nameRef.current = name;
   });
+
+  const onDirtyRef = useRef(onDirtyChange);
+  onDirtyRef.current = onDirtyChange;
+  useEffect(() => {
+    onDirtyRef.current?.(dirty);
+  }, [dirty]);
+  // Leaving (another script, another tab) takes the unsaved state with it.
+  useEffect(() => () => onDirtyRef.current?.(false), []);
 
   // Load when the script changes.
   useEffect(() => {
