@@ -115,10 +115,13 @@ impl<S: AsyncRead + AsyncWrite + Send + 'static> Executor for PipeExecutor<S> {
 
 /// Atende um cliente do terminal: confere o `cli.start`, resolve as contas pelo
 /// nome e registra a execução (`source: "terminal"`). Devolve o id dela.
+/// `on_started` roda com a execução já registrada (no app: liga o vigia do
+/// chacoalhar para parar, que só fica de pé com execução viva).
 pub async fn handle_client<S>(
     stream: S,
     resolve: &(dyn Fn(&[String]) -> Result<Vec<AccountView>, String> + Send + Sync),
     manager: &Arc<RunManager>,
+    on_started: &(dyn Fn() + Send + Sync),
 ) -> Result<String, String>
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
@@ -156,7 +159,9 @@ where
     let executor = Arc::new(PipeExecutor {
         halves: Mutex::new(Some((reader, write))),
     });
-    Ok(manager.start(config, accounts, "terminal", executor))
+    let id = manager.start(config, accounts, "terminal", executor);
+    on_started();
+    Ok(id)
 }
 
 // ── o servidor (Windows) ──────────────────────────────────────────────────
@@ -251,6 +256,8 @@ mod server {
     }
 
     pub type Resolver = Arc<dyn Fn(&[String]) -> Result<Vec<AccountView>, String> + Send + Sync>;
+    /// Roda a cada execução do terminal aceita (o app liga o chacoalhar aqui).
+    pub type OnStarted = Arc<dyn Fn() + Send + Sync>;
 
     /// O pipe aberto. Fechar (`stop` ou soltar) apaga o `pipe.txt`.
     pub struct PipeServer {
@@ -269,6 +276,7 @@ mod server {
             resolve: Resolver,
             manager: Arc<RunManager>,
             on_error: Arc<dyn Fn(String) + Send + Sync>,
+            on_started: OnStarted,
         ) -> Result<Self, String> {
             let security = Arc::new(OwnerOnly::new(sid)?);
             let first = security
@@ -310,8 +318,9 @@ mod server {
                     let resolve = resolve.clone();
                     let manager = manager.clone();
                     let on_error = on_error.clone();
+                    let on_started = on_started.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = handle_client(connected, resolve.as_ref(), &manager).await {
+                        if let Err(e) = handle_client(connected, resolve.as_ref(), &manager, on_started.as_ref()).await {
                             on_error(format!("Terminal run refused: {e}"));
                         }
                     });
@@ -401,8 +410,13 @@ mod python_devpipe_tests {
         let (client, server) = tokio::io::duplex(8192);
         let (cr, mut cw) = tokio::io::split(client);
         cw.write_all(b"{\"op\":\"cli.start\",\"args\":{\"script\":\"farm.py\",\"accounts\":[\"Main_01\",\"Nobody\"]}}\n").await.unwrap();
-        let result = handle_client(server, &resolver, &m).await;
+        let started = std::sync::atomic::AtomicUsize::new(0);
+        let on_started = || {
+            started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        };
+        let result = handle_client(server, &resolver, &m, &on_started).await;
         assert!(result.unwrap_err().contains("Nobody"));
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 0);
         let mut lines = BufReader::new(cr).lines();
         let reply: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
         assert_eq!(reply["error"]["message"], json!("Unknown account(s): Nobody"));
@@ -416,7 +430,13 @@ mod python_devpipe_tests {
         let (client, server) = tokio::io::duplex(64 * 1024);
         let (cr, mut cw) = tokio::io::split(client);
         cw.write_all(b"{\"op\":\"cli.start\",\"args\":{\"script\":\"farm.py\",\"accounts\":[\"main_01\"],\"mode\":\"one_at_a_time\",\"trigger\":{\"kind\":\"manual\"}}}\n").await.unwrap();
-        let id = handle_client(server, &resolver, &m).await.unwrap();
+        // Execução do terminal também liga o chacoalhar para parar.
+        let started = std::sync::atomic::AtomicUsize::new(0);
+        let on_started = || {
+            started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        };
+        let id = handle_client(server, &resolver, &m, &on_started).await.unwrap();
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 1, "the shake-to-stop watch is armed");
         let mut lines = BufReader::new(cr).lines();
         let hello: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
         assert_eq!(hello["event"], json!("hello"));
@@ -453,7 +473,7 @@ mod python_devpipe_tests {
         // Nome próprio do teste: não briga com um app aberto no mesmo PC.
         let name = format!(r"\\.\pipe\multialt-python-test-{}", std::process::id());
         let m = manager();
-        let server = PipeServer::start(name.clone(), &sid, &ws, Arc::new(resolver), m.clone(), Arc::new(|_| {})).unwrap();
+        let server = PipeServer::start(name.clone(), &sid, &ws, Arc::new(resolver), m.clone(), Arc::new(|_| {}), Arc::new(|| {})).unwrap();
         assert_eq!(std::fs::read_to_string(ws.join(PIPE_FILE)).unwrap(), name);
 
         // O usuário atual conecta (a DACL o deixa) e conversa.
@@ -502,7 +522,7 @@ def main(account):
         let name = format!(r"\\.\pipe\multialt-python-clitest-{}", std::process::id());
         let rec = Arc::new(Recorder::default());
         let m = Arc::new(RunManager::new(rec.clone(), FakeDesk::with_window(1, 11), own_queue()));
-        let server = PipeServer::start(name, &sid, &ws, Arc::new(resolver), m.clone(), Arc::new(|_| {})).unwrap();
+        let server = PipeServer::start(name, &sid, &ws, Arc::new(resolver), m.clone(), Arc::new(|_| {}), Arc::new(|| {})).unwrap();
         let ws_run = ws.clone();
         let output = tokio::task::spawn_blocking(move || {
             std::process::Command::new("python")

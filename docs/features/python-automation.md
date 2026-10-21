@@ -175,7 +175,9 @@ terminadas continuam na lista. O log guarda as últimas 5 000 linhas
 `blocked`, `code` e `hint`; `run.status` vira linha `system` "Status: ...".
 
 Chacoalhar o mouse (`Afk.ShakeToStop`) para **todas** as execuções Python: o
-vigia liga com execução viva (`python::runs_active()`), e o
+vigia liga com execução viva (`python::runs_active()`) — a cada Run da tela e a
+cada execução do terminal aceita pelo pipe (`handle_client` chama o
+`on_started`, que no app é o `ensure_shake_watch`) —, e o
 `afk-emergency-stop` ganhou `python: <quantas pararam>`.
 
 ## Dashboard

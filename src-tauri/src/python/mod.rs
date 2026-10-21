@@ -80,6 +80,10 @@ pub fn apply_developer_mode(app: &tauri::AppHandle, enabled: bool) -> Result<(),
             std::sync::Arc::new(move |names: &[String]| service::account_views_by_name(&resolver_app, names));
         let log_app = app.clone();
         let on_error = std::sync::Arc::new(move |message: String| service::system_log(&log_app, None, message));
+        // O vigia do chacoalhar só fica de pé com execução viva: liga a cada
+        // execução do terminal, como o Run da tela faz.
+        let shake_app = app.clone();
+        let on_started: devpipe::OnStarted = std::sync::Arc::new(move || crate::ensure_shake_watch(&shake_app));
         let server = devpipe::PipeServer::start(
             name,
             &sid,
@@ -87,9 +91,8 @@ pub fn apply_developer_mode(app: &tauri::AppHandle, enabled: bool) -> Result<(),
             resolve,
             service::service(app).manager.clone(),
             on_error,
+            on_started,
         )?;
-        #[cfg(target_os = "windows")]
-        crate::ensure_shake_watch(app);
         service::system_log(
             app,
             None,
