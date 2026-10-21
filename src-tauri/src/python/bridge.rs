@@ -105,6 +105,15 @@ pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
                 }
             }
             Some(out) = rx.recv() => {
+                // A resposta "stopped" de um pedido pode ficar pronta antes de o
+                // laço voltar ao topo: o evento de Parar sai antes dela.
+                if !stop_sent && ctx.stop.load(Ordering::SeqCst) {
+                    stop_sent = true;
+                    result = write_line(&mut writer, &json!({"event": "stop"}).to_string()).await;
+                    if result.is_err() {
+                        break;
+                    }
+                }
                 result = write_line(&mut writer, &out).await;
             }
             _ = ticker.tick() => {
