@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 # para as duas edições, ou direto no `full` se for segurada por marcação de
 # scanner; o release-workflow.test.mjs falha se alguma ficar fora do `full`.
 default = ["full"]
-standard = ["avatar-batch", "live-audio", "memory-trim"]
+standard = ["avatar-batch", "live-audio", "memory-trim", "python-scripts", "python-dev-pipe"]
 full = ["standard", "nexus", "webserver"]
 # Só na edição completa.
 nexus = []
@@ -39,6 +39,15 @@ live-audio = ["windows-sys/Win32_System_Com"]
 # API nativa nova). Nas duas edições (via `standard`) desde o scan limpo de
 # 11/10/2026 (docs/features/watcher.md, "Teto de memória").
 memory-trim = []
+# Automação do Roblox Player em Python (docs/features/python-automation.md):
+# Python portátil baixado sob demanda, pasta de trabalho, primitivas (foco,
+# tecla, clique, captura por PrintWindow) e o processo filho por execução. Nas
+# duas edições (via `standard`) enquanto o scan da padrão der limpo; se marcar,
+# sai do `standard` e fica só no `full`.
+python-scripts = ["dep:png", "dep:base64", "windows-sys/Win32_Storage_Xps"]
+# O canal do terminal do Modo desenvolvedor (named pipe só do usuário atual).
+# Separada para poder sair da padrão sozinha se o scan a marcar.
+python-dev-pipe = ["python-scripts", "windows-sys/Win32_Security_Authorization"]
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
@@ -64,6 +73,10 @@ sha2 = "0.10"
 argon2 = "0.6.0"
 crypto_secretbox = "0.1.1"
 getrandom = "0.4.3"
+# Inspetor da automação Python: a captura da janela vai para a tela em PNG
+# (feature `python-scripts`; as duas já estão no Cargo.lock pelo Tauri).
+png = { version = "0.17", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

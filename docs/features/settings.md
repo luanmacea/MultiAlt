@@ -235,6 +235,12 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 A biblioteca de gravações e qual vale para cada conta em cada vaga (global e por conta) ficam em `RAMRecordings.json`, não no INI. Nenhuma chave do INI mudou com as duas vagas; a terceira vaga (After launch) trouxe `AfterLaunch` e `AfterLaunchDelaySeconds`.
 | `WaitForFullscreen` | `true` | "Wait while a fullscreen window is in front": com um vídeo ou outro jogo em tela cheia na frente, o ciclo espera em vez de tirar o foco, até 5 min além da hora da conta. Só `"false"` desliga. |
 
+### `[Python]` — detalhes em [python-automation.md](python-automation.md)
+
+| Chave | Default | Significado |
+|---|---|---|
+| `DeveloperMode` | `false` | Modo desenvolvedor da automação Python (Scripts › Roblox Player automation › Developer): deixa editar os blocos padrão e abre o canal do terminal (named pipe só do usuário atual) para `python -m multialt run`. |
+
 ### `[Webhook]` — detalhes em [webhook.md](webhook.md)
 
 Seção Settings › **Notifications**. Avisos no Discord, **desligados** por padrão (os avisos saem do PC).

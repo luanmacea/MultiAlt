@@ -6,6 +6,7 @@ mod data;
 #[cfg(feature = "nexus")]
 mod nexus;
 mod platform;
+mod python;
 mod roblox_log;
 #[cfg(target_os = "windows")]
 mod webview_recovery;
@@ -792,6 +793,34 @@ pub fn run() {
             open_feedback_form,
             get_report_environment,
             sync_windows_navbar_theme,
+            // Automação do Roblox Player em Python (python/commands.rs).
+            python::commands::python_runtime_status,
+            python::commands::python_install_runtime,
+            python::commands::python_reinstall_runtime,
+            python::commands::python_workspace_info,
+            python::commands::python_list_scripts,
+            python::commands::python_read_script,
+            python::commands::python_write_script,
+            python::commands::python_create_script,
+            python::commands::python_delete_script,
+            python::commands::python_list_default_blocks,
+            python::commands::python_read_default_block,
+            python::commands::python_write_default_block,
+            python::commands::python_restore_default_block,
+            python::commands::python_open_workspace_folder,
+            python::commands::python_open_in_editor,
+            python::commands::python_get_run_configs,
+            python::commands::python_save_run_config,
+            python::commands::python_start_run,
+            python::commands::python_stop_run,
+            python::commands::python_stop_all_runs,
+            python::commands::python_list_runs,
+            python::commands::python_get_dashboard,
+            python::commands::python_clear_dashboard,
+            python::commands::python_inspector_capture,
+            python::commands::python_save_asset,
+            python::commands::python_set_developer_mode,
+            python::commands::python_get_logs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

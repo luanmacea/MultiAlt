@@ -503,6 +503,14 @@ impl SettingsStore {
             }
         }
 
+        // Automação do Roblox Player em Python (docs/features/python-automation.md):
+        // o Modo desenvolvedor (editar os blocos padrão e o canal do terminal)
+        // nasce desligado.
+        let python = ini.section("Python");
+        if !python.exists("DeveloperMode") {
+            python.set("DeveloperMode", "false", None);
+        }
+
         ini.section("Prompts");
 
         drop(ini);
@@ -863,6 +871,8 @@ mod settings_store_tests {
                 ("AfterLaunchDelaySeconds", "30"),
             ],
         );
+
+        push(&mut out, "Python", &[("DeveloperMode", "false")]);
 
         push(
             &mut out,

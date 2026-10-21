@@ -657,6 +657,13 @@ export const SUITES: Record<string, TestSuite> = {
       "src/appIdentity.test.ts",
     ],
   },
+  python: {
+    description: "Automação do Roblox Player em Python: runtime, workspace, protocolo, primitivas, execuções, pipe, SDK e tela",
+    // O filtro `python_` casa com todo `mod python_*_tests` (src-tauri/src/python/
+    // e platform/windows/capture.rs).
+    rust: ["python_"],
+    front: ["src/components/python"],
+  },
   scan: {
     description: "bun run scan: veredito do Defender e do VirusTotal por arquivo, com o portão de cada edição (padrão: nada; completa: só o Trapmine de ML)",
     rust: [],
