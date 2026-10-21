@@ -23,17 +23,71 @@ macro_rules! unavailable {
 
 #[tauri::command]
 pub async fn python_runtime_status(app: tauri::AppHandle) -> Result<PythonRuntimeStatus, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::runtime::status(&app));
+    #[cfg(not(feature = "python-scripts"))]
     Ok(PythonRuntimeStatus::default())
 }
 
+/// Baixa e instala o Python portátil. Só roda pelo clique em "Install Python";
+/// uma segunda chamada com a primeira em andamento é recusada.
 #[tauri::command]
 pub async fn python_install_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return install_runtime(app).await;
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
+/// Reinstala: o runtime novo substitui o atual só no fim (os scripts nunca são
+/// tocados — moram na pasta de trabalho).
 #[tauri::command]
 pub async fn python_reinstall_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return install_runtime(app).await;
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
+}
+
+#[cfg(feature = "python-scripts")]
+async fn install_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    use super::runtime;
+    use tauri::Emitter;
+    let Some(_guard) = runtime::begin_install() else {
+        return Err("Python is already being installed".into());
+    };
+    let base = runtime::runtime_dir(&app);
+    let workspace = crate::data::settings::get_python_workspace_dir();
+    let emitter = app.clone();
+    let mut on_progress = move |p: PythonInstallProgress| {
+        let _ = emitter.emit("python-install-progress", p);
+    };
+    // O pip roda bloqueando (minutos): a instalação inteira vai para uma
+    // thread de bloqueio.
+    let result = tokio::task::spawn_blocking(move || {
+        let spec = runtime::RuntimeSpec::official();
+        tauri::async_runtime::block_on(runtime::install_into(
+            &base,
+            &workspace,
+            &spec,
+            &runtime::RealStepRunner,
+            &mut on_progress,
+        ))
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("The install stopped unexpectedly: {e}")));
+    if let Err(error) = &result {
+        let _ = app.emit(
+            "python-install-progress",
+            PythonInstallProgress {
+                stage: "error".into(),
+                message: error.clone(),
+                downloaded: 0,
+                total: 0,
+            },
+        );
+    }
+    result
 }
 
 #[tauri::command]
