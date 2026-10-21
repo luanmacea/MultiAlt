@@ -4,6 +4,7 @@ import { useStore } from "../../store";
 import { useAccountLabel } from "../../hooks/useAccountLabel";
 import { Select } from "../ui/Select";
 import { copyText } from "./copyText";
+import { maskNamesInText } from "./logNames";
 import { pythonLogStore, type LogEntry, type PythonLogStore } from "./pythonLogStore";
 import type { PythonLogLevel, PythonRunInfo } from "./pythonApi";
 
@@ -68,6 +69,11 @@ export function PythonTerminal({ store: logStore = pythonLogStore, runs = [], cl
     return run ? `${run.script} (${runId})` : runId;
   };
 
+  // With "Names hidden" on, names written inside messages are masked too.
+  const { hideUsernames, hiddenNameLetters } = appStore;
+  const shownText = (text: string | null): string =>
+    text ? maskNamesInText(text, appStore.accounts, { hideUsernames, hiddenNameLetters }) : "";
+
   const accountLabelOf = (userId: number | null): string => {
     if (userId === null) return "";
     const account = appStore.accounts.find((item) => item.UserID === userId);
@@ -100,12 +106,13 @@ export function PythonTerminal({ store: logStore = pythonLogStore, runs = [], cl
         if (runFilter !== "all" && line.runId !== runFilter) return false;
         if (accountFilter !== "all" && String(line.userId) !== accountFilter) return false;
         if (needle) {
-          const haystack = `${line.message} ${line.code ?? ""} ${line.hint ?? ""}`.toLowerCase();
+          const haystack = `${shownText(line.message)} ${line.code ?? ""} ${shownText(line.hint)}`.toLowerCase();
           if (!haystack.includes(needle)) return false;
         }
         return true;
       }),
-    [lines, version, levels, runFilter, accountFilter, needle]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lines, version, levels, runFilter, accountFilter, needle, appStore.accounts, hideUsernames, hiddenNameLetters]
   );
 
   useLayoutEffect(() => {
@@ -138,8 +145,8 @@ export function PythonTerminal({ store: logStore = pythonLogStore, runs = [], cl
     const who = accountLabelOf(line.userId);
     const head = `[${formatTime(line.ts)}] [${runLabel(line.runId)}]${who ? ` [${who}]` : ""} ${line.level.toUpperCase()}`;
     const code = line.code ? ` (${line.code})` : "";
-    const hint = line.hint ? `\n    Hint: ${line.hint}` : "";
-    return `${head} ${line.message}${code}${hint}`;
+    const hint = line.hint ? `\n    Hint: ${shownText(line.hint)}` : "";
+    return `${head} ${shownText(line.message)}${code}${hint}`;
   }
 
   async function copyVisible() {
@@ -239,7 +246,14 @@ export function PythonTerminal({ store: logStore = pythonLogStore, runs = [], cl
             </div>
           ) : (
             visible.map((line) => (
-              <TerminalLine key={line.id} line={line} runLabel={runLabel(line.runId)} who={accountLabelOf(line.userId)} />
+              <TerminalLine
+                key={line.id}
+                line={line}
+                message={shownText(line.message)}
+                hint={shownText(line.hint)}
+                runLabel={runLabel(line.runId)}
+                who={accountLabelOf(line.userId)}
+              />
             ))
           )}
         </div>
@@ -262,7 +276,19 @@ export function PythonTerminal({ store: logStore = pythonLogStore, runs = [], cl
   );
 }
 
-function TerminalLine({ line, runLabel, who }: { line: LogEntry; runLabel: string; who: string }) {
+function TerminalLine({
+  line,
+  message,
+  hint,
+  runLabel,
+  who,
+}: {
+  line: LogEntry;
+  message: string;
+  hint: string;
+  runLabel: string;
+  who: string;
+}) {
   const blocked = line.level === "blocked";
   return (
     <div
@@ -278,8 +304,8 @@ function TerminalLine({ line, runLabel, who }: { line: LogEntry; runLabel: strin
           {line.code ?? "blocked"}
         </span>
       ) : null}{" "}
-      <span>{line.message}</span>
-      {blocked && line.hint ? <div className="mt-0.5 text-amber-100/80">Hint: {line.hint}</div> : null}
+      <span>{message}</span>
+      {blocked && hint ? <div className="mt-0.5 text-amber-100/80">Hint: {hint}</div> : null}
     </div>
   );
 }

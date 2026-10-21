@@ -231,6 +231,17 @@ Linhas `system` também para a fila de foco (`code: "focus"`, com a conta):
 para a instalação do Python: começo e fim de cada download, a saída do pip, o
 pronto e o erro, sem o andamento a cada MB (`install_log_line`).
 
+Nomes no terminal e o modo **Names hidden**: as linhas levam o `userId` e a
+coluna da conta já sai pelo `useAccountLabel`. O texto da mensagem também tem
+nome (o backend escreve "Run started: farm.py on Main_01", "Blocked: Main_01's
+window..." — o Python precisa do nome de verdade nas exceções —, e o script
+imprime `account.name`), então a tela troca, na hora de mostrar, todo username
+e alias **inteiro** das contas pelo rótulo do app (`maskNamesInText` em
+`components/python/logNames.ts`, com o `accountLabel` de
+`utils/accountName.ts`). A busca e o "Copy visible" usam o texto mascarado.
+O log do backend (`python_get_logs`) continua com o nome real, como o resto do
+app (só o que aparece é mascarado).
+
 **Fechar o MultiAlt** com execução viva (`RunEvent::ExitRequested`/`Exit` →
 `python::shutdown_on_exit`, uma vez só): para todas, espera até 1 s elas saírem
 e solta o lease e as teclas que sobraram (`runs::shutdown`,

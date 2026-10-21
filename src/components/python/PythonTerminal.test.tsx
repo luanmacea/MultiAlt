@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 
 import { PythonTerminal } from "./PythonTerminal";
 import { MAX_LOG_LINES, createPythonLogStore, type PythonLogStore } from "./pythonLogStore";
+import { maskNamesInText } from "./logNames";
 import type { PythonLogLine } from "./pythonApi";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
 import { emitTauriEvent, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
@@ -65,6 +66,37 @@ describe("PythonTerminal", () => {
     expect(await screen.findByText("first of the batch")).toBeInTheDocument();
     expect(screen.getByText("second of the batch")).toBeInTheDocument();
     expect(logStore.getLines().map((l) => l.message)).toEqual(["first of the batch", "second of the batch"]);
+  });
+
+  it("hides account names inside messages when names are hidden", async () => {
+    setStore({
+      accounts: [makeAccount({ UserID: 1001, Username: "Main_01" }), makeAccount({ UserID: 1002, Username: "Alt_02", Alias: "Farmer" })],
+      hideUsernames: true,
+      hiddenNameLetters: 0,
+    });
+    backlog = [
+      line({ level: "system", userId: null, message: "Run started: farm.py on Main_01, Alt_02 (one_at_a_time, from the app)" }),
+      line({ level: "blocked", code: "not_foreground", message: "Blocked: main_01's window is not in front.", hint: "Farmer must be in front." }),
+      line({ message: "hello from Alt_02" }),
+    ];
+    const { container } = renderTerminal();
+    await screen.findByText(/Run started/);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/Main_01|main_01|Alt_02|Farmer/);
+    expect(text).toContain("Run started: farm.py on ************, ************ (one_at_a_time, from the app)");
+    // Searching for a hidden name finds nothing (it would reveal which line has it).
+    await userEvent.type(screen.getByLabelText("Search the log"), "Alt_02");
+    expect(screen.getByText("No lines match the filters.")).toBeInTheDocument();
+  });
+
+  it("leaves messages alone when names are shown", () => {
+    expect(maskNamesInText("Main_01 and Main_010 and xMain_01", [makeAccount({ UserID: 1, Username: "Main_01" })], { hideUsernames: false, hiddenNameLetters: 0 })).toBe(
+      "Main_01 and Main_010 and xMain_01"
+    );
+    // Only whole names are masked, with the preview letters of the app setting.
+    expect(maskNamesInText("Main_01 and Main_010 and xMain_01", [makeAccount({ UserID: 1, Username: "Main_01" })], { hideUsernames: true, hiddenNameLetters: 2 })).toBe(
+      "Ma******** and Main_010 and xMain_01"
+    );
   });
 
   it("names the account on each line", async () => {
