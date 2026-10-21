@@ -25,6 +25,7 @@ import { GAME_FIXTURES, fixtureIcon, iconForGame } from "./games";
 import { seedTourStorage, tourHandler, tourLogLines } from "./tour";
 import { HARNESS_RELEASES, kindBody } from "./releases";
 import { clipReport } from "./clipReport";
+import { createPythonScenarios } from "./pythonScenarios";
 
 const params = new URLSearchParams(window.location.search);
 const scenarioName = params.get("scenario") || "default";
@@ -2910,6 +2911,7 @@ const SCENARIOS: Record<string, () => void> = {
       return baseHandler(cmd, args);
     });
   },
+  ...createPythonScenarios(baseHandler, accounts),
 };
 
 (SCENARIOS[scenarioName] ?? SCENARIOS.default)();

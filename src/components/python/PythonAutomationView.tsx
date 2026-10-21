@@ -70,15 +70,7 @@ export function PythonAutomationView() {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div
-        role="alert"
-        className="mx-6 mt-4 flex shrink-0 items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300"
-      >
-        <ShieldAlert size={14} strokeWidth={1.9} className="mt-0.5 shrink-0" />
-        <span>Python scripts have full access to your PC. Only run scripts you trust.</span>
-      </div>
-
-      <div role="tablist" aria-label="Python automation" className="mx-6 mt-3 flex shrink-0 gap-1 border-b theme-border">
+      <div role="tablist" aria-label="Python automation" className="mx-6 mt-2 flex shrink-0 gap-1 border-b theme-border">
         {TABS.map(({ id, label, Icon }) => {
           const on = id === tab;
           return (
@@ -112,6 +104,14 @@ export function PythonAutomationView() {
         aria-labelledby={`python-tab-${tab}`}
         className="min-h-0 flex-1 overflow-y-auto px-6 py-4"
       >
+        <div
+          role="note"
+          className="mb-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300"
+        >
+          <ShieldAlert size={14} strokeWidth={1.9} className="mt-0.5 shrink-0" />
+          <span>Python scripts have full access to your PC. Only run scripts you trust.</span>
+        </div>
+
         {tab === "scripts" && (
           <div className="space-y-4">
             <InstallCard
