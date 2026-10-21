@@ -63,12 +63,18 @@ Passos: baixa o zip → confere o hash → extrai em `python-runtime/.tmp`
 `import site`, põe `Lib\site-packages` e a **pasta de trabalho**) → abre o wheel
 do pip no `Lib\site-packages` → `python -m pip install --no-index --find-links
 <downloads> --require-hashes --only-binary=:all: --ignore-installed -r
-requirements.txt` → renomeia `.tmp` para `python-runtime/current` e grava
-`version.json`. Erro em qualquer passo apaga o `.tmp` e deixa o runtime de antes.
+requirements.txt` → grava `version.json` e põe o novo no lugar de
+`python-runtime/current`. Erro em qualquer passo apaga o `.tmp` e deixa o runtime de antes.
 **Reinstall** é a mesma instalação: o `current` só é trocado no fim; os scripts
 moram na pasta de trabalho e nunca são tocados. Uma segunda instalação com outra
 em andamento é recusada. O runtime mora em `<app_local_data_dir>/python-runtime/`
 — fora do backup.
+
+Instalar/reinstalar com execução viva é recusado ("Stop the running Python
+scripts first...", `install_allowed`), e o Run é recusado durante a
+instalação. A troca é atômica o quanto o disco deixa: `current` vira
+`current.old`, o novo entra, o `.old` é apagado; se o novo não entra, o antigo
+volta (`the_new_runtime_replaces_the_old_one_or_the_old_one_stays`).
 
 **Todo `python.exe` que o app abre** leva `-s -E -B -X utf8`
 (`ISOLATION_FLAGS`), `PYTHONNOUSERSITE=1` e `CREATE_NO_WINDOW`. O `-s` não é

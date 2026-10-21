@@ -3,9 +3,11 @@
 // Só baixa quando o usuário aperta "Install Python": o *embeddable zip* oficial
 // do CPython, o wheel do pip e os wheels do numpy e do opencv-python-headless,
 // cada um com versão e SHA-256 fixos aqui. Tudo é montado em
-// `python-runtime/.tmp` e só vira `python-runtime/current` no fim (renomear),
-// então uma instalação que falha no meio não deixa runtime pela metade — e um
-// reinstall que falha deixa o anterior no lugar. A pasta de trabalho (scripts
+// `python-runtime/.tmp` e só vira `python-runtime/current` no fim (o atual vira
+// `current.old`, o novo entra, o `.old` some; se o novo não entra, o antigo
+// volta), então uma instalação que falha no meio não deixa runtime pela metade
+// — e um reinstall que falha deixa o anterior no lugar. Com script rodando, a
+// instalação é recusada (`install_allowed`). A pasta de trabalho (scripts
 // do usuário) mora em outro lugar e nunca é tocada daqui.
 
 use std::path::{Path, PathBuf};
@@ -118,6 +120,9 @@ struct VersionFile {
 }
 
 const CURRENT: &str = "current";
+/// O runtime anterior durante a troca (some no fim; volta a ser `current` se a
+/// troca falha).
+const OLD: &str = "current.old";
 const TMP: &str = ".tmp";
 const VERSION_FILE: &str = "version.json";
 
@@ -164,6 +169,36 @@ pub fn status_in(base: &Path) -> PythonRuntimeStatus {
             ..Default::default()
         },
     }
+}
+
+/// Instalar/reinstalar troca o `python.exe` que as execuções usam: com script
+/// rodando, é recusado.
+pub fn install_allowed(active_runs: usize) -> Result<(), String> {
+    if active_runs > 0 {
+        return Err("Stop the running Python scripts first: Python cannot be replaced while they use it.".into());
+    }
+    Ok(())
+}
+
+/// Põe o runtime pronto (`home`) no lugar do `current`: o atual vira
+/// `current.old`, o novo entra, o `.old` é apagado. Se o novo não entra, o
+/// antigo volta — nunca fica sem Python no meio de um reinstall.
+fn swap_in_runtime(home: &Path, current: &Path) -> Result<(), String> {
+    let old = current.with_file_name(OLD);
+    remove_dir_if_exists(&old)?;
+    let had_current = current.exists();
+    if had_current {
+        std::fs::rename(current, &old)
+            .map_err(|e| format!("Could not replace the installed Python (is it still in use?): {e}"))?;
+    }
+    if let Err(e) = std::fs::rename(home, current) {
+        if had_current {
+            let _ = std::fs::rename(&old, current);
+        }
+        return Err(format!("Could not finish the install: {e}"));
+    }
+    let _ = std::fs::remove_dir_all(&old);
+    Ok(())
 }
 
 /// Marca "instalando" e devolve um guarda que desmarca ao sair. `None` se já há
@@ -488,9 +523,7 @@ async fn install_steps(
         serde_json::to_string_pretty(&version).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    let current = base.join(CURRENT);
-    remove_dir_if_exists(&current)?;
-    std::fs::rename(&home, &current).map_err(|e| format!("Could not finish the install: {e}"))?;
+    swap_in_runtime(&home, &base.join(CURRENT))?;
     let _ = std::fs::remove_dir_all(tmp);
     on_progress(progress("ready", format!("Python {} is ready", spec.python_version), 0, 0));
     Ok(())
@@ -700,6 +733,41 @@ mod python_runtime_tests {
         install_into(&base.0, &ws.0, &spec, &runner, &mut |_| {}).await.expect("reinstall");
         assert!(!base.0.join(CURRENT).join("marker").exists(), "the old runtime was replaced");
         assert_eq!(std::fs::read_to_string(ws.0.join("scripts").join("farm.py")).unwrap(), "print('mine')");
+    }
+
+    #[test]
+    fn the_new_runtime_replaces_the_old_one_or_the_old_one_stays() {
+        let base = TempDir::new("swap");
+        let current = base.0.join(CURRENT);
+        let home = base.0.join(TMP).join("python");
+        std::fs::create_dir_all(&current).unwrap();
+        std::fs::write(current.join("marker"), "old").unwrap();
+        // A pasta nova sumiu (disco, antivírus): o runtime de antes continua.
+        assert!(swap_in_runtime(&home, &current).is_err());
+        assert_eq!(std::fs::read_to_string(current.join("marker")).unwrap(), "old");
+        assert!(!base.0.join(OLD).exists(), "nothing half-swapped is left");
+        // Pronta, ela entra no lugar e a antiga some.
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("marker"), "new").unwrap();
+        swap_in_runtime(&home, &current).unwrap();
+        assert_eq!(std::fs::read_to_string(current.join("marker")).unwrap(), "new");
+        assert!(!base.0.join(OLD).exists());
+        assert!(!home.exists());
+        // Primeira instalação (sem runtime antes) também.
+        let fresh = TempDir::new("swap-fresh");
+        let fresh_home = fresh.0.join("home");
+        std::fs::create_dir_all(&fresh_home).unwrap();
+        swap_in_runtime(&fresh_home, &fresh.0.join(CURRENT)).unwrap();
+        assert!(fresh.0.join(CURRENT).is_dir());
+    }
+
+    #[test]
+    fn install_is_refused_while_scripts_run() {
+        assert_eq!(
+            install_allowed(2).unwrap_err(),
+            "Stop the running Python scripts first: Python cannot be replaced while they use it."
+        );
+        assert!(install_allowed(0).is_ok());
     }
 
     #[test]

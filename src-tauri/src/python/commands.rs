@@ -57,6 +57,9 @@ async fn install_runtime(app: tauri::AppHandle) -> Result<(), String> {
     let Some(_guard) = runtime::begin_install() else {
         return Err("Python is already being installed".into());
     };
+    // Depois de marcar "instalando" (o Run recusa a partir daqui): nenhuma
+    // execução nasce entre a conferência e a troca.
+    runtime::install_allowed(super::runs_active())?;
     let base = runtime::runtime_dir(&app);
     let workspace = crate::data::settings::get_python_workspace_dir();
     let emitter = app.clone();
@@ -281,6 +284,9 @@ fn start_app_run(app: &tauri::AppHandle, config: PythonRunConfig) -> Result<Stri
         if minutes == 0 {
             return Err("The interval must be at least 1 minute".into());
         }
+    }
+    if super::runtime::status(app).installing {
+        return Err("Python is being installed. Wait for it to finish, then press Run.".into());
     }
     let python_exe = super::runtime::python_exe(app)
         .ok_or("Python is not installed yet. Click \"Install Python\" first.")?;
