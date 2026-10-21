@@ -9,6 +9,12 @@ The workspace of MultiAlt's **Roblox Player automation (Python)**. Scripts
 control the Roblox windows of the user's accounts: read pixels, find images,
 send keys and clicks, one window at a time. They do not inject into Roblox.
 
+**Python has full access to the user's PC.** A script is a normal Python
+program running as the user (files, programs, network). MultiAlt's rules below
+cover what goes through its API; they are not a sandbox. Write only what the
+user asked for, and never touch files, programs or data outside this folder
+unless the user asks.
+
 ```
 scripts/     <- WRITE YOUR SCRIPTS HERE (one .py per script)
 lib/         <- shared helpers: "from lib.tools import wait_for_menu"
@@ -47,7 +53,7 @@ turns on the farm report in the Dashboard tab.
 4. **Every loop checks `stopped()`** (`while not stopped():`) and contains a `sleep`.
 5. **Never catch `Stopped`** and never write a bare `except:`. Catch specific `MultiAltError` subclasses and re-raise `Stopped`.
 6. Keep `with account.focused():` short, one action at a time, and never sleep or wait for a pixel/image inside it: other accounts and AFK mode wait for the queue. Do the input, leave the block, then sleep or wait. In `all_together` each account waits for its turn as long as it takes; elsewhere `focused()` gives up after 20 s (`FocusTimeout`) unless you pass `timeout_ms`.
-7. Cookies and passwords are not available and never will be. Do not try to read them.
+7. MultiAlt's API never sends cookies or passwords to scripts, and never will. Do not try to get them (from the API or from anywhere else on the PC).
 8. Keys: A-Z, 0-9, Space, Shift, Up, Down, Left, Right only (no Enter, Esc, Tab, F-keys, Ctrl, Alt).
 
 ## How to test
@@ -78,7 +84,7 @@ short (a few seconds of real input), the user's accounts are real.
 | `no_focus_lease` | `NoFocusLease` | Input without the focus queue. Use `with account.focused():`. |
 | `untracked_window` | `UntrackedWindow` | The account has no client opened by MultiAlt. The user must launch it from MultiAlt. |
 | `minimized` | `Minimized` | The window is minimized. `account.focused()` restores it before input; for reading, ask the user to un-minimize. |
-| `forbidden` | `Forbidden` | You asked for cookies/passwords or an op that does not exist. Remove it. |
+| `forbidden` | `Forbidden` | "Not available through MultiAlt's API: cookies and passwords are never sent to scripts." You asked for cookies/passwords or an op that does not exist. Remove it. |
 | `focus_timeout` | `FocusTimeout` | The queue stayed busy (AFK mode, a recording, another run). Raise `focused(timeout_ms=...)` or shorten how long other code holds the block. |
 | `unsupported_key` | `UnsupportedKey` | Use a key from rule 8. For `type_text`, only letters, digits and space. |
 | `bad_args` | `BadArgs` | A fraction outside 0-1, a negative time, an empty name. Fix the value. |

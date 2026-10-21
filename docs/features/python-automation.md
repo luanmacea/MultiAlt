@@ -139,7 +139,10 @@ ao mesmo tempo). `screen.pixel` é um ponto dessa captura.
 - Entrada (`input.*`, `window.bring_forward`), nesta ordem: lease da fila de foco
   desta execução **para esta conta** (`no_focus_lease`) → janela rastreada →
   não minimizada (`minimized`) → **na frente** (`not_foreground`).
-- `forbidden` para qualquer op fora da lista ou com `cookie`, `password`,
+- `forbidden` ("Not available through MultiAlt's API: cookies and passwords
+  are never sent to scripts." — a frase diz *pela API*: o Python em si tem
+  acesso total ao PC, e as travas valem para o que passa pelo app, não são
+  sandbox) para qualquer op fora da lista ou com `cookie`, `password`,
   `token` ou `secret` no nome. As contas que o Python vê são
   `{user_id, name, alias, group, in_game, place_id, job_id}` — nunca segredo.
   `in_game`, `place_id` e `job_id` são lidos **na hora** a cada `accounts`

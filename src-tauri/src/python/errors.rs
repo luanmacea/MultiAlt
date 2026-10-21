@@ -99,7 +99,7 @@ impl PyError {
     pub fn forbidden() -> Self {
         Self::new(
             PyErrorCode::Forbidden,
-            "Not available to scripts: cookies and passwords never leave MultiAlt.".into(),
+            "Not available through MultiAlt's API: cookies and passwords are never sent to scripts.".into(),
             None,
         )
     }
@@ -192,7 +192,7 @@ mod python_errors_tests {
             (
                 PyError::forbidden(),
                 "forbidden",
-                "Not available to scripts: cookies and passwords never leave MultiAlt.",
+                "Not available through MultiAlt's API: cookies and passwords are never sent to scripts.",
                 None,
             ),
             (

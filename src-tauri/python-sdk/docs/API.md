@@ -8,9 +8,15 @@ this page covers the same names. Everything is imported from `multialt`.
 - Windows only. Roblox windows are driven one at a time: input goes to the
   window that is in front, through a single focus queue shared with AFK mode
   and recordings.
-- Scripts run as normal Python on your PC with full access. Cookies and
-  passwords never reach Python: `Account` has no such field and the app
-  refuses any request for them (`forbidden`).
+- **Python has full access to your PC.** A script is a normal Python program
+  running as you: it can read and write your files, start programs and use
+  the network, like any program you run. The rules in this page (focus queue,
+  window in front, accounts of the run) apply to what goes **through
+  MultiAlt's API**; they are not a sandbox. Only run scripts you trust.
+- MultiAlt's API never sends cookies or passwords to scripts: `Account` has no
+  such field and the app refuses any request for them (`forbidden`, "Not
+  available through MultiAlt's API: cookies and passwords are never sent to
+  scripts.").
 - The terminal channel (`python -m multialt run`) talks to MultiAlt through a
   Windows named pipe opened with overlapped I/O (a plain `open(...)` handle
   deadlocks when one thread reads while another writes).
@@ -141,7 +147,7 @@ All are subclasses of `MultiAltError` (fields `code`, `message`, `hint`):
 | `NoFocusLease` | `no_focus_lease` | Input without taking the focus queue. Use `with account.focused():`. |
 | `UntrackedWindow` | `untracked_window` | The account has no Roblox client opened by MultiAlt. Launch it from MultiAlt first. |
 | `Minimized` | `minimized` | The window is minimized. `account.focused()` restores it before input. |
-| `Forbidden` | `forbidden` | Asked for something scripts cannot have (cookies, passwords). Not fixable. |
+| `Forbidden` | `forbidden` | Asked MultiAlt's API for something it never sends to scripts (cookies, passwords), or for an op that does not exist. Not fixable. |
 | `FocusTimeout` | `focus_timeout` | The focus queue stayed busy (AFK mode or a recording running). Raise `timeout_ms` or try again. |
 | `UnsupportedKey` | `unsupported_key` | The key is not in the "Keys" list, or `type_text` got a character with no key. |
 | `BadArgs` | `bad_args` | A value is out of range or the wrong type (a fraction outside 0-1, a negative time). |
