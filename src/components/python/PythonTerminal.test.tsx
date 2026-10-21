@@ -53,6 +53,20 @@ describe("PythonTerminal", () => {
     expect(await screen.findByText("arrived live")).toBeInTheDocument();
   });
 
+  it("takes a batch of lines in one event, in order", async () => {
+    renderTerminal();
+    await screen.findByText(/Nothing logged yet/);
+    act(() =>
+      emitTauriEvent("python-log", [
+        line({ message: "first of the batch", ts: 1_700_000_002_000 }),
+        line({ message: "second of the batch", ts: 1_700_000_002_001 }),
+      ])
+    );
+    expect(await screen.findByText("first of the batch")).toBeInTheDocument();
+    expect(screen.getByText("second of the batch")).toBeInTheDocument();
+    expect(logStore.getLines().map((l) => l.message)).toEqual(["first of the batch", "second of the batch"]);
+  });
+
   it("names the account on each line", async () => {
     backlog = [line({ message: "clicked", userId: 1002 })];
     renderTerminal();

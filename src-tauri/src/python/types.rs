@@ -157,6 +157,21 @@ impl PythonRunMode {
     }
 }
 
+/// Mensagem de log maior que isto (bytes) é cortada: um `print` de 1 MB não
+/// vai inteiro para o log nem para a tela.
+pub const MAX_LOG_MESSAGE: usize = 8 * 1024;
+
+pub fn clamp_log_message(message: String) -> String {
+    if message.len() <= MAX_LOG_MESSAGE {
+        return message;
+    }
+    let mut end = MAX_LOG_MESSAGE;
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}… (truncated, {} KB in total)", &message[..end], message.len() / 1024)
+}
+
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

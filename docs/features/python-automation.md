@@ -201,7 +201,13 @@ mata o processo Python e só a árvore dele (job object com
 execução N minutos depois de a rodada terminar (também depois de uma falha),
 até o usuário parar; a execução fica `waiting` com `next_run_ms`. As 30 últimas
 terminadas continuam na lista. O log guarda as últimas 5 000 linhas
-(`python_get_logs`) e cada linha sai também em `python-log`; trava sai com nível
+(`python_get_logs`) e as linhas novas saem em `python-log` **em lote**: o payload
+é um **array** de linhas, um evento a cada 100 ms no máximo (≤ 10/s; antes era
+um evento por linha, e um script imprimindo sem parar inundava a tela). A tela
+aceita também uma linha solta (`log_lines_are_sent_in_batches`, teste "takes a
+batch of lines in one event"). Mensagem (`run.log`, `run.status`, stderr,
+linha `system`) maior que 8 KB é cortada com "… (truncated, N KB in total)"
+(`MAX_LOG_MESSAGE`, `huge_log_lines_are_cut_at_8_kb`); trava sai com nível
 `blocked`, `code` e `hint`; `run.status` vira linha `system` "Status: ...".
 Linhas `system` também para a fila de foco (`code: "focus"`, com a conta):
 "Focus taken." e "Focus released after N ms." (com as teclas soltas, se houve),

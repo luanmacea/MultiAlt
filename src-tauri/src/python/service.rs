@@ -14,28 +14,34 @@ use super::dashboard::DashboardStore;
 use super::errors::PyError;
 use super::focus::FocusQueue;
 use super::primitives::RealDesk;
-use super::runs::{LogBook, RunEvents, RunManager};
+use super::runs::{LogBatch, LogBook, RunEvents, RunManager};
 use super::types::{AccountView, PythonLogLine, PythonRunInfo};
 
 pub struct Service {
     pub manager: Arc<RunManager>,
     pub dashboard: Arc<DashboardStore>,
     pub logs: Arc<LogBook>,
+    /// O que ainda vai para a tela no próximo tique (`python-log` com array).
+    pub log_batch: Arc<LogBatch>,
     pub app: tauri::AppHandle,
 }
 
 static SERVICE: OnceLock<Service> = OnceLock::new();
 
+/// Tique da entrega à tela: no máximo 10 eventos `python-log` por segundo.
+const LOG_FLUSH_EVERY: Duration = Duration::from_millis(100);
+
 struct AppEvents {
     app: tauri::AppHandle,
     dashboard: Arc<DashboardStore>,
     logs: Arc<LogBook>,
+    log_batch: Arc<LogBatch>,
 }
 
 impl RunEvents for AppEvents {
     fn log(&self, line: PythonLogLine) {
         self.logs.push(line.clone());
-        let _ = self.app.emit("python-log", line);
+        self.log_batch.push(line);
     }
     fn run_update(&self, info: &PythonRunInfo) {
         let _ = self.app.emit("python-run-update", info);
@@ -54,29 +60,37 @@ pub fn service(app: &tauri::AppHandle) -> &'static Service {
         let root = crate::data::settings::get_python_workspace_dir();
         let dashboard = Arc::new(DashboardStore::new(Some(root.join("dashboard.json"))));
         let logs = Arc::new(LogBook::new());
+        let log_batch = Arc::new(LogBatch::default());
         let events = Arc::new(AppEvents {
             app: app.clone(),
             dashboard: dashboard.clone(),
             logs: logs.clone(),
+            log_batch: log_batch.clone(),
         });
         let manager = Arc::new(RunManager::new(events, Arc::new(RealDesk), FocusQueue::global()));
-        start_dashboard_ticker(app.clone(), dashboard.clone());
+        start_ticker(app.clone(), dashboard.clone(), log_batch.clone());
         Service {
             manager,
             dashboard,
             logs,
+            log_batch,
             app: app.clone(),
         }
     })
 }
 
-/// Entrega o dashboard à tela no máximo 4 vezes por segundo por script e grava
-/// o arquivo no máximo uma vez por segundo.
-fn start_dashboard_ticker(app: tauri::AppHandle, dashboard: Arc<DashboardStore>) {
+/// A cada 100 ms: manda à tela as linhas novas do log num evento só, entrega
+/// o dashboard no máximo 4 vezes por segundo por script e grava o arquivo no
+/// máximo uma vez por segundo.
+fn start_ticker(app: tauri::AppHandle, dashboard: Arc<DashboardStore>, log_batch: Arc<LogBatch>) {
     tauri::async_runtime::spawn(async move {
         let mut last_save = Instant::now();
         loop {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(LOG_FLUSH_EVERY).await;
+            let lines = log_batch.take();
+            if !lines.is_empty() {
+                let _ = app.emit("python-log", lines);
+            }
             for section in dashboard.take_due_emits(Instant::now()) {
                 let _ = app.emit("python-dashboard-update", section);
             }
@@ -94,14 +108,14 @@ pub fn system_log(app: &tauri::AppHandle, run_id: Option<&str>, message: impl In
         run_id: run_id.map(str::to_string),
         user_id: None,
         level: "system".into(),
-        message: message.into(),
+        message: super::types::clamp_log_message(message.into()),
         code: None,
         hint: None,
         ts: super::types::now_ms(),
     };
     let svc = service(app);
     svc.logs.push(line.clone());
-    let _ = app.emit("python-log", line);
+    svc.log_batch.push(line);
 }
 
 /// As contas pedidas, como o script as enxerga (sem cookie nem senha). Conta

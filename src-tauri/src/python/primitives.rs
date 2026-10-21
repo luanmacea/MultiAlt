@@ -634,7 +634,7 @@ pub async fn dispatch(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyEr
                 "error" => "error",
                 _ => "log",
             };
-            let message = args.get("message").and_then(Value::as_str).unwrap_or("").to_string();
+            let message = super::types::clamp_log_message(args.get("message").and_then(Value::as_str).unwrap_or("").to_string());
             let user_id = args.get("user_id").and_then(Value::as_i64);
             ctx.sink.log(PythonLogLine {
                 run_id: Some(ctx.run_id.clone()),
@@ -648,9 +648,9 @@ pub async fn dispatch(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyEr
             Ok(Value::Null)
         }
         "run.status" => {
-            let text = args.get("text").and_then(Value::as_str).unwrap_or("");
+            let text = super::types::clamp_log_message(args.get("text").and_then(Value::as_str).unwrap_or("").to_string());
             let user_id = args.get("user_id").and_then(Value::as_i64);
-            ctx.sink.status(user_id, text);
+            ctx.sink.status(user_id, &text);
             Ok(Value::Null)
         }
         op if op.starts_with("dashboard.") => ctx.sink.dashboard(op, &args),
@@ -1069,6 +1069,21 @@ pub mod python_primitives_tests {
         assert_eq!(lines[2].2, "Focus taken (2 turns not shown).");
         assert!(lines[3].2.starts_with("Focus released after "));
         assert_eq!(lines.len(), 4);
+    }
+
+    /// Uma linha gigante de `print` não vira 1 MB no log da tela.
+    #[tokio::test]
+    async fn huge_log_lines_are_cut_at_8_kb() {
+        let sink = Arc::new(NullSink::default());
+        let ctx = RunCtx::new("r1", vec![account(1, "Main_01")], Arc::new(AtomicBool::new(false)), sink.clone(), FakeDesk::with_window(1, 11), own_queue());
+        let huge = "é".repeat(20_000); // 40 000 bytes, 2 bytes por letra
+        dispatch(&ctx, "run.log", json!({"message": huge})).await.unwrap();
+        dispatch(&ctx, "run.log", json!({"message": "short"})).await.unwrap();
+        let lines = sink.lines.lock().unwrap();
+        assert!(lines[0].message.len() <= super::super::types::MAX_LOG_MESSAGE + 64, "{}", lines[0].message.len());
+        assert!(lines[0].message.starts_with("éé"));
+        assert!(lines[0].message.ends_with("(truncated, 39 KB in total)"), "{}", &lines[0].message[lines[0].message.len() - 40..]);
+        assert_eq!(lines[1].message, "short");
     }
 
     /// `accounts` é o estado de agora, não o do começo da execução: cliente que

@@ -420,6 +420,28 @@ impl Default for LogBook {
     }
 }
 
+/// As linhas que ainda não foram para a tela: o app as manda num evento
+/// `python-log` só (um array) a cada tique de 100 ms, não um evento por linha
+/// — um script que imprime sem parar não inunda a tela de eventos.
+#[derive(Default)]
+pub struct LogBatch {
+    pending: Mutex<VecDeque<PythonLogLine>>,
+}
+
+impl LogBatch {
+    pub fn push(&self, line: PythonLogLine) {
+        let mut pending = self.pending.lock().unwrap();
+        pending.push_back(line);
+        while pending.len() > LOG_CAPACITY {
+            pending.pop_front();
+        }
+    }
+
+    pub fn take(&self) -> Vec<PythonLogLine> {
+        self.pending.lock().unwrap().drain(..).collect()
+    }
+}
+
 // ── o processo Python ─────────────────────────────────────────────────────
 
 /// Roda `"<python>" -s -E -B -X utf8 -u -m multialt._core.host scripts/<nome>` na pasta
@@ -491,7 +513,7 @@ async fn run_process(exe: PathBuf, workspace: PathBuf, script: String, ctx: RunC
             if !line.trim().is_empty() {
                 *last.lock().unwrap() = Some(line.trim().to_string());
             }
-            sink.log(super::bridge::system_line(&run_id, None, "error", line));
+            sink.log(super::bridge::system_line(&run_id, None, "error", clamp_log_message(line)));
         }
     });
 
@@ -804,6 +826,28 @@ pub mod python_runs_tests {
         wait_for(&m, &quick, "finished").await;
         // Nada de Roblox: só teclas e o lease.
         assert!(desk.sent().iter().all(|s| s.starts_with("down:") || s.starts_with("up:")));
+    }
+
+    /// As linhas vão para a tela em lotes (um evento por tique, não um por
+    /// linha), na ordem, sem perder nenhuma — e sem guardar mais que o log.
+    #[test]
+    fn log_lines_are_sent_in_batches() {
+        let batch = LogBatch::default();
+        assert!(batch.take().is_empty());
+        for i in 0..1_000 {
+            batch.push(super::super::bridge::system_line("r1", None, "log", format!("{i}")));
+        }
+        let sent = batch.take();
+        assert_eq!(sent.len(), 1_000);
+        assert_eq!(sent[0].message, "0");
+        assert_eq!(sent[999].message, "999");
+        assert!(batch.take().is_empty(), "each line goes once");
+        for i in 0..(LOG_CAPACITY + 10) {
+            batch.push(super::super::bridge::system_line("r1", None, "log", format!("{i}")));
+        }
+        let sent = batch.take();
+        assert_eq!(sent.len(), LOG_CAPACITY);
+        assert_eq!(sent[0].message, "10");
     }
 
     #[test]

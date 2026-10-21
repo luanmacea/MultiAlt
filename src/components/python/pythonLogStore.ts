@@ -90,9 +90,12 @@ export function createPythonLogStore(): PythonLogStore {
         cancelled = false;
         const live: PythonLogLine[] = [];
         let backlogDone = false;
-        listen<PythonLogLine>(PYTHON_EVENTS.log, (event) => {
-          if (backlogDone) store.append(event.payload);
-          else live.push(event.payload);
+        // The backend batches lines (at most ~10 events a second); a single
+        // line is still accepted.
+        listen<PythonLogLine | PythonLogLine[]>(PYTHON_EVENTS.log, (event) => {
+          const batch = Array.isArray(event.payload) ? event.payload : [event.payload];
+          if (backlogDone) store.appendMany(batch);
+          else live.push(...batch);
         })
           .then((fn) => {
             if (cancelled) fn();
