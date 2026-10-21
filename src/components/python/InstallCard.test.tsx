@@ -46,7 +46,10 @@ describe("InstallCard", () => {
     render(<InstallCard {...p} />);
     expect(screen.getByText("Python is not installed")).toBeInTheDocument();
     expect(screen.getByText(/python.org/)).toBeInTheDocument();
-    expect(screen.getByText(/PyPI/)).toBeInTheDocument();
+    // pip is a wheel from PyPI (files.pythonhosted.org), like numpy and OpenCV: nothing from bootstrap.pypa.io.
+    expect(screen.getByText("pip, from PyPI (files.pythonhosted.org)")).toBeInTheDocument();
+    expect(screen.queryByText(/bootstrap\.pypa\.io/)).not.toBeInTheDocument();
+    expect(screen.getByText(/numpy and opencv-python-headless/)).toHaveTextContent("PyPI");
     expect(p.onInstall).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: /Install Python/ }));

@@ -104,7 +104,7 @@ export function InstallCard({ status, progress, error, installing, onInstall, on
         </p>
         <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11.5px] text-zinc-500">
           <li>Python 3.12 (embeddable build) from python.org</li>
-          <li>pip, from bootstrap.pypa.io</li>
+          <li>pip, from PyPI (files.pythonhosted.org)</li>
           <li>numpy and opencv-python-headless (image search) from PyPI</li>
         </ul>
         <button type="button" onClick={onInstall} className="theme-btn mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium">
