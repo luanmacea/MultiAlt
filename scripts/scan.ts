@@ -66,7 +66,7 @@ console.log(`edição: ${edicao === "full" ? "completa (só o Trapmine de ML é 
 
 /** Roda um comando herdando o terminal; devolve o código de saída. */
 function run(cmd: string, cmdArgs: string[]): number {
-  const r = spawnSync(cmd, cmdArgs, { cwd: ROOT, stdio: "inherit", shell: true });
+  const r = spawnSync(cmd, cmdArgs, { cwd: ROOT, stdio: "inherit", shell: true, windowsHide: true });
   return r.status ?? 1;
 }
 
@@ -80,7 +80,7 @@ for (const alvo of alvos) {
   console.log(`\n${"=".repeat(70)}\n### ${alvo}\n${"=".repeat(70)}`);
 
   console.log("\n--- Windows Defender (local) ---");
-  const def = run("powershell", ["-NoProfile", "-File", "scripts/defender-scan.ps1", `"${alvo}"`]);
+  const def = run("powershell", ["-NoProfile", "-WindowStyle", "Hidden", "-File", "scripts/defender-scan.ps1", `"${alvo}"`]);
 
   console.log("\n--- VirusTotal ---");
   const vt = run("bun", ["scripts/virustotal.ts", `"${alvo}"`, "--edition", edicao]);

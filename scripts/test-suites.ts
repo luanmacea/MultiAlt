@@ -604,6 +604,7 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_diagnostics_tests",
       "os_version_label_tests",
       "services_command_tests",
+      "console_window_tests",
       "app_lock_command_tests",
       "app_lock_verify_tests",
       "quick_login_add_tests",

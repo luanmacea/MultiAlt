@@ -91,7 +91,7 @@ function audit(): number {
 
 function run(command: string, args: string[], cwd: string): number {
   console.log(`\n$ ${command} ${args.join(" ")}`);
-  const result = spawnSync(command, args, { cwd, stdio: "inherit", shell: true });
+  const result = spawnSync(command, args, { cwd, stdio: "inherit", shell: true, windowsHide: true });
   return result.status ?? 1;
 }
 
