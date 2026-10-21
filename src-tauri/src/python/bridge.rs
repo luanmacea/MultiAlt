@@ -12,6 +12,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use futures_util::FutureExt;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -153,6 +154,18 @@ pub async fn serve<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
     result.or(Ok(())).map(|_| ())
 }
 
+/// O `dispatch` com pânico virado erro `internal`: sem isto a task morria sem
+/// resposta e o Python esperava o pedido para sempre.
+async fn dispatch_guarded(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyError> {
+    match std::panic::AssertUnwindSafe(dispatch(ctx, op, args)).catch_unwind().await {
+        Ok(result) => result,
+        Err(_) => {
+            ctx.sink.log(system_line(&ctx.run_id, None, "error", format!("MultiAlt hit an internal error while handling {op}.")));
+            Err(PyError::internal(op))
+        }
+    }
+}
+
 async fn handle_line(
     ctx: &Arc<RunCtx>,
     tx: &tokio::sync::mpsc::UnboundedSender<String>,
@@ -188,7 +201,7 @@ async fn handle_line(
     let args = message.get("args").cloned().unwrap_or(Value::Null);
     if id.is_null() {
         // Fire-and-forget: log e status, sem resposta.
-        if let Err(error) = dispatch(ctx, &op, args.clone()).await {
+        if let Err(error) = dispatch_guarded(ctx, &op, args.clone()).await {
             log_error(ctx, &args, &error);
         }
         return;
@@ -196,7 +209,7 @@ async fn handle_line(
     let ctx = ctx.clone();
     let tx = tx.clone();
     tasks.spawn(async move {
-        let result = dispatch(&ctx, &op, args.clone()).await;
+        let result = dispatch_guarded(&ctx, &op, args.clone()).await;
         if let Err(error) = &result {
             log_error(&ctx, &args, error);
         }
@@ -332,6 +345,72 @@ mod python_bridge_tests {
         drop(h2.to_app);
         h.task.await.unwrap().unwrap();
         h2.task.await.unwrap().unwrap();
+    }
+
+    /// Um Windows que entra em pânico na captura (bug do app, não do script).
+    struct PanicDesk(Arc<FakeDesk>);
+    impl crate::python::primitives::Desk for PanicDesk {
+        fn window_of(&self, user_id: i64) -> Option<isize> {
+            self.0.window_of(user_id)
+        }
+        fn client_rect(&self, hwnd: isize) -> Option<(i32, i32, i32, i32)> {
+            self.0.client_rect(hwnd)
+        }
+        fn dpi(&self, hwnd: isize) -> u32 {
+            self.0.dpi(hwnd)
+        }
+        fn is_minimized(&self, hwnd: isize) -> bool {
+            self.0.is_minimized(hwnd)
+        }
+        fn foreground(&self) -> isize {
+            self.0.foreground()
+        }
+        fn bring_forward(&self, hwnd: isize) -> bool {
+            self.0.bring_forward(hwnd)
+        }
+        fn give_focus_back(&self, target: isize, cycle: &[isize]) -> &'static str {
+            self.0.give_focus_back(target, cycle)
+        }
+        fn key(&self, key: &str, up: bool) -> bool {
+            self.0.key(key, up)
+        }
+        fn click(&self, hwnd: isize, x: f64, y: f64, focus_click: bool) -> Result<(), String> {
+            self.0.click(hwnd, x, y, focus_click)
+        }
+        fn capture(&self, _hwnd: isize) -> Result<(u32, u32, Vec<u8>), String> {
+            panic!("capture blew up");
+        }
+        fn session(&self, user_id: i64) -> crate::python::primitives::LiveSession {
+            self.0.session(user_id)
+        }
+    }
+
+    /// Pânico ao atender um pedido não deixa o Python esperando para sempre:
+    /// ele recebe um erro `internal` com o id do pedido, e a execução segue.
+    #[tokio::test]
+    async fn a_panic_answers_internal_instead_of_hanging() {
+        let (to_app, app_reads) = tokio::io::duplex(64 * 1024);
+        let (app_writes, from_app) = tokio::io::duplex(64 * 1024);
+        let desk = Arc::new(PanicDesk(FakeDesk::with_window(1, 11)));
+        let ctx = RunCtx::new("r1", vec![account(1, "Main_01")], Arc::new(AtomicBool::new(false)), Arc::new(NullSink::default()), desk, own_queue());
+        let task = tokio::spawn(serve(ctx, json!({"event": "hello"}), BufReader::new(app_reads), app_writes));
+        let mut to_app = to_app;
+        let mut lines = BufReader::new(from_app).lines();
+        async fn next(lines: &mut tokio::io::Lines<BufReader<tokio::io::DuplexStream>>) -> Value {
+            let line = tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.expect("an answer");
+            serde_json::from_str(&line.unwrap().unwrap()).unwrap()
+        }
+        next(&mut lines).await; // hello
+        to_app.write_all(b"{\"id\":4,\"op\":\"screen.pixel\",\"args\":{\"user_id\":1,\"x\":0.5,\"y\":0.5}}\n").await.unwrap();
+        let reply = next(&mut lines).await;
+        assert_eq!(reply["id"], json!(4));
+        assert_eq!(reply["ok"], json!(false));
+        assert_eq!(reply["error"]["code"], json!("internal"));
+        // O canal continua de pé.
+        to_app.write_all(b"{\"id\":5,\"op\":\"run.stopped\",\"args\":{}}\n").await.unwrap();
+        assert_eq!(next(&mut lines).await, json!({"id": 5, "ok": true, "result": false}));
+        drop(to_app);
+        task.await.unwrap().unwrap();
     }
 
     #[tokio::test]

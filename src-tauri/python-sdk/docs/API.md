@@ -153,6 +153,7 @@ All are subclasses of `MultiAltError` (fields `code`, `message`, `hint`):
 | `BadArgs` | `bad_args` | A value is out of range or the wrong type (a fraction outside 0-1, a negative time). |
 | `CaptureFailed` | `capture_failed` | The window could not be captured. Make sure it is not minimized. |
 | `Stopped` | `stopped` | The run was stopped. Do not catch it; let it end the script. |
+| `MultiAltError` | `internal` | MultiAlt itself failed while handling the call (a bug in the app, not in your script). The run goes on; report it. |
 
 `Stopped` is an ordinary exception, so never write a bare `except:` or
 `except Exception: pass` around a loop: after a stop every later call raises

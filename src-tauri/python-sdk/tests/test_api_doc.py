@@ -112,6 +112,7 @@ class ApiDocTests(unittest.TestCase):
             "bad_args",
             "capture_failed",
             "stopped",
+            "internal",
         ):
             self.assertIn(f"`{code}`", agents, code)
             self.assertIn(f"`{code}`", doc, code)

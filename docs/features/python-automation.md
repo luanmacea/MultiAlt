@@ -132,6 +132,13 @@ nomeada `Local\multialt-cap-<pid>-<run>-<n>` (o Python abre com
 (contrato dizia "até a próxima": no modo "todas juntas" duas threads capturam
 ao mesmo tempo). `screen.pixel` é um ponto dessa captura.
 
+Pânico do app ao atender um pedido (`dispatch` dentro de `catch_unwind`, no
+`bridge::dispatch_guarded`) vira resposta `internal` para aquele id ("MultiAlt
+hit an internal error while handling <op>.") e uma linha `error` no log; antes
+a task morria calada e o Python esperava a resposta para sempre
+(`a_panic_answers_internal_instead_of_hanging`). O SDK entrega como
+`MultiAltError` com `code == "internal"` (sem classe própria).
+
 ## Travas (valem com qualquer bloco reescrito)
 
 - Só as contas da execução; conta de fora ou sem cliente aberto pelo MultiAlt

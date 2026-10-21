@@ -90,6 +90,7 @@ short (a few seconds of real input), the user's accounts are real.
 | `bad_args` | `BadArgs` | A fraction outside 0-1, a negative time, an empty name. Fix the value. |
 | `capture_failed` | `CaptureFailed` | Could not capture the window. It must not be minimized; retry after a `sleep`. |
 | `stopped` | `Stopped` | The user stopped the run. Not a bug: let it propagate. |
+| `internal` | `MultiAltError` | MultiAlt itself failed on that call (a bug in the app, not in the script). Do not change the script for it; tell the user to report it. |
 
 Python-side errors: `FileNotFoundError: Image not found: ...` means the file is
 missing from `assets/`. `RuntimeError: ... numpy and opencv` means the Python

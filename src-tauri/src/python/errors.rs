@@ -16,6 +16,8 @@ pub enum PyErrorCode {
     BadArgs,
     CaptureFailed,
     Stopped,
+    /// O app falhou ao atender (pânico): bug do MultiAlt, não do script.
+    Internal,
 }
 
 impl PyErrorCode {
@@ -31,6 +33,7 @@ impl PyErrorCode {
             PyErrorCode::BadArgs => "bad_args",
             PyErrorCode::CaptureFailed => "capture_failed",
             PyErrorCode::Stopped => "stopped",
+            PyErrorCode::Internal => "internal",
         }
     }
 
@@ -140,6 +143,14 @@ impl PyError {
         Self::new(PyErrorCode::Stopped, "Run stopped.".into(), None)
     }
 
+    pub fn internal(op: &str) -> Self {
+        Self::new(
+            PyErrorCode::Internal,
+            format!("MultiAlt hit an internal error while handling {op}."),
+            Some("This is a bug in MultiAlt, not in your script. The run goes on; please report it."),
+        )
+    }
+
     /// `{"code","message","hint"}` — `hint` é `null` quando o código não tem.
     pub fn to_json(&self) -> Value {
         json!({
@@ -220,6 +231,12 @@ mod python_errors_tests {
                 Some("Make sure the window is not minimized."),
             ),
             (PyError::stopped(), "stopped", "Run stopped.", None),
+            (
+                PyError::internal("screen.pixel"),
+                "internal",
+                "MultiAlt hit an internal error while handling screen.pixel.",
+                Some("This is a bug in MultiAlt, not in your script. The run goes on; please report it."),
+            ),
         ];
         for (error, code, message, hint) in cases {
             assert_eq!(
