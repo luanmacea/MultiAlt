@@ -761,6 +761,8 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| match event {
             tauri::RunEvent::ExitRequested { .. } => {
+                // Para os scripts Python e solta tecla presa (não fecha cliente).
+                python::shutdown_on_exit();
                 // Antes da limpeza do Multi Roblox, que esvazia o rastreamento.
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
@@ -775,6 +777,7 @@ pub fn run() {
                 cleanup_multi_roblox_on_exit(app);
             }
             tauri::RunEvent::Exit => {
+                python::shutdown_on_exit();
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]
