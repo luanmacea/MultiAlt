@@ -186,6 +186,14 @@ Na parte Python:
 5. **Painel de execução**: contas (seleção e grupos), modo, gatilho, Run/Stop;
    lista **Running** (todas as execuções, de onde vieram: tela ou terminal);
    **log** por conta com os erros da seção 6 em destaque.
+5b. **Terminal de logs próprio** (pedido de 21/10/2026): um painel de terminal
+   **só desta tela** — componente novo, **não** reaproveita a página Console nem
+   os componentes dela. Fonte monoespaçada, rolagem que acompanha o fim (pausa
+   quando o usuário rola para cima), filtro por execução/conta/nível (log, warn,
+   error, sistema), busca, copiar, limpar, e os erros das travas (seção 6) em
+   destaque com a dica. Mostra também o que o app faz pela execução (instalação
+   do Python, início/fim, foco pego/solto, processo encerrado). Guarda as últimas
+   5 000 linhas por sessão.
 6. **Inspector** (ferramentas de ajuda): escolhe uma conta, mostra a captura da
    janela; passar o mouse mostra `x, y` (fração) e a cor; clicar copia o trecho
    (`account.click(0.52, 0.81)`, `account.wait_pixel(0.52, 0.81, (255, 200, 0))`);
