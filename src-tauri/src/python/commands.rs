@@ -260,43 +260,127 @@ pub fn python_save_run_config(config: PythonRunConfig) -> Result<(), String> {
     unavailable!()
 }
 
+/// Começa uma execução pelo app. Devolve o id.
 #[tauri::command]
 pub async fn python_start_run(app: tauri::AppHandle, config: PythonRunConfig) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return start_app_run(&app, config);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[cfg(feature = "python-scripts")]
+fn start_app_run(app: &tauri::AppHandle, config: PythonRunConfig) -> Result<String, String> {
+    use super::{runs, service, workspace};
+    workspace::validate_script_name(&config.script)?;
+    if config.accounts.is_empty() {
+        return Err("Pick at least one account".into());
+    }
+    if let PythonTrigger::Interval { minutes } = config.trigger {
+        if minutes == 0 {
+            return Err("The interval must be at least 1 minute".into());
+        }
+    }
+    let python_exe = super::runtime::python_exe(app)
+        .ok_or("Python is not installed yet. Click \"Install Python\" first.")?;
+    let root = ws_root();
+    service::prepare_workspace(app, &root)?;
+    if !workspace::script_path(&root, &config.script)?.is_file() {
+        return Err(format!("{} does not exist in scripts/", config.script));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<i64> = config.accounts.iter().copied().filter(|id| seen.insert(*id)).collect();
+    let accounts = service::account_views(app, &ids)?;
+    let svc = service::service(app);
+    let executor = std::sync::Arc::new(runs::ProcessExecutor {
+        python_exe,
+        workspace: root,
+    });
+    let id = svc.manager.start(config, accounts, "app", executor);
+    // Chacoalhar o mouse para as execuções (`Afk.ShakeToStop`).
+    #[cfg(target_os = "windows")]
+    crate::ensure_shake_watch(app);
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn python_stop_run(app: tauri::AppHandle, run_id: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::service::service(&app).manager.stop(&run_id);
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
 #[tauri::command]
-pub async fn python_stop_run(run_id: String) -> Result<(), String> {
+pub async fn python_stop_all_runs(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        super::service::service(&app).manager.stop_all();
+        return Ok(());
+    }
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
 #[tauri::command]
-pub async fn python_stop_all_runs() -> Result<(), String> {
-    unavailable!()
-}
-
-#[tauri::command]
-pub fn python_list_runs() -> Result<Vec<PythonRunInfo>, String> {
+pub fn python_list_runs(app: tauri::AppHandle) -> Result<Vec<PythonRunInfo>, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::service::service(&app).manager.list());
+    #[cfg(not(feature = "python-scripts"))]
     Ok(Vec::new())
 }
 
 #[tauri::command]
-pub fn python_get_dashboard() -> Result<Vec<DashboardSection>, String> {
+pub fn python_get_dashboard(app: tauri::AppHandle) -> Result<Vec<DashboardSection>, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::service::service(&app).dashboard.sections());
+    #[cfg(not(feature = "python-scripts"))]
     Ok(Vec::new())
 }
 
 #[tauri::command]
-pub fn python_clear_dashboard(script: String) -> Result<(), String> {
+pub fn python_clear_dashboard(app: tauri::AppHandle, script: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let svc = super::service::service(&app);
+        svc.dashboard.clear_section(&script);
+        let _ = svc.dashboard.save_if_dirty();
+        return Ok(());
+    }
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
+/// A captura da janela de uma conta (só cliente aberto pelo MultiAlt), para o
+/// inspetor. Imagem grande sai reduzida (as frações não mudam).
 #[tauri::command]
 pub async fn python_inspector_capture(user_id: i64) -> Result<InspectorFrame, String> {
+    #[cfg(feature = "python-scripts")]
+    return tokio::task::spawn_blocking(move || {
+        let (w, h, bgra) = super::inspector::capture_account(user_id)?;
+        super::inspector::frame(w, h, &bgra)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
+/// Salva o recorte `rect` (frações) da janela da conta em `assets/<name>`.
+/// Devolve o caminho salvo.
 #[tauri::command]
 pub async fn python_save_asset(user_id: i64, rect: FracRect, name: String) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return tokio::task::spawn_blocking(move || {
+        let root = ws_root();
+        let path = super::inspector::asset_path(&root, &name)?;
+        let (w, h, bgra) = super::inspector::capture_account(user_id)?;
+        super::inspector::save_crop(&path, w, h, &bgra, &rect)?;
+        Ok(path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
@@ -306,6 +390,9 @@ pub async fn python_set_developer_mode(app: tauri::AppHandle, enabled: bool) -> 
 }
 
 #[tauri::command]
-pub fn python_get_logs() -> Result<Vec<PythonLogLine>, String> {
+pub fn python_get_logs(app: tauri::AppHandle) -> Result<Vec<PythonLogLine>, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::service::service(&app).logs.all());
+    #[cfg(not(feature = "python-scripts"))]
     Ok(Vec::new())
 }
