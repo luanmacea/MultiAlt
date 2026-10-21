@@ -46,7 +46,7 @@ turns on the farm report in the Dashboard tab.
 3. **Never `time.sleep`.** Use `sleep(seconds)` from multialt: Stop wakes it up at once.
 4. **Every loop checks `stopped()`** (`while not stopped():`) and contains a `sleep`.
 5. **Never catch `Stopped`** and never write a bare `except:`. Catch specific `MultiAltError` subclasses and re-raise `Stopped`.
-6. Do not hold `with account.focused():` while sleeping for a long time: other accounts and AFK mode wait for the queue. Do the input, leave the block, then sleep.
+6. Keep `with account.focused():` short, one action at a time, and never sleep or wait for a pixel/image inside it: other accounts and AFK mode wait for the queue. Do the input, leave the block, then sleep or wait. In `all_together` each account waits for its turn as long as it takes; elsewhere `focused()` gives up after 20 s (`FocusTimeout`) unless you pass `timeout_ms`.
 7. Cookies and passwords are not available and never will be. Do not try to read them.
 8. Keys: A-Z, 0-9, Space, Shift, Up, Down, Left, Right only (no Enter, Esc, Tab, F-keys, Ctrl, Alt).
 

@@ -49,12 +49,19 @@ protocol object (you rarely need it).
 
 ### Focus
 
-#### `account.focused(timeout_ms=20000)`
+#### `account.focused(timeout_ms=None)`
 
 Context manager. Takes the focus queue, brings the account's window to the
 front and confirms it, runs your block, then releases the queue and puts back
-the window that was in front before. **All input must be inside it.**
-Raises `FocusTimeout` when the queue stays busy for `timeout_ms`. Nesting it
+the window that was in front before (only when nobody else is using or waiting
+for the queue; otherwise the last one to leave does it). **All input must be
+inside it.** Keep each block short, one action at a time: while you are inside
+it every other account, AFK mode and recordings wait. Wait for pixels and
+images outside it (`click_image` already does).
+
+How long it waits for the queue: with `timeout_ms`, that long, then
+`FocusTimeout`. Without it, 20 s — except in the `all_together` mode, where
+each account waits for its turn as long as it takes (until Stop). Nesting it
 for the same account is allowed (it reuses the lease); nesting it for another
 account raises `RuntimeError`.
 

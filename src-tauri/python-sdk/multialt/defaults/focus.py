@@ -21,21 +21,37 @@ before any input a script must:
 MultiAlt checks all of this on its side too: input without a lease is
 refused with ``no_focus_lease``, input to a window that is not in front with
 ``not_foreground``.
+
+Keep each ``with account.focused():`` short, one action (or a few keys) at a
+time: while you are inside it every other account, AFK mode and recordings
+wait. Wait for pixels and images *outside* the block (``click_image`` already
+does: it waits first and takes the queue only for the click).
+
+How long it waits for the queue: with ``timeout_ms`` you choose
+(``FocusTimeout`` after that). Without it, in the "all_together" mode a thread
+waits for its turn as long as it takes (until Stop): the other accounts of the
+same run are expected to hold the queue now and then. In the other modes the
+default is 20 s.
 """
 
 from __future__ import annotations
 
 import threading
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 
 from multialt._core import primitives
-from multialt._core.protocol import MultiAltError
+from multialt._core.protocol import FocusTimeout, MultiAltError
 
 # A lease expires after 30 s without a renewal (MultiAlt frees the queue so a
 # crashed script cannot hold it forever). We renew every 10 s while inside the
 # ``with`` so a long action keeps it.
 RENEW_EVERY_SECONDS = 10.0
+
+# Wait for the queue without ``timeout_ms`` outside "all_together".
+DEFAULT_TIMEOUT_MS = 20000
+# In "all_together" the wait has no end; it is asked in chunks this long.
+WAIT_CHUNK_MS = 60000
 
 # What this thread holds right now: a list of (user_id, lease) entries, so a
 # nested ``with account.focused()`` for the same account is a no-op.
@@ -70,11 +86,32 @@ class _Renewer:
         self._done.set()
 
 
+def _run_mode() -> str:
+    import multialt
+
+    return multialt.run_context().mode
+
+
+def _acquire(uid: int, timeout_ms: Optional[int]) -> str:
+    """Step 1: wait for the queue. See the module doc for how long."""
+    if timeout_ms is not None:
+        return primitives.focus_acquire(uid, timeout_ms)
+    if _run_mode() != "all_together":
+        return primitives.focus_acquire(uid, DEFAULT_TIMEOUT_MS)
+    while True:
+        try:
+            return primitives.focus_acquire(uid, WAIT_CHUNK_MS)
+        except FocusTimeout:
+            continue  # still another account's turn; Stop raises Stopped here
+
+
 @contextmanager
-def focused(account: Any, timeout_ms: int = 20000) -> Iterator[None]:
+def focused(account: Any, timeout_ms: Optional[int] = None) -> Iterator[None]:
     """Hold the focus queue with ``account``'s window in front for the ``with`` body.
 
-    ``timeout_ms`` is how long to wait for the queue (``FocusTimeout`` after that).
+    ``timeout_ms`` is how long to wait for the queue (``FocusTimeout`` after
+    that). Without it: until it is this thread's turn in "all_together", 20 s
+    otherwise.
     """
     stack = _stack()
     uid = account.user_id
@@ -90,7 +127,7 @@ def focused(account: Any, timeout_ms: int = 20000) -> Iterator[None]:
             "for the queue you already hold. Finish with one account before starting the next."
         )
 
-    lease = primitives.focus_acquire(uid, timeout_ms)  # waits for the queue (step 1)
+    lease = _acquire(uid, timeout_ms)  # waits for the queue (step 1)
     stack.append((uid, lease))
     renewer = _Renewer(lease)
     try:

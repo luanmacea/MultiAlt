@@ -167,6 +167,15 @@ o contador de quem espera). A volta roda segurando o lock, então ninguém entra
 no meio. Fila ocupada → `denied`, e a janela a devolver continua guardada: quem
 soltar por último devolve (`restore_focus_only_runs_when_the_queue_is_free`).
 
+Quanto o `account.focused()` (bloco `focus.py`) espera a vez: com
+`timeout_ms`, aquilo (depois `FocusTimeout`); sem, 20 s — menos no modo
+`all_together`, em que cada thread espera a vez o quanto for preciso, em
+pedaços de 60 s, até o Parar (antes as outras contas caíam com `FocusTimeout`
+quando uma segurava a fila por mais de 20 s;
+`test_all_together_waits_for_its_turn_as_long_as_it_takes`). A regra para quem
+escreve script é bloco curto, uma ação por vez, e esperar pixel/imagem fora
+dele (o `click_image` já espera fora e só pega a fila para o clique).
+
 ## Execuções
 
 Uma execução = script + contas + modo (`one_at_a_time` | `all_together`) +

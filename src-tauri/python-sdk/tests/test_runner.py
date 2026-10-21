@@ -199,6 +199,50 @@ class FocusTests(unittest.TestCase):
             pass
         self.assertEqual(self.fake.calls[0][1]["timeout_ms"], 500)
 
+    def _busy_for(self, times: int) -> None:
+        left = {"n": times}
+
+        def acquire(args: dict) -> dict:
+            if left["n"] > 0:
+                left["n"] -= 1
+                raise FocusTimeout("Waited for the focus queue.", "")
+            return {"lease": "L9"}
+
+        self.fake.handlers["focus.acquire"] = acquire
+
+    def test_all_together_waits_for_its_turn_as_long_as_it_takes(self) -> None:
+        multialt._begin_run({"event": "hello", "run": {"mode": "all_together"}, "accounts": []})
+        try:
+            # The other accounts hold the queue for longer than one wait: keep waiting.
+            self._busy_for(3)
+            with self.account.focused():
+                pass
+            self.assertEqual(self.fake.ops().count("focus.acquire"), 4)
+            self.assertIn("focus.release", self.fake.ops())
+            # An explicit timeout is still a timeout.
+            self._busy_for(1)
+            with self.assertRaises(FocusTimeout):
+                with self.account.focused(timeout_ms=500):
+                    pass
+            # Stop ends the wait.
+            def stop_while_waiting(args: dict) -> dict:
+                self.fake.request_stop()
+                raise FocusTimeout("Waited for the focus queue.", "")
+
+            self.fake.handlers["focus.acquire"] = stop_while_waiting
+            with self.assertRaises(Stopped):
+                with self.account.focused():
+                    pass
+        finally:
+            multialt._begin_run({"event": "hello", "run": {}, "accounts": []})
+
+    def test_one_at_a_time_keeps_the_20_second_timeout(self) -> None:
+        self._busy_for(1)
+        with self.assertRaises(FocusTimeout):
+            with self.account.focused():
+                pass
+        self.assertEqual(self.fake.calls[0][1]["timeout_ms"], 20000)
+
 
 class ActionTests(unittest.TestCase):
     def setUp(self) -> None:

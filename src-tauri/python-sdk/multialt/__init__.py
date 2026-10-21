@@ -105,11 +105,14 @@ class Account:
 
     # -- focus ----------------------------------------------------------
 
-    def focused(self, timeout_ms: int = 20000) -> AbstractContextManager[None]:
+    def focused(self, timeout_ms: Optional[int] = None) -> AbstractContextManager[None]:
         """Take the focus queue and bring this window to the front.
 
-        Wrap every key press and click in ``with account.focused():``. On exit
-        the queue is released and the window that was in front is restored.
+        Wrap every key press and click in ``with account.focused():``, and keep
+        the block short (one action): everybody else waits while you are in it.
+        On exit the queue is released and the window that was in front is
+        restored. ``timeout_ms`` caps the wait for the queue (``FocusTimeout``);
+        without it the wait is 20 s, or until your turn in "all_together".
         """
         from .defaults import focus
 

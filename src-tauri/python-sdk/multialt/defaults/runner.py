@@ -13,7 +13,8 @@ MultiAlt starts one Python process for the run. The host
 * ``"all_together"``  - every account runs ``main`` at the same time, each in
   its own thread. The threads do NOT all type at once: input goes through the
   single focus queue (``with account.focused():`` in ``focus.py``), so each
-  account takes its turn bringing its window to the front.
+  account takes its turn bringing its window to the front, and waits for that
+  turn as long as it takes. Keep each ``with account.focused():`` short.
 
 Which function of your script is called
 ---------------------------------------
