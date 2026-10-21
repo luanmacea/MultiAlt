@@ -567,6 +567,22 @@ mod python_runtime_tests {
         cursor.into_inner()
     }
 
+    fn fake_pip_wheel() -> Vec<u8> {
+        use std::io::Write;
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut cursor);
+            let options = zip::write::FileOptions::default();
+            zip.start_file("pip/__init__.py", options).unwrap();
+            zip.write_all(b"__version__ = '25.1.1'
+").unwrap();
+            zip.start_file("pip-25.1.1.dist-info/RECORD", options).unwrap();
+            zip.write_all(b"").unwrap();
+            zip.finish().unwrap();
+        }
+        cursor.into_inner()
+    }
+
     async fn serve(server: &MockServer, route: &str, body: Vec<u8>) {
         Mock::given(method("GET"))
             .and(path(route))
@@ -579,12 +595,14 @@ mod python_runtime_tests {
         let zip = fake_embeddable_zip();
         let zip_hash = python_hash.map(str::to_string).unwrap_or_else(|| sha256_hex(&zip));
         serve(server, "/python.zip", zip).await;
-        serve(server, "/pip.whl", b"pip wheel".to_vec()).await;
+        let pip = fake_pip_wheel();
+        let pip_hash = sha256_hex(&pip);
+        serve(server, "/pip.whl", pip).await;
         serve(server, "/numpy.whl", b"numpy wheel".to_vec()).await;
         RuntimeSpec {
             python_version: "3.12.10".into(),
             python: Artifact::new("python.zip", &format!("{}/python.zip", server.uri()), &zip_hash),
-            pip: Artifact::new("pip.whl", &format!("{}/pip.whl", server.uri()), &sha256_hex(b"pip wheel")),
+            pip: Artifact::new("pip.whl", &format!("{}/pip.whl", server.uri()), &pip_hash),
             packages: vec![Package {
                 name: "numpy".into(),
                 version: "2.2.6".into(),
@@ -670,6 +688,7 @@ mod python_runtime_tests {
         assert!(!base.0.join("evil.txt").exists() && !base.0.join(CURRENT).join("..").join("evil.txt").exists());
         let pth = std::fs::read_to_string(base.0.join(CURRENT).join("python312._pth")).unwrap();
         assert!(pth.contains(&ws.0.to_string_lossy().to_string()));
+        assert!(base.0.join(CURRENT).join("Lib").join("site-packages").join("pip").join("__init__.py").is_file());
 
         let calls = runner.calls.lock().unwrap().clone();
         assert_eq!(calls.len(), 2);
