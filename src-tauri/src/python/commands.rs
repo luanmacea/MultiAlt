@@ -90,77 +90,173 @@ async fn install_runtime(app: tauri::AppHandle) -> Result<(), String> {
     result
 }
 
+#[cfg(feature = "python-scripts")]
+fn ws_root() -> std::path::PathBuf {
+    crate::data::settings::get_python_workspace_dir()
+}
+
+#[cfg(feature = "python-scripts")]
+fn developer_mode_on(app: &tauri::AppHandle) -> bool {
+    use tauri::Manager;
+    app.state::<crate::data::settings::SettingsStore>()
+        .get_bool("Python", "DeveloperMode")
+}
+
+/// O comando que a tela mostra para rodar um script pelo terminal.
+#[cfg(feature = "python-scripts")]
+pub fn cli_command(python_exe: Option<&std::path::Path>) -> String {
+    let exe = python_exe
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "python".into());
+    format!("\"{exe}\" -m multialt run scripts/farm.py --account Main_01 --mode one_at_a_time")
+}
+
 #[tauri::command]
 pub async fn python_workspace_info(app: tauri::AppHandle) -> Result<PythonWorkspaceInfo, String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        let exe = super::runtime::python_exe(&app);
+        return Ok(PythonWorkspaceInfo {
+            root: root.to_string_lossy().to_string(),
+            scripts_dir: root.join(super::workspace::SCRIPTS_DIR).to_string_lossy().to_string(),
+            assets_dir: root.join(super::workspace::ASSETS_DIR).to_string_lossy().to_string(),
+            python_exe: exe.as_ref().map(|p| p.to_string_lossy().to_string()),
+            cli_command: cli_command(exe.as_deref()),
+        });
+    }
+    #[cfg(not(feature = "python-scripts"))]
     Ok(PythonWorkspaceInfo::default())
 }
 
 #[tauri::command]
 pub fn python_list_scripts() -> Result<Vec<PythonScriptFile>, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::list_scripts(&ws_root());
+    #[cfg(not(feature = "python-scripts"))]
     Ok(Vec::new())
 }
 
 #[tauri::command]
 pub fn python_read_script(name: String) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::read_script(&ws_root(), &name);
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
 #[tauri::command]
 pub fn python_write_script(name: String, source: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::write_script(&ws_root(), &name, &source);
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
+/// `template`: "blank" | "per_account" | "controller" | "dashboard".
 #[tauri::command]
 pub fn python_create_script(name: String, template: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        return super::workspace::create_script(&root, &name, &template);
+    }
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
 #[tauri::command]
 pub fn python_delete_script(name: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::delete_script(&ws_root(), &name);
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
 #[tauri::command]
 pub fn python_list_default_blocks() -> Result<Vec<DefaultBlockInfo>, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::list_blocks(&ws_root());
+    #[cfg(not(feature = "python-scripts"))]
     Ok(Vec::new())
 }
 
 #[tauri::command]
 pub fn python_read_default_block(name: String) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::read_block(&ws_root(), &name);
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
+/// Só com o Modo desenvolvedor ligado.
 #[tauri::command]
 pub fn python_write_default_block(
     app: tauri::AppHandle,
     name: String,
     source: String,
 ) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        if !developer_mode_on(&app) {
+            return Err(super::workspace::DEVELOPER_MODE_OFF.into());
+        }
+        return super::workspace::write_block(&ws_root(), &name, &source);
+    }
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
+/// Restaura **um** bloco (a tela confirma antes).
 #[tauri::command]
 pub fn python_restore_default_block(name: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::restore_block(&ws_root(), &name);
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
 #[tauri::command]
 pub fn python_open_workspace_folder() -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        return super::workspace::open_folder(&root);
+    }
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
 #[tauri::command]
 pub fn python_open_in_editor(name: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let path = super::workspace::script_path(&ws_root(), &name)?;
+        if !path.is_file() {
+            return Err(format!("{name} does not exist"));
+        }
+        return super::workspace::open_in_editor(&path);
+    }
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
 #[tauri::command]
 pub fn python_get_run_configs() -> Result<HashMap<String, PythonRunConfig>, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::workspace::load_run_configs(&ws_root()));
+    #[cfg(not(feature = "python-scripts"))]
     Ok(HashMap::new())
 }
 
 #[tauri::command]
 pub fn python_save_run_config(config: PythonRunConfig) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::save_run_config(&ws_root(), &config);
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 

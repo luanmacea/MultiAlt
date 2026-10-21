@@ -12,6 +12,8 @@ pub mod errors;
 #[cfg(feature = "python-scripts")]
 pub mod runtime;
 pub mod types;
+#[cfg(feature = "python-scripts")]
+pub mod workspace;
 
 /// Para todas as execuções Python (o chacoalhar do mouse, `Afk.ShakeToStop`).
 /// Devolve quantas receberam o parar.
