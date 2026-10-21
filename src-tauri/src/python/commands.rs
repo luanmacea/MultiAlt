@@ -393,18 +393,40 @@ pub async fn python_save_asset(user_id: i64, rect: FracRect, name: String, frame
 }
 
 /// Liga/desliga o Modo desenvolvedor: grava `Python.DeveloperMode` e abre ou
-/// fecha o canal do terminal.
+/// fecha o canal do terminal. Se o canal não abre (ou não fecha), a gravação
+/// é desfeita: o que fica gravado é o que está valendo.
 #[tauri::command]
 pub async fn python_set_developer_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     #[cfg(feature = "python-scripts")]
     {
         use tauri::Manager;
-        app.state::<crate::data::settings::SettingsStore>()
-            .set("Python", "DeveloperMode", if enabled { "true" } else { "false" })?;
-        return super::apply_developer_mode(&app, enabled);
+        let settings = app.state::<crate::data::settings::SettingsStore>();
+        let previous = settings.get_bool("Python", "DeveloperMode");
+        return persist_then_apply(
+            previous,
+            enabled,
+            &mut |value| settings.set("Python", "DeveloperMode", if value { "true" } else { "false" }),
+            &mut |value| super::apply_developer_mode(&app, value),
+        );
     }
     #[cfg(not(feature = "python-scripts"))]
     unavailable!()
+}
+
+/// Grava `enabled`, aplica, e volta a gravar `previous` se aplicar falhou.
+#[cfg(feature = "python-scripts")]
+fn persist_then_apply(
+    previous: bool,
+    enabled: bool,
+    save: &mut dyn FnMut(bool) -> Result<(), String>,
+    apply: &mut dyn FnMut(bool) -> Result<(), String>,
+) -> Result<(), String> {
+    save(enabled)?;
+    if let Err(error) = apply(enabled) {
+        let _ = save(previous);
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -413,4 +435,41 @@ pub fn python_get_logs(app: tauri::AppHandle) -> Result<Vec<PythonLogLine>, Stri
     return Ok(super::service::service(&app).logs.all());
     #[cfg(not(feature = "python-scripts"))]
     Ok(Vec::new())
+}
+
+#[cfg(all(test, feature = "python-scripts"))]
+mod python_commands_tests {
+    use super::*;
+
+    /// Ligar o Modo desenvolvedor e o canal não abrir (nome de pipe ocupado,
+    /// workspace sem escrita) não pode deixar `DeveloperMode = true` gravado:
+    /// no próximo boot o app tentaria abrir o canal que a pessoa viu falhar.
+    #[test]
+    fn developer_mode_is_rolled_back_when_it_cannot_be_applied() {
+        let mut stored = false;
+        let failing = persist_then_apply(
+            stored,
+            true,
+            &mut |value| {
+                stored = value;
+                Ok(())
+            },
+            &mut |_| Err("Could not open the terminal channel: busy".to_string()),
+        );
+        assert_eq!(failing.unwrap_err(), "Could not open the terminal channel: busy");
+        assert!(!stored, "the setting goes back to what it was");
+
+        let mut stored = false;
+        persist_then_apply(
+            stored,
+            true,
+            &mut |value| {
+                stored = value;
+                Ok(())
+            },
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+        assert!(stored);
+    }
 }

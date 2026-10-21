@@ -299,6 +299,10 @@ desconhecida responde `{"error":{"message","hint"}}` e fecha; aceito, recebe o
 terminal, uma rodada só — o laço é do script). Sem a feature `python-dev-pipe`
 o modo ainda libera os blocos e o log avisa que o canal não existe na build. É a
 única exceção nova à regra "só comandos Tauri" ([architecture.md](../architecture.md)).
+Ligar e o canal não abrir (ou desligar e ele não fechar) desfaz a gravação do
+`Python.DeveloperMode` (`persist_then_apply`,
+`developer_mode_is_rolled_back_when_it_cannot_be_applied`): antes ficava
+`true` gravado e o boot seguinte tentava abrir o canal de novo.
 
 ## Testes
 
@@ -361,3 +365,13 @@ imagem preta (não erro) — conferir no primeiro teste com cliente real.
   conexão do CLI), e por isso o `cli.start` com `interval` é **recusado** com
   dica ("Terminal runs do not repeat every N minutes."; o CLI já recusa
   `--trigger interval:<min>` antes de conectar) — antes era aceito e ignorado.
+- Contrato mudado na revisão de 21/10/2026 (o plano ainda mostra o antigo):
+  `InspectorFrame` ganhou `frameId` (`frame_id: u64`);
+  `python_save_asset(userId, rect, name, frameId)`; o evento `python-log` leva
+  um **array** de `PythonLogLine` (a tela aceita também uma linha);
+  código de erro novo `internal`; `account.focused(timeout_ms=None)` (antes
+  `20000`; sem valor, 20 s ou a vez no `all_together`); `python_start_run` e o
+  `cli.start` recusam script já rodando ("This script is already running. Stop
+  it first."); `python_install_runtime`/`python_reinstall_runtime` recusam com
+  execução viva; a mensagem do `forbidden` é "Not available through MultiAlt's
+  API: cookies and passwords are never sent to scripts.".
