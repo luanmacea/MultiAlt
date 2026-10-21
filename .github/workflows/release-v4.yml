@@ -231,6 +231,9 @@ jobs:
           # 08/10/2026). Para tira-la da padrao: "false" aqui e `avatar-batch`
           # fora da feature `standard` do Cargo.toml (ver release-workflow.test.mjs).
           VITE_ENABLE_AVATAR_BATCH: "true"
+          # Automação do Roblox Player em Python: nas duas edições enquanto
+          # `python-scripts` estiver na feature `standard` do Cargo.toml.
+          VITE_ENABLE_PYTHON_SCRIPTS: "true"
         with:
           projectPath: "."
           tauriScript: "bun tauri"
@@ -332,6 +335,7 @@ jobs:
           VITE_ENABLE_NEXUS: "true"
           VITE_ENABLE_WEBSERVER: "true"
           VITE_ENABLE_AVATAR_BATCH: "true"
+          VITE_ENABLE_PYTHON_SCRIPTS: "true"
         run: |
           bun tauri build -- --features full
 
