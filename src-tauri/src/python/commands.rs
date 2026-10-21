@@ -64,6 +64,10 @@ async fn install_runtime(app: tauri::AppHandle) -> Result<(), String> {
     let workspace = crate::data::settings::get_python_workspace_dir();
     let emitter = app.clone();
     let mut on_progress = move |p: PythonInstallProgress| {
+        // Os passos também vão para o terminal da tela (linhas `system`).
+        if let Some(line) = runtime::install_log_line(&p) {
+            super::service::system_log(&emitter, None, line);
+        }
         let _ = emitter.emit("python-install-progress", p);
     };
     // O pip roda bloqueando (minutos): a instalação inteira vai para uma
@@ -81,6 +85,7 @@ async fn install_runtime(app: tauri::AppHandle) -> Result<(), String> {
     .await
     .unwrap_or_else(|e| Err(format!("The install stopped unexpectedly: {e}")));
     if let Err(error) = &result {
+        super::service::system_log(&app, None, format!("Python install failed: {error}"));
         let _ = app.emit(
             "python-install-progress",
             PythonInstallProgress {

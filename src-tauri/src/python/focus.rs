@@ -132,9 +132,10 @@ impl FocusQueue {
         }
     }
 
-    /// Solta o lease (e as teclas que ficaram apertadas). Lease que não é desta
-    /// execução — ou que o vigia já soltou — não é erro: não há o que soltar.
-    pub fn release(&self, run_id: &str, lease_id: &str, desk: &dyn Desk) -> Vec<String> {
+    /// Solta o lease (e as teclas que ficaram apertadas): devolve a conta e as
+    /// teclas soltas. Lease que não é desta execução — ou que o vigia já
+    /// soltou — não é erro: não há o que soltar (`None`).
+    pub fn release(&self, run_id: &str, lease_id: &str, desk: &dyn Desk) -> Option<(i64, Vec<String>)> {
         let taken = {
             let mut slot = self.lease.lock().unwrap();
             match slot.as_ref() {
@@ -142,7 +143,10 @@ impl FocusQueue {
                 _ => None,
             }
         };
-        taken.map(|lease| release_keys(lease, desk)).unwrap_or_default()
+        taken.map(|lease| {
+            let user_id = lease.user_id;
+            (user_id, release_keys(lease, desk))
+        })
     }
 
     /// A fila livre de verdade — sem lease, sem ciclo do AFK ou gravação e sem

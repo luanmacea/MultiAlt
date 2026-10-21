@@ -75,7 +75,6 @@ pub fn live_view(desk: &dyn Desk, account: &AccountView) -> AccountView {
 }
 
 /// Estado de uma execução que as primitivas precisam lembrar entre chamadas.
-#[derive(Default)]
 pub struct RunState {
     /// Contas que acabaram de ser trazidas para frente: o próximo clique delas
     /// leva o clique de foco.
@@ -89,6 +88,79 @@ pub struct RunState {
     frames: VecDeque<crate::platform::windows::SharedFrame>,
     #[cfg(not(target_os = "windows"))]
     frames: VecDeque<()>,
+    /// As linhas "Focus taken/released" saem no máximo uma vez por isto.
+    pub focus_log_every: Duration,
+    focus_logged_at: Option<std::time::Instant>,
+    /// Vezes que a fila foi pega sem linha no terminal (contadas na próxima).
+    focus_not_shown: u32,
+    /// O lease cuja vez saiu no terminal (a soltura dele sai também).
+    focus_logged_lease: Option<(String, std::time::Instant)>,
+}
+
+impl Default for RunState {
+    fn default() -> Self {
+        Self {
+            focus_click_pending: HashSet::new(),
+            return_to: None,
+            cycle: Vec::new(),
+            frame_seq: 0,
+            frames: VecDeque::new(),
+            focus_log_every: Duration::from_secs(1),
+            focus_logged_at: None,
+            focus_not_shown: 0,
+            focus_logged_lease: None,
+        }
+    }
+}
+
+impl RunState {
+    /// A linha da vez pega, se esta vez aparece no terminal.
+    fn focus_taken_line(&mut self, lease: &str) -> Option<String> {
+        let now = std::time::Instant::now();
+        let due = self
+            .focus_logged_at
+            .is_none_or(|at| now.saturating_duration_since(at) >= self.focus_log_every);
+        if !due {
+            self.focus_not_shown += 1;
+            return None;
+        }
+        self.focus_logged_at = Some(now);
+        self.focus_logged_lease = Some((lease.to_string(), now));
+        let skipped = std::mem::take(&mut self.focus_not_shown);
+        Some(match skipped {
+            0 => "Focus taken.".to_string(),
+            1 => "Focus taken (1 turn not shown).".to_string(),
+            n => format!("Focus taken ({n} turns not shown)."),
+        })
+    }
+
+    /// A linha da soltura, se a vez dela apareceu.
+    fn focus_released_line(&mut self, lease: &str, keys: &[String]) -> Option<String> {
+        match &self.focus_logged_lease {
+            Some((id, at)) if id == lease => {
+                let ms = at.elapsed().as_millis();
+                self.focus_logged_lease = None;
+                Some(if keys.is_empty() {
+                    format!("Focus released after {ms} ms.")
+                } else {
+                    format!("Focus released after {ms} ms (released keys: {}).", keys.join(", "))
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+fn focus_line(ctx: &RunCtx, user_id: Option<i64>, message: String) {
+    ctx.sink.log(PythonLogLine {
+        run_id: Some(ctx.run_id.clone()),
+        user_id,
+        level: "system".into(),
+        message,
+        code: Some("focus".into()),
+        hint: None,
+        ts: super::types::now_ms(),
+    });
 }
 
 /// Quantos quadros de captura ficam vivos por execução (no modo "todas juntas"
@@ -384,6 +456,10 @@ pub async fn dispatch(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyEr
             member(ctx, user_id)?;
             let timeout = arg_u64_or(op, &args, "timeout_ms", 20_000, 600_000)?;
             let lease = ctx.focus.acquire(&ctx.run_id, user_id, timeout, &ctx.stop).await?;
+            let line = ctx.state.lock().unwrap().focus_taken_line(&lease);
+            if let Some(line) = line {
+                focus_line(ctx, Some(user_id), line);
+            }
             Ok(json!({ "lease": lease }))
         }
         "focus.renew" => {
@@ -393,7 +469,12 @@ pub async fn dispatch(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyEr
         }
         "focus.release" => {
             let lease = arg_str(op, &args, "lease")?;
-            ctx.focus.release(&ctx.run_id, lease, ctx.desk.as_ref());
+            if let Some((user_id, keys)) = ctx.focus.release(&ctx.run_id, lease, ctx.desk.as_ref()) {
+                let line = ctx.state.lock().unwrap().focus_released_line(lease, &keys);
+                if let Some(line) = line {
+                    focus_line(ctx, Some(user_id), line);
+                }
+            }
             Ok(json!(true))
         }
         "window.bring_forward" => {
@@ -950,6 +1031,41 @@ pub mod python_primitives_tests {
     }
 
     const LEASE_IDLE_PLUS: u64 = super::super::focus::LEASE_IDLE_MS + 1_000;
+
+    /// Pegar e soltar a fila aparece no terminal, no máximo uma vez por
+    /// segundo por execução (um laço que pega a fila a cada ação não inunda o
+    /// log); as vezes puladas são contadas na linha seguinte.
+    #[tokio::test]
+    async fn focus_turns_are_logged_without_flooding() {
+        let desk = FakeDesk::with_window(1, 11);
+        let sink = Arc::new(NullSink::default());
+        let ctx = RunCtx::new("r1", vec![account(1, "Main_01")], Arc::new(AtomicBool::new(false)), sink.clone(), desk, own_queue());
+        for _ in 0..3 {
+            let id = lease(&ctx, 1).await;
+            dispatch(&ctx, "focus.release", json!({"lease": id})).await.unwrap();
+        }
+        let focus_lines = |sink: &NullSink| -> Vec<(Option<i64>, String, String)> {
+            sink.lines
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|l| l.code.as_deref() == Some("focus"))
+                .map(|l| (l.user_id, l.level.clone(), l.message.clone()))
+                .collect()
+        };
+        let lines = focus_lines(&sink);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert_eq!(lines[0], (Some(1), "system".to_string(), "Focus taken.".to_string()));
+        assert!(lines[1].2.starts_with("Focus released after "), "{lines:?}");
+        // Passado o intervalo, a próxima vez aparece e diz quantas não apareceram.
+        ctx.state.lock().unwrap().focus_log_every = Duration::ZERO;
+        let id = lease(&ctx, 1).await;
+        dispatch(&ctx, "focus.release", json!({"lease": id})).await.unwrap();
+        let lines = focus_lines(&sink);
+        assert_eq!(lines[2].2, "Focus taken (2 turns not shown).");
+        assert!(lines[3].2.starts_with("Focus released after "));
+        assert_eq!(lines.len(), 4);
+    }
 
     /// `accounts` é o estado de agora, não o do começo da execução: cliente que
     /// abriu ou fechou e o jogo/servidor em que está.

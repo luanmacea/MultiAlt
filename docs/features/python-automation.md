@@ -198,6 +198,12 @@ até o usuário parar; a execução fica `waiting` com `next_run_ms`. As 30 últ
 terminadas continuam na lista. O log guarda as últimas 5 000 linhas
 (`python_get_logs`) e cada linha sai também em `python-log`; trava sai com nível
 `blocked`, `code` e `hint`; `run.status` vira linha `system` "Status: ...".
+Linhas `system` também para a fila de foco (`code: "focus"`, com a conta):
+"Focus taken." e "Focus released after N ms." (com as teclas soltas, se houve),
+**no máximo uma vez por segundo por execução** — as vezes puladas viram
+"(N turns not shown)" na próxima (`focus_turns_are_logged_without_flooding`); e
+para a instalação do Python: começo e fim de cada download, a saída do pip, o
+pronto e o erro, sem o andamento a cada MB (`install_log_line`).
 
 **Fechar o MultiAlt** com execução viva (`RunEvent::ExitRequested`/`Exit` →
 `python::shutdown_on_exit`, uma vez só): para todas, espera até 1 s elas saírem

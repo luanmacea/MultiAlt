@@ -345,6 +345,23 @@ fn progress(stage: &str, message: impl Into<String>, downloaded: u64, total: u64
     }
 }
 
+/// A linha `system` do terminal para um passo da instalação: começo e fim de
+/// cada download, as conferências, a saída do pip, o pronto e o erro. O
+/// andamento do download (a cada MB) fica só no cartão.
+pub fn install_log_line(p: &PythonInstallProgress) -> Option<String> {
+    let message = p.message.trim();
+    if message.is_empty() {
+        return None;
+    }
+    if p.stage == "error" {
+        return Some(format!("Python install failed: {message}"));
+    }
+    if p.downloaded > 0 && !message.starts_with("Verified") {
+        return None;
+    }
+    Some(format!("Python install: {message}"))
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::Digest;
     let digest = sha2::Sha256::digest(bytes);
@@ -759,6 +776,23 @@ mod python_runtime_tests {
         std::fs::create_dir_all(&fresh_home).unwrap();
         swap_in_runtime(&fresh_home, &fresh.0.join(CURRENT)).unwrap();
         assert!(fresh.0.join(CURRENT).is_dir());
+    }
+
+    #[test]
+    fn install_stages_reach_the_terminal_without_every_chunk() {
+        let line = |stage: &str, message: &str, downloaded: u64, total: u64| {
+            install_log_line(&progress(stage, message, downloaded, total))
+        };
+        assert_eq!(
+            line("python", "Downloading python.zip", 0, 11_000_000).as_deref(),
+            Some("Python install: Downloading python.zip")
+        );
+        assert_eq!(line("python", "Downloading python.zip", 3_000_000, 11_000_000), None, "chunks stay in the card");
+        assert_eq!(line("python", "Verified python.zip", 11_000_000, 11_000_000).as_deref(), Some("Python install: Verified python.zip"));
+        assert_eq!(line("packages", "Successfully installed numpy-2.2.6", 0, 0).as_deref(), Some("Python install: Successfully installed numpy-2.2.6"));
+        assert_eq!(line("ready", "Python 3.12.10 is ready", 0, 0).as_deref(), Some("Python install: Python 3.12.10 is ready"));
+        assert_eq!(line("error", "boom", 0, 0).as_deref(), Some("Python install failed: boom"));
+        assert_eq!(line("pip", "   ", 0, 0), None);
     }
 
     #[test]
