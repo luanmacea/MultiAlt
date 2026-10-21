@@ -573,12 +573,16 @@ pub async fn dispatch(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyEr
                     sleep_or_stop(ctx, delay).await?;
                     input_gate(ctx, user_id)?;
                 }
+                // Registradas no lease como as do `key_down`: se o pedido morre
+                // no meio do toque, o fim da execução as solta.
                 for key in keys {
                     ctx.desk.key(key, false);
+                    ctx.focus.note_key_down(&ctx.run_id, key);
                 }
                 tokio::time::sleep(Duration::from_millis(15)).await;
                 for key in keys.iter().rev() {
                     ctx.desk.key(key, true);
+                    ctx.focus.note_key_up(&ctx.run_id, key);
                 }
             }
             Ok(json!(true))
@@ -1167,6 +1171,33 @@ pub mod python_primitives_tests {
             vec!["down:Shift", "down:H", "up:H", "up:Shift", "down:I", "up:I", "down:Space", "up:Space", "down:1", "up:1"]
         );
         assert_eq!(code(dispatch(&ctx, "input.key", json!({"user_id": 1, "key": "Enter"})).await), "unsupported_key");
+    }
+
+    /// Uma tecla de `type_text` apertada quando o pedido morre no meio (o canal
+    /// caiu e a task foi abortada) é solta no fim da execução, como as do
+    /// `key_down`.
+    #[tokio::test]
+    async fn type_text_keys_are_released_if_the_request_dies() {
+        let desk = FakeDesk::with_window(1, 11);
+        *desk.front.lock().unwrap() = 11;
+        let ctx = Arc::new(ctx_with(desk.clone(), own_queue()));
+        lease(&ctx, 1).await;
+        let typing = {
+            let ctx = ctx.clone();
+            tokio::spawn(async move {
+                // Sem atraso entre letras: quase todo o tempo é a tecla apertada.
+                dispatch(&ctx, "input.type_text", json!({"user_id": 1, "text": "A".repeat(500), "delay_ms": 0})).await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        typing.abort();
+        let _ = typing.await;
+        ctx.finish();
+        let sent = desk.sent();
+        let downs = sent.iter().filter(|s| s.starts_with("down:")).count();
+        let ups = sent.iter().filter(|s| s.starts_with("up:")).count();
+        assert!(downs > 0);
+        assert_eq!(downs, ups, "every key that went down came back up: {:?}", &sent[sent.len().saturating_sub(6)..]);
     }
 
     #[cfg(target_os = "windows")]

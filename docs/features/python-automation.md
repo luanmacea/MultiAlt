@@ -150,7 +150,9 @@ ao mesmo tempo). `screen.pixel` é um ponto dessa captura.
   mesmo retrato do começo.
 - Teclas só da lista das Gravações (`RECORDING_KEYS`); `type_text` só letra
   (maiúscula com Shift), dígito e espaço, e confere tudo antes de mandar a
-  primeira tecla. Envio pelas portas do `input.rs` (`press_recording_key`,
+  primeira tecla; cada tecla dele fica registrada no lease enquanto está
+  apertada, como as do `key_down`, para o fim da execução soltá-la se o pedido
+  morrer no meio (`type_text_keys_are_released_if_the_request_dies`). Envio pelas portas do `input.rs` (`press_recording_key`,
   `click_recording_point`); o primeiro clique depois de cada `bring_forward`
   leva o clique de foco.
 - Depois do Parar só passam `run.stopped/log/status`, `focus.release`,
