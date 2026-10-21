@@ -70,7 +70,9 @@ const BLOCKS = ["runner.py", "focus.py", "vision.py", "actions.py", "dashboard.p
 const PACKAGES = ["numpy 2.1.3", "opencv-python-headless 4.10.0"];
 
 /** Uma captura de janela fingindo ser o Roblox: gradiente, um botão amarelo e um texto. */
-function fakeWindowPng(): { width: number; height: number; pngBase64: string } {
+let fakeFrameId = 0;
+
+function fakeWindowPng(): { width: number; height: number; pngBase64: string; frameId: number } {
   const width = 960;
   const height = 540;
   const canvas = document.createElement("canvas");
@@ -94,7 +96,8 @@ function fakeWindowPng(): { width: number; height: number; pngBase64: string } {
     ctx.fillRect(width * 0.04, height * 0.05, width * 0.2, height * 0.05);
   }
   const url = canvas.toDataURL("image/png");
-  return { width, height, pngBase64: url.slice(url.indexOf(",") + 1) };
+  fakeFrameId += 1;
+  return { width, height, pngBase64: url.slice(url.indexOf(",") + 1), frameId: fakeFrameId };
 }
 
 interface Options {

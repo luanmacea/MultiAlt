@@ -1,8 +1,13 @@
 // O inspetor da tela Python: mostra a captura da janela de uma conta (para
 // copiar ponto e cor em frações) e salva recortes em `assets/` para o
-// `find_image`. Só cliente aberto pelo MultiAlt; só lê pixels.
+// `find_image`. Só cliente aberto pelo MultiAlt; só lê pixels. O recorte sai
+// do **último quadro mostrado** da conta (guardado aqui com um id), não de uma
+// captura nova: a janela pode ter mudado entre o Capture e o arrastar.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 use super::primitives::{Desk, RealDesk};
 use super::types::{FracRect, InspectorFrame};
@@ -10,8 +15,44 @@ use super::types::{FracRect, InspectorFrame};
 /// Largura máxima da imagem que vai para a tela (as frações não mudam).
 pub const INSPECTOR_MAX_WIDTH: u32 = 1280;
 
-pub fn capture_account(user_id: i64) -> Result<(u32, u32, Vec<u8>), String> {
-    capture_with(&RealDesk, user_id)
+/// O último quadro mostrado de cada conta, em resolução cheia.
+#[derive(Default)]
+pub struct FrameCache {
+    seq: AtomicU64,
+    frames: Mutex<HashMap<i64, (u64, u32, u32, Vec<u8>)>>,
+}
+
+const FRAME_GONE: &str = "That capture is no longer available. Capture again, then select the area.";
+
+impl FrameCache {
+    /// Captura, guarda como o quadro da conta e devolve o que a tela mostra.
+    pub fn capture(&self, desk: &dyn Desk, user_id: i64) -> Result<InspectorFrame, String> {
+        let (w, h, bgra) = capture_with(desk, user_id)?;
+        let mut shown = frame(w, h, &bgra)?;
+        let id = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
+        shown.frame_id = id;
+        self.frames.lock().unwrap().insert(user_id, (id, w, h, bgra));
+        Ok(shown)
+    }
+
+    /// Salva o recorte do quadro `frame_id` da conta (só o último dela vale).
+    pub fn save(&self, user_id: i64, frame_id: u64, rect: &FracRect, path: &Path) -> Result<(), String> {
+        let frames = self.frames.lock().unwrap();
+        match frames.get(&user_id) {
+            Some((id, w, h, bgra)) if *id == frame_id => save_crop(path, *w, *h, bgra, rect),
+            _ => Err(FRAME_GONE.into()),
+        }
+    }
+}
+
+/// Os quadros do inspetor do app.
+pub fn frames() -> &'static FrameCache {
+    static FRAMES: std::sync::LazyLock<FrameCache> = std::sync::LazyLock::new(FrameCache::default);
+    &FRAMES
+}
+
+pub fn capture_frame(user_id: i64) -> Result<InspectorFrame, String> {
+    frames().capture(&RealDesk, user_id)
 }
 
 fn capture_with(desk: &dyn Desk, user_id: i64) -> Result<(u32, u32, Vec<u8>), String> {
@@ -63,6 +104,7 @@ pub fn frame(w: u32, h: u32, bgra: &[u8]) -> Result<InspectorFrame, String> {
         width: ow,
         height: oh,
         png_base64: base64::engine::general_purpose::STANDARD.encode(png),
+        frame_id: 0,
     })
 }
 
@@ -145,6 +187,39 @@ mod python_inspector_tests {
         for bad in ["../x.png", "a/b.png", "x.jpg", "", ".png", "a b.png", "x.png.exe"] {
             assert!(asset_path(root, bad).is_err(), "{bad:?}");
         }
+    }
+
+    /// O recorte sai da imagem que a pessoa viu, não de uma captura nova (a
+    /// janela já pode ter mudado entre o Capture e o arrastar).
+    #[test]
+    fn the_asset_is_cut_from_the_frame_on_screen() {
+        let desk = FakeDesk::default();
+        desk.windows.lock().unwrap().insert(1, 11);
+        let red: Vec<u8> = (0..4 * 4).flat_map(|_| [0u8, 0, 255, 255]).collect();
+        let blue: Vec<u8> = (0..4 * 4).flat_map(|_| [255u8, 0, 0, 255]).collect();
+        *desk.image.lock().unwrap() = Some((4, 4, red));
+        let cache = FrameCache::default();
+        let shown = cache.capture(&desk, 1).unwrap();
+        // A janela mudou depois do Capture.
+        *desk.image.lock().unwrap() = Some((4, 4, blue));
+        let dir = std::env::temp_dir().join(format!(
+            "ram-pyframe-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let path = asset_path(&dir, "btn").unwrap();
+        let rect = FracRect { x: 0.0, y: 0.0, w: 0.5, h: 0.5 };
+        cache.save(1, shown.frame_id, &rect, &path).unwrap();
+        let decoder = png::Decoder::new(std::fs::File::open(&path).unwrap());
+        let mut reader = decoder.read_info().unwrap();
+        let mut buf = vec![0; reader.output_buffer_size()];
+        reader.next_frame(&mut buf).unwrap();
+        assert_eq!(&buf[..4], &[255, 0, 0, 255], "red, as on screen (not the blue of a new capture)");
+        // Um quadro que não é o último desta conta não serve mais.
+        let newer = cache.capture(&desk, 1).unwrap();
+        assert_ne!(newer.frame_id, shown.frame_id);
+        assert!(cache.save(1, shown.frame_id, &rect, &path).unwrap_err().contains("Capture again"));
+        assert!(cache.save(2, newer.frame_id, &rect, &path).unwrap_err().contains("Capture again"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

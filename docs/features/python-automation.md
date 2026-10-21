@@ -212,10 +212,16 @@ script. A tela recebe no máximo 4 atualizações por segundo por script
 ## Inspetor
 
 `python_inspector_capture(userId)`: só cliente do tracker, não minimizado; PNG
-reduzido a no máximo 1280 px de largura (as frações não mudam).
-`python_save_asset(userId, rect, name)`: recorte em resolução cheia em
-`assets/<name>` (`name` já vem com `.png`; sem extensão ganha `.png`; só
-`[A-Za-z0-9_-]`).
+reduzido a no máximo 1280 px de largura (as frações não mudam), com o
+`frameId` do quadro. O quadro em resolução cheia fica guardado (o último de
+cada conta, `inspector::FrameCache`).
+`python_save_asset(userId, rect, name, frameId)`: recorte em resolução cheia
+**daquele quadro** — o que a pessoa viu e onde arrastou — em `assets/<name>`
+(`name` já vem com `.png`; sem extensão ganha `.png`; só `[A-Za-z0-9_-]`).
+Antes ele capturava de novo, e a janela podia ter mudado entre o Capture e o
+arrastar. Quadro que não é mais o último da conta → "That capture is no longer
+available. Capture again, then select the area."
+(`the_asset_is_cut_from_the_frame_on_screen`).
 
 ## Modo desenvolvedor
 

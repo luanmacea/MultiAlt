@@ -123,6 +123,8 @@ export interface InspectorFrame {
   width: number;
   height: number;
   pngBase64: string;
+  /** The frame on screen: `saveAsset` cuts from it, not from a new capture. */
+  frameId: number;
 }
 
 /** A rectangle in fractions (0-1) of the client area. */
@@ -182,8 +184,8 @@ export const pythonApi = {
   clearDashboard: (script: string) => invoke<void>("python_clear_dashboard", { script }),
 
   inspectorCapture: (userId: number) => invoke<InspectorFrame>("python_inspector_capture", { userId }),
-  saveAsset: (userId: number, rect: FracRect, name: string) =>
-    invoke<string>("python_save_asset", { userId, rect, name }),
+  saveAsset: (userId: number, rect: FracRect, name: string, frameId: number) =>
+    invoke<string>("python_save_asset", { userId, rect, name, frameId }),
 
   setDeveloperMode: (enabled: boolean) => invoke<void>("python_set_developer_mode", { enabled }),
   getLogs: () => invoke<PythonLogLine[]>("python_get_logs"),

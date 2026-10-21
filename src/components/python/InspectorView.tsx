@@ -206,6 +206,9 @@ export function InspectorView() {
   async function saveCrop(rect: FracRect) {
     if (userId === null) return;
     if (rect.w < MIN_CROP_FRACTION || rect.h < MIN_CROP_FRACTION) return;
+    // The image the selection was drawn on: the backend cuts from that frame.
+    const shownFrameId = frame?.frameId;
+    if (shownFrameId === undefined) return;
     const raw = await prompt("Name for this image (letters, numbers, - and _)", "", { maxLength: 64 });
     if (raw === null) return;
     const fileName = normalizeAssetName(raw);
@@ -214,7 +217,7 @@ export function InspectorView() {
       return;
     }
     try {
-      const path = await pythonApi.saveAsset(userId, rect, fileName);
+      const path = await pythonApi.saveAsset(userId, rect, fileName, shownFrameId);
       const snippet = findImageSnippet(fileName);
       await copyText(snippet);
       store.addToast(`Saved ${path}. Use ${snippet} (copied).`, "success");

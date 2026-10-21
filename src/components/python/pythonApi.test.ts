@@ -41,7 +41,7 @@ describe("pythonApi", () => {
     await pythonApi.createScript("a.py", "per_account");
     await pythonApi.stopRun("r1");
     await pythonApi.inspectorCapture(7);
-    await pythonApi.saveAsset(7, { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, "btn.png");
+    await pythonApi.saveAsset(7, { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, "btn.png", 4);
     await pythonApi.setDeveloperMode(true);
     await pythonApi.clearDashboard("farm.py");
     await pythonApi.restoreDefaultBlock("runner.py");
@@ -56,7 +56,7 @@ describe("pythonApi", () => {
       ["python_create_script", { name: "a.py", template: "per_account" }],
       ["python_stop_run", { runId: "r1" }],
       ["python_inspector_capture", { userId: 7 }],
-      ["python_save_asset", { userId: 7, rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, name: "btn.png" }],
+      ["python_save_asset", { userId: 7, rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, name: "btn.png", frameId: 4 }],
       ["python_set_developer_mode", { enabled: true }],
       ["python_clear_dashboard", { script: "farm.py" }],
       ["python_restore_default_block", { name: "runner.py" }],

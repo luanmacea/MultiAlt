@@ -363,26 +363,22 @@ pub fn python_clear_dashboard(app: tauri::AppHandle, script: String) -> Result<(
 #[tauri::command]
 pub async fn python_inspector_capture(user_id: i64) -> Result<InspectorFrame, String> {
     #[cfg(feature = "python-scripts")]
-    return tokio::task::spawn_blocking(move || {
-        let (w, h, bgra) = super::inspector::capture_account(user_id)?;
-        super::inspector::frame(w, h, &bgra)
-    })
+    return tokio::task::spawn_blocking(move || super::inspector::capture_frame(user_id))
     .await
     .map_err(|e| e.to_string())?;
     #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
-/// Salva o recorte `rect` (frações) da janela da conta em `assets/<name>`.
-/// Devolve o caminho salvo.
+/// Salva o recorte `rect` (frações) do quadro `frame_id` que o inspetor
+/// mostrou (o último da conta) em `assets/<name>`. Devolve o caminho salvo.
 #[tauri::command]
-pub async fn python_save_asset(user_id: i64, rect: FracRect, name: String) -> Result<String, String> {
+pub async fn python_save_asset(user_id: i64, rect: FracRect, name: String, frame_id: u64) -> Result<String, String> {
     #[cfg(feature = "python-scripts")]
     return tokio::task::spawn_blocking(move || {
         let root = ws_root();
         let path = super::inspector::asset_path(&root, &name)?;
-        let (w, h, bgra) = super::inspector::capture_account(user_id)?;
-        super::inspector::save_crop(&path, w, h, &bgra, &rect)?;
+        super::inspector::frames().save(user_id, frame_id, &rect, &path)?;
         Ok(path.to_string_lossy().to_string())
     })
     .await

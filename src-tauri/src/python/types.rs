@@ -123,6 +123,8 @@ pub struct InspectorFrame {
     pub width: u32,
     pub height: u32,
     pub png_base64: String,
+    /// O quadro que a tela mostra: o `python_save_asset` recorta dele.
+    pub frame_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -209,8 +211,9 @@ mod python_types_tests {
         assert!(v.get("runId").is_some() && v.get("userId").is_some());
         let status = serde_json::to_value(PythonRuntimeStatus::default()).unwrap();
         assert!(status.get("pythonExe").is_some());
-        let frame = serde_json::to_value(InspectorFrame { width: 1, height: 1, png_base64: String::new() }).unwrap();
+        let frame = serde_json::to_value(InspectorFrame { width: 1, height: 1, png_base64: String::new(), frame_id: 3 }).unwrap();
         assert!(frame.get("pngBase64").is_some());
+        assert_eq!(frame["frameId"], json!(3));
     }
 
     #[test]

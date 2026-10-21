@@ -32,7 +32,7 @@ beforeEach(() => {
   });
   toast = store.addToast as unknown as ReturnType<typeof vi.fn>;
   setInvokeHandler((cmd) => {
-    if (cmd === "python_inspector_capture") return { width: 800, height: 400, pngBase64: "AAAA" };
+    if (cmd === "python_inspector_capture") return { width: 800, height: 400, pngBase64: "AAAA", frameId: 12 };
     if (cmd === "python_save_asset") return "C:/Data/python/assets/play_button.png";
     return undefined;
   });
@@ -128,6 +128,8 @@ describe("InspectorView", () => {
         userId: 1001,
         rect: { x: 0.2, y: 0.2, w: 0.3, h: 0.4 },
         name: "play_button.png",
+        // The crop comes from the frame on screen, not from a new capture.
+        frameId: 12,
       })
     );
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('account.find_image("play_button.png")'));
