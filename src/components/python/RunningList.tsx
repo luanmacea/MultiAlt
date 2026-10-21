@@ -86,14 +86,14 @@ export function RunningList({ runs, onToast }: RunningListProps) {
             <li key={run.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
               <span className="min-w-0 max-w-[220px] truncate font-mono text-[12px] text-zinc-200">{run.script}</span>
               <span
-                className={`rounded px-1.5 py-0.5 text-[10.5px] font-medium ${
+                className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
                   run.source === "terminal" ? "bg-violet-500/15 text-violet-300" : "bg-zinc-700/40 text-zinc-400"
                 }`}
                 title={run.source === "terminal" ? "Started from a terminal (developer mode)" : "Started from this screen"}
               >
                 {run.source}
               </span>
-              <span className={`rounded px-1.5 py-0.5 text-[10.5px] font-medium ${STATE_STYLE[run.state]}`}>{run.state}</span>
+              <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${STATE_STYLE[run.state]}`}>{run.state}</span>
               <span className="text-[11.5px] text-zinc-500">
                 {run.accounts.length} {run.accounts.length === 1 ? "account" : "accounts"}, {describeMode(run.mode)},{" "}
                 {describeTrigger(run.trigger)}

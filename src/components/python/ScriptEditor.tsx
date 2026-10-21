@@ -140,7 +140,7 @@ export function ScriptEditor({ name, modifiedMs }: ScriptEditorProps) {
         >
           <Save size={12} strokeWidth={2} />
           Save
-          <span className="text-[10.5px] opacity-60">Ctrl+S</span>
+          <span className="text-[11px] opacity-60">Ctrl+S</span>
         </button>
       </div>
 

@@ -204,10 +204,10 @@ export function DeveloperPanel() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-[12.5px] text-zinc-200">{block.name}</span>
                       {block.modified ? (
-                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-300">Modified</span>
+                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-300">Modified</span>
                       ) : null}
                       {block.newDefaultAvailable ? (
-                        <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10.5px] font-medium text-sky-300">
+                        <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] font-medium text-sky-300">
                           New default available
                         </span>
                       ) : null}

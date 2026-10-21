@@ -274,7 +274,7 @@ function TerminalLine({ line, runLabel, who }: { line: LogEntry; runLabel: strin
       <span className="text-zinc-600">{formatTime(line.ts)}</span> <span className="text-zinc-500">{runLabel}</span>
       {who ? <span className="text-zinc-400"> {who}</span> : null}{" "}
       {blocked ? (
-        <span className="rounded bg-amber-500/20 px-1 text-[10.5px] font-semibold uppercase tracking-wide text-amber-200">
+        <span className="rounded bg-amber-500/20 px-1 text-[11px] font-semibold uppercase tracking-wide text-amber-200">
           {line.code ?? "blocked"}
         </span>
       ) : null}{" "}

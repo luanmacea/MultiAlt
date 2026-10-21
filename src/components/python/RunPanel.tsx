@@ -205,11 +205,11 @@ export function RunPanel({ script, runtimeInstalled, runs, onToast }: RunPanelPr
                         />
                         <span className="min-w-0 flex-1 truncate">{labelOf(account, account.UserID)}</span>
                         {openClients.has(account.UserID) ? (
-                          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 text-[10.5px] text-emerald-400">
+                          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 text-[11px] text-emerald-400">
                             client open
                           </span>
                         ) : (
-                          <span className="shrink-0 text-[10.5px] text-zinc-600">no client</span>
+                          <span className="shrink-0 text-[11px] text-zinc-600">no client</span>
                         )}
                       </label>
                     ))}

@@ -60,7 +60,7 @@ export function LineWidget({ widget, series }: WidgetProps) {
           <div>min {formatNumber(minV)}</div>
         </div>
       </div>
-      <div className="mt-1 flex justify-between text-[10.5px] text-zinc-600">
+      <div className="mt-1 flex justify-between text-[11px] text-zinc-600">
         <span>{formatClock(minTs)}</span>
         <span>{formatClock(maxTs)}</span>
       </div>
