@@ -10,6 +10,10 @@
 pub mod commands;
 pub mod errors;
 #[cfg(feature = "python-scripts")]
+pub mod focus;
+#[cfg(feature = "python-scripts")]
+pub mod primitives;
+#[cfg(feature = "python-scripts")]
 pub mod runtime;
 pub mod types;
 #[cfg(feature = "python-scripts")]
