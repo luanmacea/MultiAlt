@@ -473,6 +473,10 @@ pub fn run() {
             // Devolver as configurações do Roblox sem esperar o app fechar.
             #[cfg(target_os = "windows")]
             start_settings_restore_loop(app.handle().clone());
+            // Automação Python: com o Modo desenvolvedor ligado, reabre o canal
+            // do terminal (python/mod.rs).
+            #[cfg(feature = "python-scripts")]
+            python::on_app_start(app.handle());
 
             // Show, "Launch preset" (os presets, só pelo nome) e Quit — ver
             // commands/tray.rs. O submenu é refeito quando os presets mudam.

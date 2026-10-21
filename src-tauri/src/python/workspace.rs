@@ -670,3 +670,46 @@ mod python_workspace_tests {
         assert!(SDK_FILES.iter().all(|f| !f.contents.trim().is_empty()), "every SDK file has content");
     }
 }
+
+/// Os testes do SDK (Python `unittest`, `src-tauri/python-sdk/tests`) rodam na
+/// suíte `python` do Rust. Sem `python` no PATH, pula com aviso.
+#[cfg(test)]
+mod python_sdk_unittest_tests {
+    #[test]
+    fn the_python_sdk_unit_tests_pass() {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut command = std::process::Command::new("python");
+        command
+            .args([
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "src-tauri/python-sdk/tests",
+                "-t",
+                "src-tauri/python-sdk",
+            ])
+            .current_dir(&repo)
+            .env("PYTHONDONTWRITEBYTECODE", "1");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x0800_0000);
+        }
+        let output = match command.output() {
+            Ok(output) => output,
+            Err(e) => {
+                eprintln!("python not on PATH ({e}): skipping the SDK unit tests");
+                return;
+            }
+        };
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "python -m unittest failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            stderr
+        );
+        assert!(stderr.contains("OK"), "{stderr}");
+    }
+}

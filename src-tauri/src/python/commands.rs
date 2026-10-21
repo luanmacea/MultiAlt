@@ -15,6 +15,7 @@ const UNAVAILABLE: &str = "not implemented yet";
 #[cfg(not(feature = "python-scripts"))]
 const UNAVAILABLE: &str = NOT_AVAILABLE;
 
+#[allow(unused_macros)]
 macro_rules! unavailable {
     () => {
         Err(UNAVAILABLE.to_string())
@@ -384,8 +385,18 @@ pub async fn python_save_asset(user_id: i64, rect: FracRect, name: String) -> Re
     unavailable!()
 }
 
+/// Liga/desliga o Modo desenvolvedor: grava `Python.DeveloperMode` e abre ou
+/// fecha o canal do terminal.
 #[tauri::command]
 pub async fn python_set_developer_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        use tauri::Manager;
+        app.state::<crate::data::settings::SettingsStore>()
+            .set("Python", "DeveloperMode", if enabled { "true" } else { "false" })?;
+        return super::apply_developer_mode(&app, enabled);
+    }
+    #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
 
