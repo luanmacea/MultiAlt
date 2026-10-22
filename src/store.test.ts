@@ -2002,15 +2002,24 @@ describe("adotar contas em jogo no Botting", () => {
     expect(place).toBe(606849621);
   });
 
-  it("uma conta so, sem sessao, explica o minimo em vez de falhar no backend", async () => {
+  it("uma conta so, sem sessao, liga o ciclo com ela", async () => {
+    results.set("get_account_game_location", {
+      userId: 1,
+      inGame: true,
+      placeId: 606849621,
+      jobId: null,
+    });
     const { result } = await renderStore();
 
-    await expect(
-      act(async () => {
-        await result.current.adoptRunningIntoBotting([1]);
-      })
-    ).rejects.toThrow(/two accounts/i);
-    expect(invokeCalls("get_account_game_location")).toHaveLength(0);
+    await act(async () => {
+      await result.current.adoptRunningIntoBotting([1]);
+    });
+    expect(lastArgs("start_botting_mode")).toMatchObject({
+      userIds: [1],
+      placeId: 606849621,
+      playerUserIds: [],
+      adoptRunning: true,
+    });
   });
 });
 

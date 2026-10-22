@@ -904,12 +904,12 @@ function bottingHandler(fallback: InvokeHandler, world: AfkWorld, active: boolea
         return { userId, inGame, placeId, jobId: null };
       }
       case "start_botting_mode": {
-        // `start_botting_mode`: Multi Roblox ligado e duas contas no mínimo.
+        // `start_botting_mode`: Multi Roblox ligado e uma conta no mínimo.
         if (settings.General?.EnableMultiRbx !== "true") {
           return Promise.reject("Auto Rejoin currently requires Multi Roblox to be enabled");
         }
         const userIds = ids(args.userIds);
-        if (userIds.length < 2) return Promise.reject("Select at least 2 accounts");
+        if (userIds.length < 1) return Promise.reject("Select at least one account for Auto Rejoin");
         session = {
           startedAtMs: Date.now(),
           placeId: Number(args.placeId),

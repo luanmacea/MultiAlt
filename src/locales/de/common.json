@@ -551,7 +551,7 @@
   "Script to execute on connect...": "Skript, das beim Verbinden ausgeführt wird...",
   "Select an account to load regions": "Wähle ein Konto, um Regionen zu laden",
   "Select an old AccountData.json file to merge into your current accounts.": "Wähle eine alte AccountData.json, um sie mit deinen aktuellen Konten zusammenzuführen.",
-  "Select at least 2 accounts": "Wähle mindestens 2 Konten aus",
+  "Select at least one account": "Wähle mindestens ein Konto aus",
   "Select preset": "Preset auswählen",
   "Selected file: {{name}}": "Ausgewählte Datei: {{name}}",
   "Send": "Senden",
