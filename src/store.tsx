@@ -2361,14 +2361,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (ids.length < 2) {
-      const message = tr(
-        "Auto Rejoin needs at least two accounts. Select another one, or start the cycle from the Auto Rejoin dialog."
-      );
-      addToast(message);
-      throw new Error(message);
-    }
-
     // O place vem de onde a conta ESTÁ, não do campo da tela principal: com o
     // place errado, o primeiro reinício do ciclo a jogaria em outro jogo. Quem
     // passa `placeId` é a tela do Modo AFK, que mostrou esse place (detectado
