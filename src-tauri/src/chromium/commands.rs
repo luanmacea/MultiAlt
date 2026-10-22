@@ -783,13 +783,17 @@ mod chromium_commands_tests {
 
     #[tokio::test]
     async fn wait_for_exit_reports_a_process_that_already_ended() {
-        let mut child = std::process::Command::new(exit_immediately_program())
+        let mut command = std::process::Command::new(exit_immediately_program());
+        command
             .args(exit_immediately_args())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("spawn helper process");
+            .stderr(std::process::Stdio::null());
+        // Sem janela: quem roda os testes por um terminal escondido via o cmd
+        // abrindo um console na tela (relato do dono, 21/10/2026).
+        #[cfg(target_os = "windows")]
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+        let mut child = command.spawn().expect("spawn helper process");
 
         assert!(wait_for_exit(&mut child, Duration::from_secs(10)).await);
         assert!(matches!(child.try_wait(), Ok(Some(_))));
@@ -797,13 +801,15 @@ mod chromium_commands_tests {
 
     #[tokio::test]
     async fn wait_for_exit_gives_up_on_a_process_that_will_not_die() {
-        let mut child = std::process::Command::new(sleep_program())
+        let mut command = std::process::Command::new(sleep_program());
+        command
             .args(sleep_args())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("spawn helper process");
+            .stderr(std::process::Stdio::null());
+        #[cfg(target_os = "windows")]
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+        let mut child = command.spawn().expect("spawn helper process");
 
         // O timeout curto é o que garante que o browser de setup nunca fica
         // vivo (com a porta de debug aberta) por travar no shutdown.
@@ -822,12 +828,13 @@ mod chromium_commands_tests {
     }
     #[cfg(target_os = "windows")]
     fn sleep_program() -> &'static str {
-        "cmd"
+        // `ping` direto, sem `cmd` no meio: o `kill` do teste mata o próprio
+        // processo, em vez de deixar um `ping` órfão rodando 30 s.
+        "ping"
     }
     #[cfg(target_os = "windows")]
     fn sleep_args() -> Vec<&'static str> {
-        // `ping` é o "sleep" do cmd que sobrevive a um stdin fechado.
-        vec!["/C", "ping", "-n", "31", "127.0.0.1"]
+        vec!["-n", "31", "127.0.0.1"]
     }
 
     #[cfg(not(target_os = "windows"))]

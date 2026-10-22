@@ -169,6 +169,8 @@ export const SUITES: Record<string, TestSuite> = {
       // Moderação (ideia 8): selos e legenda.
       "src/utils/moderation.test.ts",
       "src/utils/accountCheck.test.ts",
+      // Janela de resultados do Check Accounts em lote: quais contas, filtro, selecionar banidas.
+      "src/components/dialogs/AccountCheckResultsDialog.test.tsx",
       "src/components/layout/StatusBar.test.tsx",
     ],
   },
@@ -272,7 +274,7 @@ export const SUITES: Record<string, TestSuite> = {
   isolation: {
     description: "Isolamento pré-launch (cache, registro, MachineGuid/MAC)",
     rust: ["win_isolation_tests", "isolation_command_tests"],
-    front: ["src/components/settings"],
+    front: ["src/components/settings", "src/components/IsolationProgressOverlay.test.tsx"],
   },
   versions: {
     description: "Catálogo e instalação de versões do Roblox",
@@ -604,6 +606,7 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_diagnostics_tests",
       "os_version_label_tests",
       "services_command_tests",
+      "console_window_tests",
       "app_lock_command_tests",
       "app_lock_verify_tests",
       "quick_login_add_tests",

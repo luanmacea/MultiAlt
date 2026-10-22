@@ -308,6 +308,59 @@ fn shuffle_server_index(nanos: u128, server_count: usize) -> usize {
     (nanos as usize) % server_count
 }
 
+/// Escolhe o servidor do sorteio: só os que têm vaga e, entre eles, os que
+/// nenhuma outra conta recebeu (`taken`). Quando todos com vaga já foram dados
+/// (jogo com poucos servidores), repete um em vez de desistir.
+fn pick_shuffle_server(
+    servers: &[api::roblox::ServerData],
+    taken: &std::collections::HashSet<String>,
+    nanos: u128,
+) -> Option<String> {
+    let open: Vec<&api::roblox::ServerData> = servers
+        .iter()
+        .filter(|s| s.max_players > 0 && s.playing < s.max_players)
+        .collect();
+    let fresh: Vec<&api::roblox::ServerData> =
+        open.iter().copied().filter(|s| !taken.contains(&s.id)).collect();
+    let pool = if fresh.is_empty() { open } else { fresh };
+    if pool.is_empty() {
+        return None;
+    }
+    Some(pool[shuffle_server_index(nanos, pool.len())].id.clone())
+}
+
+/// Por quanto tempo um servidor sorteado fica reservado para a conta que o
+/// recebeu: cobre um lote inteiro de launches (com o espaçamento entre contas)
+/// sem prender o servidor para sempre.
+const SHUFFLE_ASSIGNMENT_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Servidores já sorteados por jogo. Antes cada conta sorteava sozinha, sem
+/// saber das outras, e num lote duas ou mais caíam no mesmo servidor.
+#[derive(Default)]
+struct ShuffleAssignments {
+    by_place: std::collections::HashMap<i64, Vec<(String, std::time::Instant)>>,
+}
+
+impl ShuffleAssignments {
+    fn pick(
+        &mut self,
+        place_id: i64,
+        servers: &[api::roblox::ServerData],
+        nanos: u128,
+        now: std::time::Instant,
+    ) -> Option<String> {
+        let given = self.by_place.entry(place_id).or_default();
+        given.retain(|(_, at)| now.saturating_duration_since(*at) < SHUFFLE_ASSIGNMENT_TTL);
+        let taken = given.iter().map(|(id, _)| id.clone()).collect();
+        let job = pick_shuffle_server(servers, &taken, nanos)?;
+        given.push((job.clone(), now));
+        Some(job)
+    }
+}
+
+static SHUFFLE_ASSIGNMENTS: std::sync::LazyLock<std::sync::Mutex<ShuffleAssignments>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(ShuffleAssignments::default()));
+
 /// Did the frontend ask for `shuffleJob`? The argument is optional so older
 /// callers (and any `invoke` that omits the field) keep working — a missing
 /// value means "don't shuffle".
@@ -4433,6 +4486,84 @@ mod launch_command_tests {
     #[test]
     fn shuffle_server_index_of_a_single_server_is_always_zero() {
         assert_eq!(shuffle_server_index(u128::MAX, 1), 0);
+    }
+
+    // ---- pick_shuffle_server / ShuffleAssignments ---------------------------
+
+    fn shuffle_server(id: &str, playing: i32, max_players: i32) -> api::roblox::ServerData {
+        api::roblox::ServerData {
+            id: id.to_string(),
+            max_players,
+            playing,
+            player_tokens: Vec::new(),
+            fps: 60.0,
+            ping: None,
+            name: None,
+            vip_server_id: None,
+            access_code: None,
+        }
+    }
+
+    #[test]
+    fn pick_shuffle_server_skips_servers_another_account_already_got() {
+        // O bug: cada conta sorteava sozinha e duas caíam no mesmo servidor.
+        let servers = vec![shuffle_server("a", 1, 10), shuffle_server("b", 1, 10)];
+        let taken: std::collections::HashSet<String> = ["a".to_string()].into();
+        for nanos in [0_u128, 1, 2, 3, 99] {
+            assert_eq!(pick_shuffle_server(&servers, &taken, nanos).as_deref(), Some("b"));
+        }
+    }
+
+    #[test]
+    fn pick_shuffle_server_never_picks_a_full_server() {
+        let servers = vec![shuffle_server("full", 10, 10), shuffle_server("ok", 3, 10)];
+        let none = std::collections::HashSet::new();
+        for nanos in [0_u128, 1, 7] {
+            assert_eq!(pick_shuffle_server(&servers, &none, nanos).as_deref(), Some("ok"));
+        }
+    }
+
+    #[test]
+    fn pick_shuffle_server_reuses_a_server_only_when_every_one_was_taken() {
+        // Jogo com poucos servidores: melhor repetir um do que cair no
+        // servidor público que o Roblox escolher.
+        let servers = vec![shuffle_server("a", 1, 10)];
+        let taken: std::collections::HashSet<String> = ["a".to_string()].into();
+        assert_eq!(pick_shuffle_server(&servers, &taken, 5).as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn pick_shuffle_server_gives_up_without_a_free_seat() {
+        let servers = vec![shuffle_server("full", 10, 10), shuffle_server("bad", 0, 0)];
+        let none = std::collections::HashSet::new();
+        assert_eq!(pick_shuffle_server(&servers, &none, 0), None);
+        assert_eq!(pick_shuffle_server(&[], &none, 0), None);
+    }
+
+    #[test]
+    fn shuffle_assignments_spread_a_batch_over_different_servers() {
+        let servers: Vec<_> = (0..5).map(|i| shuffle_server(&format!("s{i}"), 1, 10)).collect();
+        let mut book = ShuffleAssignments::default();
+        let now = std::time::Instant::now();
+        let mut picked = std::collections::HashSet::new();
+        for _ in 0..5 {
+            // Mesmo "relógio" para todas: sem o livro, todas cairiam no mesmo.
+            let job = book.pick(1, &servers, 0, now).expect("server");
+            assert!(picked.insert(job), "two accounts got the same server");
+        }
+    }
+
+    #[test]
+    fn shuffle_assignments_are_per_game_and_expire() {
+        let servers = vec![shuffle_server("a", 1, 10), shuffle_server("b", 1, 10)];
+        let mut book = ShuffleAssignments::default();
+        let now = std::time::Instant::now();
+        assert_eq!(book.pick(1, &servers, 0, now).as_deref(), Some("a"));
+        // Outro jogo não herda o que foi dado no primeiro.
+        assert_eq!(book.pick(2, &servers, 0, now).as_deref(), Some("a"));
+        // Passado o prazo, o servidor volta para o sorteio.
+        let later = now + SHUFFLE_ASSIGNMENT_TTL + std::time::Duration::from_secs(1);
+        assert_eq!(book.pick(1, &servers, 0, later).as_deref(), Some("a"));
     }
 
     // ---- window_rect_from_fields --------------------------------------------

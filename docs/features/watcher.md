@@ -115,6 +115,17 @@ que** a conta caiu. Só lê: o log (aberto só para leitura) e a lista de proces
   `client_log_real_probe` (`#[ignore]`, só leitura) não acha nenhuma queda falsa
   neles. Os logs só tinham o código 285; os outros códigos vêm do enum
   `ConnectionError` do Roblox e dos concorrentes e precisam de teste real.
+- **Queda sem código (21/10/2026).** Vários relatos de internet que cai, aviso
+  "Error Code: 277" na janela, e o app mostrando "Playing" sem reconectar. O
+  log de uma queda de verdade **não traz número**: só `Client has been
+  disconnected with reason: Lost connection to the game server, please
+  reconnect` e `Lost connection with reason : …` (formato de um log 0.742 de
+  08/10/2026 que outro gerenciador publicou). `disconnect_reason_text` lê esse
+  motivo: perda de conexão → 277, "different device" → 273, "shut down" →
+  servidor fechado; motivo desconhecido não vira queda. A partir daí o caminho
+  é o de sempre (`HealthNotice::Dropped` → reconexão automática, e a Sessão
+  deixa de dizer "Playing"). Ainda vale confirmar com um log da máquina do dono
+  (cortar a rede de um cliente de teste até o 277 aparecer).
 
 ## Conta errada no cliente
 

@@ -558,7 +558,7 @@
   "Script to execute on connect...": "Script para executar ao conectar...",
   "Select an account to load regions": "Selecione uma conta para carregar as regiões",
   "Select an old AccountData.json file to merge into your current accounts.": "Escolha um AccountData.json antigo para juntar às suas contas atuais.",
-  "Select at least 2 accounts": "Selecione ao menos 2 contas",
+  "Select at least one account": "Selecione ao menos uma conta",
   "Select preset": "Selecionar preset",
   "Selected file: {{name}}": "Arquivo selecionado: {{name}}",
   "Send": "Enviar",
@@ -965,6 +965,7 @@
   "Isolation": "Isolamento",
   "Isolation complete": "Isolamento concluído",
   "Isolation issue": "Problema no isolamento",
+  "Isolation skipped": "Isolamento pulado",
   "items": "itens",
   "Jakarta": "Jakarta",
   "JavaScript": "JavaScript",
@@ -1590,7 +1591,6 @@
   "Name prefix (optional)": "Prefixo do nome (opcional)",
   "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Só letras e dígitos. Cada conta vira prefixo_ mais 5 caracteres sorteados.",
   "Auto Rejoin ({{count}})": "Auto Rejoin ({{count}})",
-  "Auto Rejoin needs at least two accounts. Select another one, or start the cycle from the Auto Rejoin dialog.": "O Auto Rejoin precisa de pelo menos duas contas. Marque mais uma, ou comece o ciclo pelo diálogo do Auto Rejoin.",
   "Could not tell which game these accounts are in. Open the Auto Rejoin dialog and set the Place ID.": "Não deu para saber em que jogo estas contas estão. Abra o diálogo do Auto Rejoin e informe o Place ID.",
   "Keeps these accounts in the cycle without closing the clients that are already open.": "Mantém estas contas no ciclo sem fechar os clientes que já estão abertos.",
   "Fullscreen": "Tela cheia",
@@ -2791,5 +2791,10 @@
   "Roblox says the current password is wrong. Check the password saved for this account.": "O Roblox diz que a senha atual está errada. Confira a senha guardada desta conta.",
   "This account has 2-step verification and Roblox asked for the code. Change it in the browser.": "Esta conta tem verificação em 2 etapas e o Roblox pediu o código. Troque pelo navegador.",
   "This account has a PIN lock. Unlock it first (Account Utilities › PIN).": "Esta conta tem PIN. Desbloqueie primeiro (Utilitários da conta › PIN).",
-  "This account's session expired. Log in to it again, then try again.": "A sessão desta conta expirou. Entre nela de novo e tente outra vez."
+  "This account's session expired. Log in to it again, then try again.": "A sessão desta conta expirou. Entre nela de novo e tente outra vez.",
+  "Account check results": "Resultado da conferência das contas",
+  "Couldn't check": "Não deu para conferir",
+  "Filter by result": "Filtrar por resultado",
+  "Retry {{count}} that couldn't be checked": "Conferir de novo as {{count}} que não deu para conferir",
+  "Select banned": "Selecionar banidas"
 }

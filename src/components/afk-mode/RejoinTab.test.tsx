@@ -156,12 +156,10 @@ describe("RejoinTab — escolher as contas", () => {
     expect(startButton()).toBeDisabled();
   });
 
-  it("com uma conta só marcada, não liga", async () => {
+  it("com uma conta só marcada, liga (uma alt também é reaberta)", async () => {
     renderTab({}, { targetUserIds: [1] });
-    await waitFor(() =>
-      expect(screen.getByTestId("rejoin-status")).toHaveTextContent("Select at least 2 accounts")
-    );
-    expect(startButton()).toBeDisabled();
+    await waitFor(() => expect(startButton()).toBeEnabled());
+    expect(screen.getByTestId("rejoin-status")).not.toHaveTextContent("Select at least");
   });
 });
 

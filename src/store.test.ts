@@ -2002,15 +2002,24 @@ describe("adotar contas em jogo no Botting", () => {
     expect(place).toBe(606849621);
   });
 
-  it("uma conta so, sem sessao, explica o minimo em vez de falhar no backend", async () => {
+  it("uma conta so, sem sessao, liga o ciclo com ela", async () => {
+    results.set("get_account_game_location", {
+      userId: 1,
+      inGame: true,
+      placeId: 606849621,
+      jobId: null,
+    });
     const { result } = await renderStore();
 
-    await expect(
-      act(async () => {
-        await result.current.adoptRunningIntoBotting([1]);
-      })
-    ).rejects.toThrow(/two accounts/i);
-    expect(invokeCalls("get_account_game_location")).toHaveLength(0);
+    await act(async () => {
+      await result.current.adoptRunningIntoBotting([1]);
+    });
+    expect(lastArgs("start_botting_mode")).toMatchObject({
+      userIds: [1],
+      placeId: 606849621,
+      playerUserIds: [],
+      adoptRunning: true,
+    });
   });
 });
 
@@ -3700,5 +3709,73 @@ describe("away digest", () => {
 
     act(() => result.current.clearAwayEvents());
     expect(result.current.awayEvents).toEqual([]);
+  });
+});
+
+describe("checkAccounts", () => {
+  const SUMMARY = {
+    total: 3,
+    ok: 1,
+    warned: 0,
+    invalid: 0,
+    banned: 1,
+    unknown: 1,
+    results: [
+      { userId: 1, outcome: "ok" },
+      { userId: 2, outcome: "banned" },
+      { userId: 3, outcome: "unknown" },
+    ],
+  };
+
+  it("opens the results report instead of a counts toast when it checked several accounts", async () => {
+    results.set("check_accounts", SUMMARY);
+    const { result } = await renderStore();
+    expect(result.current.accountCheckReport).toBeNull();
+
+    await act(async () => {
+      await result.current.checkAccounts([1, 2, 3]);
+    });
+
+    expect(lastArgs("check_accounts")).toEqual({ userIds: [1, 2, 3] });
+    expect(result.current.accountCheckReport?.results).toEqual(SUMMARY.results);
+    expect(result.current.accountCheckReport?.at).toBeGreaterThan(0);
+    expect(result.current.toasts).toEqual([]);
+
+    act(() => result.current.setAccountCheckReport(null));
+    expect(result.current.accountCheckReport).toBeNull();
+  });
+
+  it("keeps the plain counts toast for a single account", async () => {
+    results.set("check_accounts", {
+      total: 1,
+      ok: 0,
+      warned: 0,
+      invalid: 0,
+      banned: 1,
+      unknown: 0,
+      results: [{ userId: 2, outcome: "banned" }],
+    });
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.checkAccounts([2]);
+    });
+
+    expect(result.current.accountCheckReport).toBeNull();
+    expect(result.current.toasts).toMatchObject([
+      { message: "0 ok, 0 invalid, 1 banned, 0 couldn't check", tone: "warn" },
+    ]);
+  });
+
+  it("does not open the report when the check itself failed", async () => {
+    failures.set("check_accounts", "boom");
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.checkAccounts([1, 2]);
+    });
+
+    expect(result.current.accountCheckReport).toBeNull();
+    expect(result.current.toasts).toMatchObject([{ tone: "error" }]);
   });
 });

@@ -118,7 +118,7 @@ fn acquire_multi_roblox_mutex() -> Result<bool, String> {
 /// pids) e o comportamento antigo é idêntico.
 pub fn enable_multi_roblox() -> Result<bool, String> {
     match enable_multi_roblox_checked()? {
-        MultiRobloxOutcome::Enabled => Ok(true),
+        MultiRobloxOutcome::Enabled | MultiRobloxOutcome::ProvidedByOtherProgram => Ok(true),
         MultiRobloxOutcome::Blocked => Ok(false),
         MultiRobloxOutcome::EventStillHeld { unreachable } => {
             Err(event_still_held_message(unreachable).to_string())
@@ -134,6 +134,11 @@ pub enum MultiRobloxOutcome {
     /// O caminho antigo do `Ok(false)`: quem segura o mutex não deu para
     /// destravar (RAM legado, outra ferramenta, ou cliente sem Event a fechar).
     Blocked,
+    /// Outro programa (um executor como o Real, outra ferramenta de várias
+    /// instâncias) segura o `ROBLOX_singletonMutex` e nenhum cliente está
+    /// aberto: o próximo cliente já sobe sem o modo instância única. Segue
+    /// como `Enabled`, sem fechar nada.
+    ProvidedByOtherProgram,
     /// Outro cliente **ainda** segura o `ROBLOX_singletonEvent` depois de
     /// fechar e reservar. Abrir agora faria esse cliente fechar: o launch não
     /// segue. `unreachable` = clientes cujo processo nem abriu (admin).
@@ -165,7 +170,7 @@ pub fn held_event_response(
     auto_close_conflicts: bool,
 ) -> Option<Result<(), String>> {
     match outcome {
-        MultiRobloxOutcome::Enabled => Some(Ok(())),
+        MultiRobloxOutcome::Enabled | MultiRobloxOutcome::ProvidedByOtherProgram => Some(Ok(())),
         MultiRobloxOutcome::EventStillHeld { unreachable } if !auto_close_conflicts => {
             Some(Err(event_still_held_message(unreachable).to_string()))
         }
@@ -198,6 +203,30 @@ fn multi_roblox_outcome(
     }
 }
 
+/// O `Blocked` sem cliente Roblox aberto quer dizer que **outro programa** é
+/// dono do mutex. Se não é o RAM legado (barrado de propósito) e nenhum Event
+/// de verdade barra o próximo cliente, esse programa já liberou as várias
+/// instâncias: o launch segue. Antes o app recusava ("Could not acquire the
+/// Roblox singleton mutex") e quem usava o executor Real não jogava.
+fn with_other_program_holder(
+    outcome: MultiRobloxOutcome,
+    holds_mutex: bool,
+    roblox_running: bool,
+    event_blocks: bool,
+    legacy_running: bool,
+) -> MultiRobloxOutcome {
+    if outcome == MultiRobloxOutcome::Blocked
+        && !holds_mutex
+        && !roblox_running
+        && !event_blocks
+        && !legacy_running
+    {
+        MultiRobloxOutcome::ProvidedByOtherProgram
+    } else {
+        outcome
+    }
+}
+
 /// `enable_multi_roblox` com o motivo da recusa. Nunca fecha cliente: no
 /// máximo fecha handles de Event e cria/fecha a reserva do app.
 pub fn enable_multi_roblox_checked() -> Result<MultiRobloxOutcome, String> {
@@ -220,7 +249,24 @@ pub fn enable_multi_roblox_checked() -> Result<MultiRobloxOutcome, String> {
         event_blocks,
         report.unreachable,
     );
+    let outcome = if outcome == MultiRobloxOutcome::Blocked {
+        with_other_program_holder(
+            outcome,
+            holds_mutex,
+            roblox_running,
+            event_blocks,
+            !find_legacy_ram_pids().is_empty(),
+        )
+    } else {
+        outcome
+    };
     match outcome {
+        MultiRobloxOutcome::ProvidedByOtherProgram => {
+            eprintln!(
+                "Multi Roblox: ROBLOX_singletonMutex está com outro programa e nenhum cliente aberto; várias instâncias já liberadas, launch segue"
+            );
+            lock_roblox_cookies()?;
+        }
         MultiRobloxOutcome::Enabled => {
             if !holds_mutex {
                 // O mutex pode ter sido liberado nesse meio tempo; se não foi,
@@ -912,6 +958,48 @@ mod multi_roblox_decision_tests {
         // Mutex de outro e nenhum cliente: o caminho antigo (RAM legado...).
         assert_eq!(multi_roblox_outcome(false, 0, false, false, 0), MultiRobloxOutcome::Blocked);
         assert_eq!(multi_roblox_outcome(false, 0, false, true, 0), MultiRobloxOutcome::Blocked);
+    }
+
+    // Relato (ticket, 21/10/2026): com o executor "Real" aberto, todo launch
+    // dava "Could not acquire the Roblox singleton mutex". O Real segura o
+    // mutex para ter várias instâncias ele mesmo; com outro programa dono do
+    // mutex e nenhum cliente aberto, o próximo cliente já sobe sem o modo
+    // instância única — recusar era barrar um launch que funcionaria.
+
+    #[test]
+    fn a_mutex_held_by_another_program_lets_the_launch_go_ahead() {
+        assert_eq!(
+            with_other_program_holder(MultiRobloxOutcome::Blocked, false, false, false, false),
+            MultiRobloxOutcome::ProvidedByOtherProgram
+        );
+    }
+
+    #[test]
+    fn the_other_program_rule_does_not_override_the_other_answers() {
+        use MultiRobloxOutcome::*;
+        // Mutex nosso, ou cliente aberto: os caminhos de sempre decidem.
+        assert_eq!(with_other_program_holder(Blocked, true, false, false, false), Blocked);
+        assert_eq!(with_other_program_holder(Blocked, false, true, false, false), Blocked);
+        // Um Event de verdade ainda faria o cliente novo desistir.
+        assert_eq!(with_other_program_holder(Blocked, false, false, true, false), Blocked);
+        // O RAM legado continua barrado (decisão antiga, com mensagem própria).
+        assert_eq!(with_other_program_holder(Blocked, false, false, false, true), Blocked);
+        assert_eq!(with_other_program_holder(Enabled, false, false, false, false), Enabled);
+        assert_eq!(
+            with_other_program_holder(EventStillHeld { unreachable: 0 }, false, false, false, false),
+            EventStillHeld { unreachable: 0 }
+        );
+    }
+
+    #[test]
+    fn a_mutex_held_by_another_program_never_closes_anything() {
+        // Nem com o opt-in de fechar clientes ligado: segue direto.
+        for auto_close in [false, true] {
+            assert_eq!(
+                held_event_response(MultiRobloxOutcome::ProvidedByOtherProgram, auto_close),
+                Some(Ok(()))
+            );
+        }
     }
 
     #[test]
