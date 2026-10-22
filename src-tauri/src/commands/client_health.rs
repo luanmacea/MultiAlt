@@ -190,7 +190,31 @@ pub fn classify_log_line(line: &str) -> Option<ClientLogEvent> {
             message,
         });
     }
-    event_for_disconnect_code(disconnect_code(line)?)
+    if let Some(code) = disconnect_code(line) {
+        return event_for_disconnect_code(code);
+    }
+    disconnect_reason_text(line).and_then(event_for_disconnect_code)
+}
+
+/// A queda que o log conta só em texto, sem código: é assim que o cliente
+/// registra a perda de conexão de verdade (internet caiu → aviso "Error Code:
+/// 277" na tela, mas no log só `Lost connection with reason : Lost connection
+/// to the game server, please reconnect`). Lê o motivo e devolve o código
+/// equivalente; motivo desconhecido não vira queda.
+fn disconnect_reason_text(line: &str) -> Option<u32> {
+    let lower = line.to_ascii_lowercase();
+    let reason = ["client has been disconnected with reason", "lost connection with reason"]
+        .iter()
+        .find_map(|marker| text_after(&lower, marker))?;
+    if reason.contains("lost connection") || reason.contains("internet connection") {
+        Some(277)
+    } else if reason.contains("different device") {
+        Some(273)
+    } else if reason.contains("shut down") || reason.contains("shutdown") {
+        Some(274)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -1433,6 +1457,80 @@ mod client_log_classifier_tests {
         );
     }
 
+    // Relatos (21/10/2026): a internet cai, o Roblox mostra "Disconnected
+    // (Error Code: 277)", e o app segue dizendo "Playing" sem reconectar. O
+    // log de uma queda real **não traz código**: são estas duas linhas (formato
+    // de um log de cliente 0.742 de 08/10/2026, publicado por outro
+    // gerenciador). Só as linhas com número eram reconhecidas.
+    const LOST_CLIENT: &str = "[FLog::Network] Client has been disconnected with reason: Lost connection to the game server, please reconnect";
+    const LOST_WARNING: &str = "Warning [FLog::Network] Lost connection with reason : Lost connection to the game server, please reconnect";
+
+    #[test]
+    fn a_real_connection_loss_without_a_code_is_a_277() {
+        let lost = Some(ClientLogEvent::Disconnected {
+            code: 277,
+            reason: DropReason::ConnectionLost,
+        });
+        assert_eq!(classify_log_line(&line(LOST_CLIENT)), lost);
+        assert_eq!(classify_log_line(&format!("{PREFIX},{LOST_WARNING}")), lost);
+    }
+
+    #[test]
+    fn the_disconnect_reason_text_is_read_when_there_is_no_code() {
+        assert_eq!(
+            classify_log_line(&line(
+                "[FLog::Network] Client has been disconnected with reason: Same account launched experience from different device. Reconnect if you prefer to use this device."
+            )),
+            Some(ClientLogEvent::Disconnected {
+                code: 273,
+                reason: DropReason::JoinedElsewhere
+            })
+        );
+        assert_eq!(
+            classify_log_line(&line(
+                "[FLog::Network] Client has been disconnected with reason: The game has shut down"
+            )),
+            Some(ClientLogEvent::ServerShutdown { code: 274 })
+        );
+        // Motivo que não sabemos ler: não inventa queda.
+        assert_eq!(
+            classify_log_line(&line("[FLog::Network] Client has been disconnected with reason: something new")),
+            None
+        );
+    }
+
+    #[test]
+    fn a_kick_sent_as_a_disconnect_reason_stays_a_kick() {
+        assert_eq!(
+            classify_log_line(&line(
+                "[FLog::Network] Client has been disconnected with reason: You were kicked from this experience: AFK"
+            )),
+            Some(ClientLogEvent::Kicked {
+                code: Some(267),
+                message: Some("AFK".into())
+            })
+        );
+    }
+
+    #[test]
+    fn a_real_connection_loss_leaves_the_game_and_drops_the_session() {
+        let mut s = ClientLogSession::default();
+        s.absorb(
+            &[
+                line("[FLog::Output] ! Joining game '00000000-1111-2222-3333-444444444444' place 1234567 at 10.0.0.1"),
+                line(LOST_CLIENT),
+                format!("{PREFIX},{LOST_WARNING}"),
+                line("[DFLog::NetworkClient] Client:Disconnect"),
+            ]
+            .join("\n"),
+            1_000,
+        );
+        s.settle(1_000);
+        let drop = s.current_drop().expect("the connection loss is a drop");
+        assert_eq!(drop.code, Some(277));
+        assert!(!s.in_game(), "a dropped client is not Playing");
+    }
+
     #[test]
     fn noise_that_looks_like_a_disconnect_is_ignored() {
         for body in [
@@ -1873,6 +1971,26 @@ mod client_health_monitor_tests {
         let view = monitor.views().remove(&1).unwrap();
         assert!(view.log_found);
         assert_eq!(view.drop.unwrap().reason, Some(DropReason::ConnectionLost));
+    }
+
+    #[test]
+    fn a_real_internet_loss_is_reported_while_the_window_stays_open() {
+        // A janela segue aberta com o aviso 277 e o log só diz "Lost
+        // connection" em texto: antes nada era avisado e a tela mostrava
+        // "Playing" para sempre, sem reconexão.
+        let os = FakeOs::with_client(100, JOIN);
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[ours(1, 100)], T0);
+        os.append(
+            100,
+            "x [FLog::Network] Client has been disconnected with reason: Lost connection to the game server, please reconnect\n\
+             x,Warning [FLog::Network] Lost connection with reason : Lost connection to the game server, please reconnect\n",
+        );
+        let notices = monitor.tick(&os, &[ours(1, 100)], T0 + 2_000);
+        assert_eq!(notices.len(), 1);
+        assert!(matches!(&notices[0], HealthNotice::Dropped { user_id: 1, drop, .. } if drop.code == Some(277)));
+        let view = monitor.views().remove(&1).unwrap();
+        assert!(!view.in_game, "a dropped client is not Playing");
     }
 
     #[test]
