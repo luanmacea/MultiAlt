@@ -290,8 +290,8 @@ export function useRejoinController({
     ? t("Auto Rejoin currently requires Multi Roblox to be enabled")
     : candidates.length === 0
       ? t("No Roblox client is open yet. Open the accounts first.")
-      : picked.length < 2
-        ? t("Select at least 2 accounts")
+      : picked.length === 0
+        ? t("Select at least one account")
         : serverMode === "game"
           ? chosenPlaceId === null
             ? t("Pick a game")

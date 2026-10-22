@@ -190,7 +190,31 @@ pub fn classify_log_line(line: &str) -> Option<ClientLogEvent> {
             message,
         });
     }
-    event_for_disconnect_code(disconnect_code(line)?)
+    if let Some(code) = disconnect_code(line) {
+        return event_for_disconnect_code(code);
+    }
+    disconnect_reason_text(line).and_then(event_for_disconnect_code)
+}
+
+/// A queda que o log conta só em texto, sem código: é assim que o cliente
+/// registra a perda de conexão de verdade (internet caiu → aviso "Error Code:
+/// 277" na tela, mas no log só `Lost connection with reason : Lost connection
+/// to the game server, please reconnect`). Lê o motivo e devolve o código
+/// equivalente; motivo desconhecido não vira queda.
+fn disconnect_reason_text(line: &str) -> Option<u32> {
+    let lower = line.to_ascii_lowercase();
+    let reason = ["client has been disconnected with reason", "lost connection with reason"]
+        .iter()
+        .find_map(|marker| text_after(&lower, marker))?;
+    if reason.contains("lost connection") || reason.contains("internet connection") {
+        Some(277)
+    } else if reason.contains("different device") {
+        Some(273)
+    } else if reason.contains("shut down") || reason.contains("shutdown") {
+        Some(274)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]

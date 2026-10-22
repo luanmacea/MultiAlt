@@ -539,11 +539,15 @@ export interface StoreValue {
   checkModeration: (userId: number) => Promise<ModerationStatus | null>;
   /**
    * "Check accounts": sessão e moderação de cada conta, só leitura e com ritmo
-   * limitado (`check_accounts`). Termina com o toast de resumo.
+   * limitado (`check_accounts`). Com mais de uma conta termina abrindo a janela
+   * de resultados (`accountCheckReport`); com uma só, com o toast de resumo.
    */
   checkAccounts: (userIds: number[]) => Promise<AccountCheckSummary | null>;
   /** Progresso do "Check accounts" em andamento; `null` quando parado. */
   accountCheckProgress: { done: number; total: number } | null;
+  /** Resultado do último "Check accounts" em lote; não nulo = a janela de resultados está aberta. */
+  accountCheckReport: { results: AccountCheckSummary["results"]; at: number } | null;
+  setAccountCheckReport: (report: { results: AccountCheckSummary["results"]; at: number } | null) => void;
   launchedByProgram: Set<number>;
   /** Contas de `launchedByProgram` cujo cliente foi aberto fora do app (pelo site). */
   adoptedClients: Set<number>;
@@ -958,6 +962,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [presenceByUserId, setPresenceByUserId] = useState<Map<number, number>>(new Map());
   const [moderationByUserId, setModerationByUserId] = useState<Map<number, ModerationStatus>>(new Map());
   const [accountCheckProgress, setAccountCheckProgress] = useState<{ done: number; total: number } | null>(null);
+  const [accountCheckReport, setAccountCheckReport] = useState<StoreValue["accountCheckReport"]>(null);
   const rememberModeration = useCallback((userId: number, status: ModerationStatus) => {
     setModerationByUserId((prev) => {
       const next = new Map(prev);
@@ -1680,8 +1685,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const summary = await invoke<AccountCheckSummary>("check_accounts", { userIds });
       // `Valid` pode ter mudado no backend (401 = inválida, 200 = válida de novo).
       await loadAccounts().catch(() => {});
-      const tone: ToastTone = summary.invalid > 0 || summary.banned > 0 ? "warn" : "success";
-      addToast(accountCheckSummaryText(summary, tr), tone);
+      if (userIds.length > 1) {
+        // Várias contas: o toast de contagens não diz QUAIS foram banidas. A
+        // janela de resultados lista conta por conta.
+        setAccountCheckReport({ results: summary.results, at: Date.now() });
+      } else {
+        const tone: ToastTone = summary.invalid > 0 || summary.banned > 0 ? "warn" : "success";
+        addToast(accountCheckSummaryText(summary, tr), tone);
+      }
       return summary;
     } catch (e) {
       addToast(tr("Check failed: {{error}}", { error: String(e) }), "error");
@@ -2359,14 +2370,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (bottingStatus?.active) {
       await addBottingAccounts(ids);
       return;
-    }
-
-    if (ids.length < 2) {
-      const message = tr(
-        "Auto Rejoin needs at least two accounts. Select another one, or start the cycle from the Auto Rejoin dialog."
-      );
-      addToast(message);
-      throw new Error(message);
     }
 
     // O place vem de onde a conta ESTÁ, não do campo da tela principal: com o
@@ -3890,6 +3893,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     checkModeration,
     checkAccounts,
     accountCheckProgress,
+    accountCheckReport,
+    setAccountCheckReport,
     launchedByProgram,
     adoptedClients,
     unidentifiedClients,

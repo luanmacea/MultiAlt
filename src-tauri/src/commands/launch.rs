@@ -308,6 +308,59 @@ fn shuffle_server_index(nanos: u128, server_count: usize) -> usize {
     (nanos as usize) % server_count
 }
 
+/// Escolhe o servidor do sorteio: só os que têm vaga e, entre eles, os que
+/// nenhuma outra conta recebeu (`taken`). Quando todos com vaga já foram dados
+/// (jogo com poucos servidores), repete um em vez de desistir.
+fn pick_shuffle_server(
+    servers: &[api::roblox::ServerData],
+    taken: &std::collections::HashSet<String>,
+    nanos: u128,
+) -> Option<String> {
+    let open: Vec<&api::roblox::ServerData> = servers
+        .iter()
+        .filter(|s| s.max_players > 0 && s.playing < s.max_players)
+        .collect();
+    let fresh: Vec<&api::roblox::ServerData> =
+        open.iter().copied().filter(|s| !taken.contains(&s.id)).collect();
+    let pool = if fresh.is_empty() { open } else { fresh };
+    if pool.is_empty() {
+        return None;
+    }
+    Some(pool[shuffle_server_index(nanos, pool.len())].id.clone())
+}
+
+/// Por quanto tempo um servidor sorteado fica reservado para a conta que o
+/// recebeu: cobre um lote inteiro de launches (com o espaçamento entre contas)
+/// sem prender o servidor para sempre.
+const SHUFFLE_ASSIGNMENT_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Servidores já sorteados por jogo. Antes cada conta sorteava sozinha, sem
+/// saber das outras, e num lote duas ou mais caíam no mesmo servidor.
+#[derive(Default)]
+struct ShuffleAssignments {
+    by_place: std::collections::HashMap<i64, Vec<(String, std::time::Instant)>>,
+}
+
+impl ShuffleAssignments {
+    fn pick(
+        &mut self,
+        place_id: i64,
+        servers: &[api::roblox::ServerData],
+        nanos: u128,
+        now: std::time::Instant,
+    ) -> Option<String> {
+        let given = self.by_place.entry(place_id).or_default();
+        given.retain(|(_, at)| now.saturating_duration_since(*at) < SHUFFLE_ASSIGNMENT_TTL);
+        let taken = given.iter().map(|(id, _)| id.clone()).collect();
+        let job = pick_shuffle_server(servers, &taken, nanos)?;
+        given.push((job.clone(), now));
+        Some(job)
+    }
+}
+
+static SHUFFLE_ASSIGNMENTS: std::sync::LazyLock<std::sync::Mutex<ShuffleAssignments>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(ShuffleAssignments::default()));
+
 /// Did the frontend ask for `shuffleJob`? The argument is optional so older
 /// callers (and any `invoke` that omits the field) keep working — a missing
 /// value means "don't shuffle".
