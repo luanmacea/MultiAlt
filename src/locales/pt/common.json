@@ -2791,5 +2791,10 @@
   "Roblox says the current password is wrong. Check the password saved for this account.": "O Roblox diz que a senha atual está errada. Confira a senha guardada desta conta.",
   "This account has 2-step verification and Roblox asked for the code. Change it in the browser.": "Esta conta tem verificação em 2 etapas e o Roblox pediu o código. Troque pelo navegador.",
   "This account has a PIN lock. Unlock it first (Account Utilities › PIN).": "Esta conta tem PIN. Desbloqueie primeiro (Utilitários da conta › PIN).",
-  "This account's session expired. Log in to it again, then try again.": "A sessão desta conta expirou. Entre nela de novo e tente outra vez."
+  "This account's session expired. Log in to it again, then try again.": "A sessão desta conta expirou. Entre nela de novo e tente outra vez.",
+  "Account check results": "Resultado da conferência das contas",
+  "Couldn't check": "Não deu para conferir",
+  "Filter by result": "Filtrar por resultado",
+  "Retry {{count}} that couldn't be checked": "Conferir de novo as {{count}} que não deu para conferir",
+  "Select banned": "Selecionar banidas"
 }

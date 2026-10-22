@@ -29,6 +29,7 @@ import { ImportDialog } from "./components/dialogs/ImportDialog";
 import { AccountFieldsDialog } from "./components/dialogs/AccountFieldsDialog";
 import { AccountUtilsDialog } from "./components/dialogs/AccountUtilsDialog";
 import { BulkCredentialsDialog } from "./components/dialogs/BulkCredentialsDialog";
+import { AccountCheckResultsDialog } from "./components/dialogs/AccountCheckResultsDialog";
 import { MissingAssetsDialog } from "./components/dialogs/MissingAssetsDialog";
 import { UpdateDialog } from "./components/dialogs/UpdateDialog";
 import { AfkModeDialog } from "./components/afk-mode/AfkModeDialog";
@@ -75,6 +76,7 @@ function AppContent() {
     store.accountFieldsOpen ||
     store.accountUtilsOpen ||
     store.bulkCredentialsOpen ||
+    !!store.accountCheckReport ||
     !!store.missingAssets ||
     !!store.afkModeDialog ||
     store.generatorDialogOpen ||
@@ -347,6 +349,11 @@ function AppContent() {
       <BulkCredentialsDialog
         open={store.bulkCredentialsOpen}
         onClose={() => store.setBulkCredentialsOpen(false)}
+      />
+
+      <AccountCheckResultsDialog
+        open={!!store.accountCheckReport}
+        onClose={() => store.setAccountCheckReport(null)}
       />
 
       <MissingAssetsDialog />

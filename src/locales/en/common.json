@@ -2791,5 +2791,10 @@
   "Roblox says the current password is wrong. Check the password saved for this account.": "Roblox says the current password is wrong. Check the password saved for this account.",
   "This account has 2-step verification and Roblox asked for the code. Change it in the browser.": "This account has 2-step verification and Roblox asked for the code. Change it in the browser.",
   "This account has a PIN lock. Unlock it first (Account Utilities › PIN).": "This account has a PIN lock. Unlock it first (Account Utilities › PIN).",
-  "This account's session expired. Log in to it again, then try again.": "This account's session expired. Log in to it again, then try again."
+  "This account's session expired. Log in to it again, then try again.": "This account's session expired. Log in to it again, then try again.",
+  "Account check results": "Account check results",
+  "Couldn't check": "Couldn't check",
+  "Filter by result": "Filter by result",
+  "Retry {{count}} that couldn't be checked": "Retry {{count}} that couldn't be checked",
+  "Select banned": "Select banned"
 }
