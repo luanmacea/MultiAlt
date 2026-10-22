@@ -222,6 +222,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     checkModeration: vi.fn(async () => null),
     checkAccounts: vi.fn(async () => null),
     accountCheckProgress: null,
+    accountCheckReport: null,
+    setAccountCheckReport: vi.fn(),
     launchedByProgram: new Set<number>(),
     adoptedClients: new Set<number>(),
     unidentifiedClients: [],

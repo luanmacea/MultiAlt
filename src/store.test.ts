@@ -3711,3 +3711,71 @@ describe("away digest", () => {
     expect(result.current.awayEvents).toEqual([]);
   });
 });
+
+describe("checkAccounts", () => {
+  const SUMMARY = {
+    total: 3,
+    ok: 1,
+    warned: 0,
+    invalid: 0,
+    banned: 1,
+    unknown: 1,
+    results: [
+      { userId: 1, outcome: "ok" },
+      { userId: 2, outcome: "banned" },
+      { userId: 3, outcome: "unknown" },
+    ],
+  };
+
+  it("opens the results report instead of a counts toast when it checked several accounts", async () => {
+    results.set("check_accounts", SUMMARY);
+    const { result } = await renderStore();
+    expect(result.current.accountCheckReport).toBeNull();
+
+    await act(async () => {
+      await result.current.checkAccounts([1, 2, 3]);
+    });
+
+    expect(lastArgs("check_accounts")).toEqual({ userIds: [1, 2, 3] });
+    expect(result.current.accountCheckReport?.results).toEqual(SUMMARY.results);
+    expect(result.current.accountCheckReport?.at).toBeGreaterThan(0);
+    expect(result.current.toasts).toEqual([]);
+
+    act(() => result.current.setAccountCheckReport(null));
+    expect(result.current.accountCheckReport).toBeNull();
+  });
+
+  it("keeps the plain counts toast for a single account", async () => {
+    results.set("check_accounts", {
+      total: 1,
+      ok: 0,
+      warned: 0,
+      invalid: 0,
+      banned: 1,
+      unknown: 0,
+      results: [{ userId: 2, outcome: "banned" }],
+    });
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.checkAccounts([2]);
+    });
+
+    expect(result.current.accountCheckReport).toBeNull();
+    expect(result.current.toasts).toMatchObject([
+      { message: "0 ok, 0 invalid, 1 banned, 0 couldn't check", tone: "warn" },
+    ]);
+  });
+
+  it("does not open the report when the check itself failed", async () => {
+    failures.set("check_accounts", "boom");
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.checkAccounts([1, 2]);
+    });
+
+    expect(result.current.accountCheckReport).toBeNull();
+    expect(result.current.toasts).toMatchObject([{ tone: "error" }]);
+  });
+});

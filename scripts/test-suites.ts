@@ -169,6 +169,8 @@ export const SUITES: Record<string, TestSuite> = {
       // Moderação (ideia 8): selos e legenda.
       "src/utils/moderation.test.ts",
       "src/utils/accountCheck.test.ts",
+      // Janela de resultados do Check Accounts em lote: quais contas, filtro, selecionar banidas.
+      "src/components/dialogs/AccountCheckResultsDialog.test.tsx",
       "src/components/layout/StatusBar.test.tsx",
     ],
   },
