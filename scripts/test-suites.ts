@@ -272,7 +272,7 @@ export const SUITES: Record<string, TestSuite> = {
   isolation: {
     description: "Isolamento pré-launch (cache, registro, MachineGuid/MAC)",
     rust: ["win_isolation_tests", "isolation_command_tests"],
-    front: ["src/components/settings"],
+    front: ["src/components/settings", "src/components/IsolationProgressOverlay.test.tsx"],
   },
   versions: {
     description: "Catálogo e instalação de versões do Roblox",
