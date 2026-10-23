@@ -118,7 +118,9 @@ fn acquire_multi_roblox_mutex() -> Result<bool, String> {
 /// pids) e o comportamento antigo é idêntico.
 pub fn enable_multi_roblox() -> Result<bool, String> {
     match enable_multi_roblox_checked()? {
-        MultiRobloxOutcome::Enabled | MultiRobloxOutcome::ProvidedByOtherProgram => Ok(true),
+        MultiRobloxOutcome::Enabled
+        | MultiRobloxOutcome::ProvidedByOtherProgram
+        | MultiRobloxOutcome::EnabledDespiteProgram { .. } => Ok(true),
         MultiRobloxOutcome::Blocked => Ok(false),
         MultiRobloxOutcome::EventStillHeld { unreachable } => {
             Err(event_still_held_message(unreachable).to_string())
@@ -149,6 +151,10 @@ pub enum MultiRobloxOutcome {
     /// A trava continua de pé porque **outro programa** (não um cliente) a
     /// segura. `programs` = os executáveis, para a mensagem.
     EventHeldByProgram { programs: String },
+    /// Outro programa (Fishtrap, executor) segura a trava, mas **nenhum
+    /// cliente do Roblox** a segura mais: o sinal do cliente novo não fecha
+    /// ninguém. Segue como `Enabled` e avisa (`multi_roblox_notice`).
+    EnabledDespiteProgram { programs: String },
 }
 
 /// Launch pulado porque outro cliente ainda segura o Event. Em inglês: o
@@ -168,6 +174,19 @@ pub fn event_held_by_program_message(programs: &str) -> String {
     format!("{MULTI_ROBLOX_EVENT_HELD_BY_PROGRAM} {programs}")
 }
 
+/// Aviso do launch que seguiu com outro programa segurando a trava.
+pub const MULTI_ROBLOX_PROGRAM_NOTICE: &str = "Another program is also handling Roblox windows, so the launch went ahead anyway. If a window closes or does not open, close this program:";
+
+/// O aviso para o log do launch, quando há algo a avisar.
+pub fn multi_roblox_notice(outcome: &MultiRobloxOutcome) -> Option<String> {
+    match outcome {
+        MultiRobloxOutcome::EnabledDespiteProgram { programs } => {
+            Some(format!("{MULTI_ROBLOX_PROGRAM_NOTICE} {programs}"))
+        }
+        _ => None,
+    }
+}
+
 pub fn event_still_held_message(unreachable: usize) -> &'static str {
     if unreachable > 0 {
         MULTI_ROBLOX_EVENT_HELD_ADMIN
@@ -185,7 +204,9 @@ pub fn held_event_response(
     auto_close_conflicts: bool,
 ) -> Option<Result<(), String>> {
     match outcome {
-        MultiRobloxOutcome::Enabled | MultiRobloxOutcome::ProvidedByOtherProgram => Some(Ok(())),
+        MultiRobloxOutcome::Enabled
+        | MultiRobloxOutcome::ProvidedByOtherProgram
+        | MultiRobloxOutcome::EnabledDespiteProgram { .. } => Some(Ok(())),
         MultiRobloxOutcome::EventStillHeld { unreachable } if !auto_close_conflicts => {
             Some(Err(event_still_held_message(unreachable).to_string()))
         }
@@ -246,21 +267,42 @@ fn with_other_program_holder(
     }
 }
 
-/// A trava ainda barra e quem a segura é outro programa: a resposta vira
-/// `EventHeldByProgram`, com o nome dele.
+/// Um executável que pode ser um cliente do Roblox fora da lista conhecida (um
+/// cliente renomeado, uma cópia) ou um processo sem nome: com ele segurando a
+/// trava, seguir poderia fechá-lo. O app da Microsoft Store (`Windows10Universal`)
+/// ficou de fora de propósito: com esse nome no binário a edição completa passou
+/// a ser marcada por um motor de análise (bissecção de 23/10/2026), e o
+/// `find_roblox_pids_all` já não o reconhece como cliente.
+fn holder_may_be_roblox_client(program: &str) -> bool {
+    let lower = program.to_ascii_lowercase();
+    lower.contains("roblox") || lower.starts_with("pid ")
+}
+
+/// A trava ainda barra e quem a segura é outro programa.
+///
+/// - Nenhum cliente do Roblox a segura mais (`roblox_unreachable == 0`: os
+///   handles de todos foram fechados) e nenhum dos programas parece um
+///   cliente → `EnabledDespiteProgram`: entra e avisa. O cliente novo sinaliza
+///   o Event, mas não há cliente ouvindo para fechar.
+/// - Senão → `EventHeldByProgram`, com o nome dele, e o launch para.
 fn with_foreign_holders(
     outcome: MultiRobloxOutcome,
     event_blocks: bool,
     programs: &[String],
+    roblox_unreachable: usize,
 ) -> MultiRobloxOutcome {
     let refused = matches!(
         outcome,
         MultiRobloxOutcome::EventStillHeld { .. } | MultiRobloxOutcome::Blocked
     );
-    if refused && event_blocks && !programs.is_empty() {
-        MultiRobloxOutcome::EventHeldByProgram { programs: programs.join(", ") }
+    if !(refused && event_blocks && !programs.is_empty()) {
+        return outcome;
+    }
+    let joined = programs.join(", ");
+    if roblox_unreachable == 0 && !programs.iter().any(|p| holder_may_be_roblox_client(p)) {
+        MultiRobloxOutcome::EnabledDespiteProgram { programs: joined }
     } else {
-        outcome
+        MultiRobloxOutcome::EventHeldByProgram { programs: joined }
     }
 }
 
@@ -296,7 +338,8 @@ pub fn enable_multi_roblox_checked() -> Result<MultiRobloxOutcome, String> {
         event_blocks,
         report.unreachable,
     );
-    let outcome = with_foreign_holders(outcome, event_blocks, &foreign_programs);
+    let outcome =
+        with_foreign_holders(outcome, event_blocks, &foreign_programs, report.unreachable);
     let outcome = if outcome == MultiRobloxOutcome::Blocked {
         with_other_program_holder(
             outcome,
@@ -328,6 +371,16 @@ pub fn enable_multi_roblox_checked() -> Result<MultiRobloxOutcome, String> {
                 "Multi Roblox: {} ainda existe depois do fechamento ({} processo(s) inacessível(is)); launch pulado para não fechar o cliente aberto",
                 ROBLOX_SINGLETON_EVENT, unreachable
             );
+        }
+        MultiRobloxOutcome::EnabledDespiteProgram { ref programs } => {
+            eprintln!(
+                "Multi Roblox: {} com outro programa ({}) e nenhum cliente; launch segue",
+                ROBLOX_SINGLETON_EVENT, programs
+            );
+            if !holds_mutex {
+                let _ = acquire_multi_roblox_mutex()?;
+            }
+            lock_roblox_cookies()?;
         }
         MultiRobloxOutcome::EventHeldByProgram { ref programs } => {
             eprintln!(
@@ -1048,20 +1101,62 @@ mod multi_roblox_decision_tests {
     // Tickets de 22/10/2026 (Fishtrap, Real): outro programa segura o
     // `ROBLOX_singletonEvent`. A mensagem diz qual.
 
+    // Pedido do dono (23/10/2026): com outro programa cuidando da trava, entrar
+    // assim mesmo e só avisar. Seguro porque nenhum cliente do Roblox segura
+    // mais o Event (os handles deles já foram fechados): o sinal do cliente
+    // novo não tem para quem ir, então nenhuma conta aberta é fechada.
+
     #[test]
-    fn a_lock_held_by_a_program_that_could_not_be_unlocked_names_it() {
+    fn a_lock_held_only_by_another_program_lets_the_launch_go_ahead() {
         use MultiRobloxOutcome::*;
         let names = vec!["Fishtrap.exe".to_string()];
-        let expected = EventHeldByProgram { programs: "Fishtrap.exe".into() };
-        assert_eq!(with_foreign_holders(EventStillHeld { unreachable: 0 }, true, &names), expected);
-        assert_eq!(with_foreign_holders(Blocked, true, &names), expected);
-        // Destravou (nada mais barra) ou ninguém de fora: a resposta não muda.
-        assert_eq!(with_foreign_holders(Enabled, false, &names), Enabled);
-        assert_eq!(with_foreign_holders(Blocked, true, &[]), Blocked);
+        let expected = EnabledDespiteProgram { programs: "Fishtrap.exe".into() };
+        assert_eq!(with_foreign_holders(EventStillHeld { unreachable: 0 }, true, &names, 0), expected);
+        assert_eq!(with_foreign_holders(Blocked, true, &names, 0), expected);
+    }
+
+    #[test]
+    fn the_launch_still_stops_when_a_roblox_client_may_hear_the_signal() {
+        use MultiRobloxOutcome::*;
+        let names = vec!["Fishtrap.exe".to_string()];
+        // Um cliente do Roblox que não abriu (administrador) ainda segura o
+        // Event: o cliente novo o fecharia.
         assert_eq!(
-            with_foreign_holders(EventStillHeld { unreachable: 1 }, true, &[]),
+            with_foreign_holders(EventStillHeld { unreachable: 1 }, true, &names, 1),
+            EventHeldByProgram { programs: "Fishtrap.exe".into() }
+        );
+        // Quem segura pode ser um cliente com outro nome (um renomeado, uma
+        // cópia) ou um processo sem nome conhecido: não arrisca.
+        for holder in ["RobloxPlayerCopy.exe", "roblox_helper.exe", "PID 4242"] {
+            let names = vec![holder.to_string()];
+            assert_eq!(
+                with_foreign_holders(Blocked, true, &names, 0),
+                EventHeldByProgram { programs: holder.into() },
+                "{holder}"
+            );
+        }
+    }
+
+    #[test]
+    fn without_another_program_the_answers_stay() {
+        use MultiRobloxOutcome::*;
+        let names = vec!["Fishtrap.exe".to_string()];
+        assert_eq!(with_foreign_holders(Enabled, false, &names, 0), Enabled);
+        assert_eq!(with_foreign_holders(Blocked, true, &[], 0), Blocked);
+        assert_eq!(
+            with_foreign_holders(EventStillHeld { unreachable: 1 }, true, &[], 1),
             EventStillHeld { unreachable: 1 }
         );
+    }
+
+    #[test]
+    fn going_ahead_despite_another_program_never_closes_anything() {
+        let outcome = MultiRobloxOutcome::EnabledDespiteProgram { programs: "Real.exe".into() };
+        for auto_close in [false, true] {
+            assert_eq!(held_event_response(outcome.clone(), auto_close), Some(Ok(())));
+        }
+        assert!(multi_roblox_notice(&outcome).is_some_and(|n| n.ends_with("Real.exe")));
+        assert_eq!(multi_roblox_notice(&MultiRobloxOutcome::Enabled), None);
     }
 
     #[test]
