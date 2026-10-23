@@ -69,7 +69,7 @@ describe("launchErrorText", () => {
   const ptT = (text: string) => pt[text] ?? text;
 
   it("lists the messages the backend writes", () => {
-    expect(backendErrors).toHaveLength(2);
+    expect(backendErrors).toHaveLength(3);
     expect(backendErrors.some((m) => m.includes("administrator"))).toBe(true);
   });
 
@@ -81,6 +81,11 @@ describe("launchErrorText", () => {
       expect(launchErrorText(message, ptT)).toBe(pt[message]);
       expect(launchErrorText(`Launch failed: ${message}`, ptT)).toBe(`Launch failed: ${pt[message]}`);
     }
+  });
+
+  it("keeps the program name after a lock held by another program", () => {
+    const message = backendErrors.find((m) => m.startsWith("Another program"))!;
+    expect(launchErrorText(`${message} Fishtrap.exe`, ptT)).toBe(`${pt[message]} Fishtrap.exe`);
   });
 
   it("leaves any other error as it came", () => {

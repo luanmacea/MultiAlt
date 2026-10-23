@@ -33,6 +33,37 @@ fn find_pids_for_exes(exe_names: &[&str]) -> Vec<u32> {
     pids
 }
 
+/// Nome do executável de `pid` (ex.: `Fishtrap.exe`), para mensagens.
+pub fn exe_name_of(pid: u32) -> Option<String> {
+    let mut found = None;
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot.is_null() || snapshot == INVALID_HANDLE_VALUE {
+            return None;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                if entry.th32ProcessID == pid {
+                    let len = entry
+                        .szExeFile
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    found = Some(String::from_utf16_lossy(&entry.szExeFile[..len]));
+                    break;
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+        CloseHandle(snapshot);
+    }
+    found
+}
+
 pub fn get_roblox_pids() -> Vec<u32> {
     find_pids_for_exes(&["RobloxPlayerBeta.exe"])
 }
