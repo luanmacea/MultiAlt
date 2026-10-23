@@ -374,8 +374,21 @@ fn should_shuffle_server(shuffle_job: bool, follow_user: bool, job_id: &str) -> 
     shuffle_job && !follow_user && job_id.trim().is_empty()
 }
 
+/// O retângulo é de uma janela de verdade? O Windows põe a janela minimizada em
+/// (-32000, -32000) com ~160x28, e é isso que `GetWindowRect` devolve: gravar
+/// isso como "a posição da conta" mandava a janela do launch seguinte para fora
+/// da tela, no tamanho mínimo. Coordenadas negativas comuns (um monitor à
+/// esquerda ou acima do principal) são válidas.
+fn window_rect_is_usable(x: i32, y: i32, w: i32, h: i32) -> bool {
+    const MINIMIZED_AXIS: i32 = -30000;
+    const MAX_SIDE: i32 = 30000;
+    x > MINIMIZED_AXIS && y > MINIMIZED_AXIS && (1..=MAX_SIDE).contains(&w) && (1..=MAX_SIDE).contains(&h)
+}
+
 /// The saved window rectangle of an account, or `None` when any part is
-/// missing or unparsable (a half-applied rectangle would misplace the window).
+/// missing or unparsable (a half-applied rectangle would misplace the window),
+/// or when it is the placeholder of a minimized window (`window_rect_is_usable`
+/// — dado já gravado por versões antigas, ignorado em vez de aplicado).
 fn window_rect_from_fields(
     fields: &std::collections::HashMap<String, String>,
 ) -> Option<(i32, i32, i32, i32)> {
@@ -383,7 +396,7 @@ fn window_rect_from_fields(
     let y = fields.get("Window_Position_Y")?.parse::<i32>().ok()?;
     let w = fields.get("Window_Width")?.parse::<i32>().ok()?;
     let h = fields.get("Window_Height")?.parse::<i32>().ok()?;
-    Some((x, y, w, h))
+    window_rect_is_usable(x, y, w, h).then_some((x, y, w, h))
 }
 
 // ---------------------------------------------------------------------------
