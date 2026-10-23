@@ -17,7 +17,9 @@
 // `windows-sys` não expõe — daí as declarações `extern "system"` abaixo.
 //
 // Cuidados que o código respeita (a varredura mexe em processo de terceiros):
-// - só processos cujo executável é do Roblox (`find_roblox_pids_all`);
+// - primeiro só processos cujo executável é do Roblox (`find_roblox_pids_all`);
+//   se o nome ainda existir depois disso, outro programa (Fishtrap, executor)
+//   o segura, e `close_foreign_singleton_events` fecha o handle nele também;
 // - só handles do **tipo Event** — o índice do tipo é descoberto criando um
 //   evento nosso e localizando-o na tabela, o que evita chamar `NtQueryObject`
 //   num handle de pipe (pode travar a chamada indefinidamente);
@@ -414,6 +416,112 @@ pub fn close_roblox_singleton_handles() -> SingletonCloseReport {
         eprintln!(
             "Multi Roblox: {} processo(s) Roblox não puderam ser abertos para fechar o {} (rodando como administrador?)",
             report.unreachable, ROBLOX_SINGLETON_EVENT
+        );
+    }
+    report
+}
+
+/// Quem segura o objeto da nossa sonda (`probe_pid`/`probe_handle`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SingletonHolders {
+    /// A tabela traz o endereço do objeto: só os processos com handle nele.
+    Exact(Vec<u32>),
+    /// Endereço zerado (Windows 11 24H2 sem privilégio de depuração): todo
+    /// processo com algum Event é candidato, e o nome decide em cada um.
+    Candidates(Vec<u32>),
+}
+
+fn singleton_holders(
+    snapshot: &[SystemHandleEntryEx],
+    probe_pid: usize,
+    probe_handle: usize,
+    event_type_index: u16,
+) -> SingletonHolders {
+    let object = snapshot
+        .iter()
+        .find(|e| e.unique_process_id == probe_pid && e.handle_value == probe_handle)
+        .map(|e| e.object)
+        .unwrap_or(0);
+    let mut pids: Vec<u32> = snapshot
+        .iter()
+        .filter(|e| e.object_type_index == event_type_index)
+        .filter(|e| !(e.unique_process_id == probe_pid && e.handle_value == probe_handle))
+        .filter(|e| object == 0 || e.object == object)
+        .map(|e| e.unique_process_id as u32)
+        .collect();
+    pids.sort_unstable();
+    pids.dedup();
+    if object == 0 {
+        // A sonda também é um Event do nosso processo: ele entra como candidato.
+        if !pids.contains(&(probe_pid as u32)) {
+            pids.push(probe_pid as u32);
+            pids.sort_unstable();
+        }
+        SingletonHolders::Candidates(pids)
+    } else {
+        SingletonHolders::Exact(pids)
+    }
+}
+
+/// Resultado de `close_foreign_singleton_events`.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ForeignCloseReport {
+    pub closed: usize,
+    /// Processos que **comprovadamente** seguram a trava e não puderam ser
+    /// abertos (rodando como administrador). Só a busca exata sabe dizer.
+    pub unreachable_holders: Vec<u32>,
+}
+
+/// Fecha o Event `name` em **qualquer** processo que o segure, fora os de
+/// `skip_pids` (os clientes do Roblox, já tratados, e o próprio app).
+///
+/// Ferramentas como o Fishtrap e executores (Real) seguram um handle do
+/// `ROBLOX_singletonEvent`; enquanto ele existir, o próximo cliente desiste.
+/// Fechar o handle (o mesmo `DUPLICATE_CLOSE_SOURCE` dos clientes) não fecha o
+/// programa — ele só deixa de segurar o nome. Só roda quando o nome ainda
+/// existe depois da passada nos clientes.
+fn close_foreign_singleton_events(name: &str, skip_pids: &[u32]) -> ForeignCloseReport {
+    let mut report = ForeignCloseReport::default();
+    let wide = encode_wide(name);
+    let probe = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, wide.as_ptr()) };
+    if probe.is_null() {
+        return report;
+    }
+    let self_pid = unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() } as usize;
+    let probe_value = probe as usize;
+    let snapshot = snapshot_with_event_type_index();
+    // A sonda segura o nome também: fecha antes de mexer nos outros.
+    unsafe { CloseHandle(probe) };
+    let Some((snapshot, event_type_index)) = snapshot else {
+        return report;
+    };
+
+    let holders = singleton_holders(&snapshot, self_pid, probe_value, event_type_index);
+    let (pids, exact) = match holders {
+        SingletonHolders::Exact(pids) => (pids, true),
+        SingletonHolders::Candidates(pids) => (pids, false),
+    };
+    for pid in pids.into_iter().filter(|pid| !skip_pids.contains(pid)) {
+        match close_singleton_events_in_process(pid, name, &snapshot, event_type_index) {
+            Some(closed) => report.closed += closed,
+            None if exact => report.unreachable_holders.push(pid),
+            None => {}
+        }
+    }
+    report
+}
+
+/// `close_foreign_singleton_events` para o `ROBLOX_singletonEvent`, pulando os
+/// clientes do Roblox (a passada deles respeita a carência do cliente novo) e
+/// o próprio app.
+pub fn close_foreign_roblox_singleton_handles() -> ForeignCloseReport {
+    let mut skip = find_roblox_pids_all();
+    skip.push(unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() });
+    let report = close_foreign_singleton_events(ROBLOX_SINGLETON_EVENT, &skip);
+    if report.closed > 0 {
+        eprintln!(
+            "Multi Roblox: {} handle(s) de {} fechado(s) em outro programa (sem fechar o programa)",
+            report.closed, ROBLOX_SINGLETON_EVENT
         );
     }
     report
