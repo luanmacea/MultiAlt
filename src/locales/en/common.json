@@ -2683,7 +2683,7 @@
   "Renamed group to {{group}}": "Renamed group to {{group}}",
   "Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.": "Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.",
   "Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.": "Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.",
-  "Another program is holding the Roblox lock that allows several windows and could not be unlocked (it may be running as administrator), so this launch was skipped. Close it and try again:": "Another program is holding the Roblox lock that allows several windows and could not be unlocked (it may be running as administrator), so this launch was skipped. Close it and try again:",
+  "Another program is holding the Roblox lock that allows several windows, so this launch was skipped. Close it and try again:": "Another program is holding the Roblox lock that allows several windows, so this launch was skipped. Close it and try again:",
   "{{name}} opened as a different Roblox account (user {{id}}).": "{{name}} opened as a different Roblox account (user {{id}}).",
   "{{name}} opened as a different Roblox account (user {{id}}). The launch queue was paused.": "{{name}} opened as a different Roblox account (user {{id}}). The launch queue was paused.",
   "Opened as a different Roblox account (user {{id}})": "Opened as a different Roblox account (user {{id}})",

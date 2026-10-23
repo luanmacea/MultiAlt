@@ -2683,7 +2683,7 @@
   "Renamed group to {{group}}": "Grupo renomeado para {{group}}",
   "Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.": "Não deu para destravar outra janela do Roblox (ela pode estar rodando como administrador). Abrir agora fecharia essa janela, então este launch foi pulado.",
   "Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.": "Não deu para destravar outra janela do Roblox. Abrir agora fecharia essa janela, então este launch foi pulado.",
-  "Another program is holding the Roblox lock that allows several windows and could not be unlocked (it may be running as administrator), so this launch was skipped. Close it and try again:": "Outro programa está segurando a trava do Roblox que permite várias janelas e não pôde ser destravado (talvez esteja rodando como administrador), então este launch foi pulado. Feche-o e tente de novo:",
+  "Another program is holding the Roblox lock that allows several windows, so this launch was skipped. Close it and try again:": "Outro programa está segurando a trava do Roblox que permite várias janelas, então este launch foi pulado. Feche-o e tente de novo:",
   "{{name}} opened as a different Roblox account (user {{id}}).": "{{name}} abriu como outra conta do Roblox (usuário {{id}}).",
   "{{name}} opened as a different Roblox account (user {{id}}). The launch queue was paused.": "{{name}} abriu como outra conta do Roblox (usuário {{id}}). A fila de launch foi pausada.",
   "Opened as a different Roblox account (user {{id}})": "Abriu como outra conta do Roblox (usuário {{id}})",

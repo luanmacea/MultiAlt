@@ -41,7 +41,7 @@ const EVENT_HELD =
   "Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.";
 /** Outro programa (Fishtrap, executor) segura a trava; o nome dele vem depois. */
 const EVENT_HELD_BY_PROGRAM =
-  "Another program is holding the Roblox lock that allows several windows and could not be unlocked (it may be running as administrator), so this launch was skipped. Close it and try again:";
+  "Another program is holding the Roblox lock that allows several windows, so this launch was skipped. Close it and try again:";
 
 /**
  * Erro de launch na língua da tela. As frases que o backend escreve em inglês
@@ -56,7 +56,7 @@ export function launchErrorText(error: unknown, t: (text: string) => string): st
   const held = [
     [EVENT_HELD_ADMIN, () => t("Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.")],
     [EVENT_HELD, () => t("Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.")],
-    [EVENT_HELD_BY_PROGRAM, () => t("Another program is holding the Roblox lock that allows several windows and could not be unlocked (it may be running as administrator), so this launch was skipped. Close it and try again:")],
+    [EVENT_HELD_BY_PROGRAM, () => t("Another program is holding the Roblox lock that allows several windows, so this launch was skipped. Close it and try again:")],
   ] as const;
   for (const [english, translated] of held) {
     if (text.includes(english)) return text.replace(english, translated());
