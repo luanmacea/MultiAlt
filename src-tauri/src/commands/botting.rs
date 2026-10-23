@@ -287,7 +287,8 @@ async fn launch_account_for_cycle(
     let resolved_launch = resolve_launch_job(job_id, false, "");
 
     if multi_rbx {
-        ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await?;
+        // Ciclo automático: ninguém na frente para confirmar, nada fecha.
+        ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event, None).await?;
     } else {
         let _ = windows::disable_multi_roblox();
     }
@@ -941,8 +942,10 @@ async fn start_botting_mode(
     if place_id <= 0 {
         return Err("Place ID must be greater than 0".into());
     }
+    // O Auto Rejoin precisa do Multi Roblox: liga em vez de recusar o Start
+    // (pedido do dono, 23/10/2026: nada de erro quando dá para jogar).
     if !settings.get_bool("General", "EnableMultiRbx") {
-        return Err("Auto Rejoin currently requires Multi Roblox to be enabled".into());
+        let _ = settings.set("General", "EnableMultiRbx", "true");
     }
 
     let player_set = botting_player_set(&dedup, player_user_ids)?;

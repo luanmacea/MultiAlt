@@ -1049,10 +1049,50 @@ where
         .map_err(|e| format!("{label} task failed: {e}"))
 }
 
+/// Resposta pendente do "abrir mesmo assim?" (`multi-roblox-confirm`). Uma por
+/// vez: uma pergunta nova responde "não" à anterior.
+static LAUNCH_ANYWAY_ANSWER: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<bool>>> =
+    std::sync::Mutex::new(None);
+
+/// Quanto o launch espera a pessoa responder. Sem resposta (ninguém na frente
+/// do PC, reconexão automática), conta como "não": nada é fechado.
+const LAUNCH_ANYWAY_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+fn register_launch_anyway_question() -> tokio::sync::oneshot::Receiver<bool> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let previous = LAUNCH_ANYWAY_ANSWER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .replace(tx);
+    if let Some(previous) = previous {
+        let _ = previous.send(false);
+    }
+    rx
+}
+
+/// Entrega a resposta da tela. `false` se não havia pergunta pendente.
+fn answer_launch_anyway(allow: bool) -> bool {
+    let pending = LAUNCH_ANYWAY_ANSWER.lock().unwrap_or_else(|e| e.into_inner()).take();
+    pending.map(|tx| tx.send(allow).is_ok()).unwrap_or(false)
+}
+
+async fn wait_launch_anyway_answer(
+    rx: tokio::sync::oneshot::Receiver<bool>,
+    wait: std::time::Duration,
+) -> bool {
+    matches!(tokio::time::timeout(wait, rx).await, Ok(Ok(true)))
+}
+
+#[tauri::command]
+fn answer_multi_roblox_confirm(allow: bool) -> bool {
+    answer_launch_anyway(allow)
+}
+
 #[cfg(target_os = "windows")]
 async fn ensure_multi_roblox_enabled(
     auto_close_conflicts: bool,
     reserve_singleton_event: bool,
+    ask: Option<&tauri::AppHandle>,
 ) -> Result<Option<String>, String> {
     // Experimental e desligado por padrão (ideia 3): com a opção ligada, o
     // `enable_multi_roblox` também reserva o nome `ROBLOX_singletonEvent`.
@@ -1068,6 +1108,17 @@ async fn ensure_multi_roblox_enabled(
     // Seguiu apesar de outro programa segurar a trava: o aviso volta para o
     // chamador pôr no log do launch.
     let notice = platform::windows::multi_roblox_notice(&outcome);
+    // Abrir fecharia uma janela: pergunta na tela em vez de dar erro. Sem
+    // resposta em 2 min (ou recusa), segue o caminho de sempre — nada fecha.
+    if let (Some(app), Some(question)) = (ask, platform::windows::launch_anyway_question(&outcome)) {
+        let rx = register_launch_anyway_question();
+        if app.emit("multi-roblox-confirm", &question).is_ok()
+            && wait_launch_anyway_answer(rx, LAUNCH_ANYWAY_WAIT).await
+        {
+            platform::windows::lock_roblox_cookies()?;
+            return Ok(Some(platform::windows::MULTI_ROBLOX_LAUNCHED_ANYWAY.to_string()));
+        }
+    }
     if let Some(response) = platform::windows::held_event_response(outcome, auto_close_conflicts) {
         return response.map(|()| notice);
     }
