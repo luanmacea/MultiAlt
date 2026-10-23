@@ -1,4 +1,8 @@
 {
+  "A Roblox window is running as administrator, so MultiAlt cannot unlock it. Opening another account will close that window.": "Uma janela do Roblox está rodando como administrador, então o MultiAlt não consegue destravá-la. Abrir outra conta vai fechar essa janela.",
+  "{{programs}} looks like a Roblox window that MultiAlt cannot unlock. Opening another account may close it.": "{{programs}} parece uma janela do Roblox que o MultiAlt não consegue destravar. Abrir outra conta pode fechá-la.",
+  "Open anyway": "Abrir mesmo assim",
+  "Cancel keeps every open window as it is.": "Cancelar deixa todas as janelas abertas como estão.",
   "Loading...": "Carregando...",
   "Settings": "Configurações",
   "saving...": "salvando...",

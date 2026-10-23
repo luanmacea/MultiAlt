@@ -905,9 +905,8 @@ function bottingHandler(fallback: InvokeHandler, world: AfkWorld, active: boolea
       }
       case "start_botting_mode": {
         // `start_botting_mode`: Multi Roblox ligado e uma conta no mínimo.
-        if (settings.General?.EnableMultiRbx !== "true") {
-          return Promise.reject("Auto Rejoin currently requires Multi Roblox to be enabled");
-        }
+        // O backend liga o Multi Roblox em vez de recusar.
+        settings.General = { ...(settings.General ?? {}), EnableMultiRbx: "true" };
         const userIds = ids(args.userIds);
         if (userIds.length < 1) return Promise.reject("Select at least one account for Auto Rejoin");
         session = {

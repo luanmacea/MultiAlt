@@ -1137,6 +1137,14 @@ enum Admitted {
 /// — o "Close All Roblox" com o laço preso esperando um PID —, recusa como antes.
 const LAUNCH_CLOSING_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// Quanto o Play espera uma sequência que não aceita contas no fim (a
+/// reconexão automática) terminar, antes de desistir.
+const LAUNCH_BUSY_WAIT: std::time::Duration = std::time::Duration::from_secs(90);
+
+fn keep_waiting_for_busy_launch(waited: std::time::Duration) -> bool {
+    waited < LAUNCH_BUSY_WAIT
+}
+
 /// O cliente desta conta ainda está aberto (rastreado pelo app)? Alimenta a
 /// trava do duplo clique (`admit_guarded`). Fora do Windows não há rastreador:
 /// vale só a janela de tempo.
@@ -1183,6 +1191,12 @@ async fn launch_queue_admit(
                     emit_launch_queue(app, &payload);
                 }
                 return Ok(Admitted::Appended(added));
+            }
+            // Uma reconexão automática está abrindo uma conta: espera ela
+            // terminar em vez de recusar o Play (antes: "A launch is already in
+            // progress" e nada abria).
+            Admission::Busy if keep_waiting_for_busy_launch(waiting_since.elapsed()) => {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
             }
             Admission::Busy => return Err(LAUNCH_ALREADY_ACTIVE.to_string()),
             Admission::Closing if waiting_since.elapsed() < LAUNCH_CLOSING_GRACE => {
@@ -1410,7 +1424,17 @@ async fn launch_roblox_windows(
         .unwrap_or_else(|| settings.get_bool("General", "StartRobloxMinimized"));
 
     let (resolved_base_path, resolved_version_id) =
-        windows::resolve_roblox_install_path(account_version_override.as_deref(), &settings, &versions)?;
+        {
+            let (path, id, notice) = windows::resolve_roblox_install_path_with_notice(
+                account_version_override.as_deref(),
+                &settings,
+                &versions,
+            );
+            if let Some(notice) = notice {
+                emit_launch_log(&app, user_id, "warn", "version", notice);
+            }
+            (path, id)
+        };
     let isolation_will_wipe_install = isolation_wipes_install(
         &settings.get_string("Isolation", "Mode"),
         resolved_version_id.as_deref(),
@@ -1421,7 +1445,15 @@ async fn launch_roblox_windows(
         resolved_version_id.as_deref(),
     );
 
-    if let Some(report) = run_pre_launch_isolation(&app, &settings).await? {
+    // Isolamento é opcional: se falhar, o launch segue e o log diz por quê.
+    let isolation_report = match run_pre_launch_isolation(&app, &settings).await {
+        Ok(report) => report,
+        Err(err) => {
+            emit_launch_log(&app, user_id, "warn", "isolation", format!("Isolation skipped: {err}"));
+            None
+        }
+    };
+    if let Some(report) = isolation_report {
         let _ = app.emit("isolation-report", &report);
         emit_launch_log(&app, user_id, "info", "isolation", "Isolamento pré-launch aplicado");
         if windows::has_pending_fast_flags() {
@@ -1446,7 +1478,7 @@ async fn launch_roblox_windows(
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
     if multi_rbx {
         if let Some(notice) =
-            ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await?
+            ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event, Some(&app)).await?
         {
             emit_launch_log(&app, user_id, "warn", "multi-roblox", notice);
         }
@@ -1955,11 +1987,14 @@ async fn launch_multiple(
     let tracker = windows::tracker();
     tracker.reset_launch_cancelled();
 
+    // Isolamento é opcional: se falhar, a fila segue (antes abortava o lote).
     let isolation_report = match run_pre_launch_isolation(&app, &settings).await {
         Ok(value) => value,
         Err(err) => {
-            sequence.abort(None, &err);
-            return Err(err);
+            if let Some(first) = user_ids.first() {
+                emit_launch_log(&app, *first, "warn", "isolation", format!("Isolation skipped: {err}"));
+            }
+            None
         }
     };
     if let Some(report) = isolation_report {
@@ -2173,27 +2208,16 @@ async fn run_launch_queue_windows(
             continue;
         }
 
-        let (acct_base_path, acct_version_id) = match windows::resolve_roblox_install_path(
-            acct_version_override.as_deref(),
-            &settings,
-            &versions,
-        ) {
-            Ok(value) => value,
-            Err(err) => {
-                sequence.mark(uid, LaunchQueueState::Failed, Some(err.clone()));
-                let _ = app.emit(
-                    "launch-progress",
-                    serde_json::json!({
-                        "userId": uid,
-                        "index": i,
-                        "total": total,
-                        "error": "version-resolve-failed",
-                        "message": err,
-                    }),
-                );
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                continue;
+        let (acct_base_path, acct_version_id) = {
+            let (path, id, notice) = windows::resolve_roblox_install_path_with_notice(
+                acct_version_override.as_deref(),
+                &settings,
+                &versions,
+            );
+            if let Some(notice) = notice {
+                emit_launch_log(app, uid, "warn", "version", notice);
             }
+            (path, id)
         };
         let acct_isolation_wipes_install = isolation_wipes_install(
             &settings.get_string("Isolation", "Mode"),
@@ -2269,7 +2293,7 @@ async fn run_launch_queue_windows(
         if multi_rbx {
             // Falha de Multi Roblox aborta a fila inteira (diferente dos erros
             // por conta): sem o mutex, todo cliente novo derruba o anterior.
-            match ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await {
+            match ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event, Some(app)).await {
                 Ok(Some(notice)) => emit_launch_log(app, uid, "warn", "multi-roblox", notice),
                 Ok(None) => {}
                 Err(err) => {
@@ -3093,6 +3117,15 @@ fn cmd_apply_fps_unlock(
 #[cfg(test)]
 mod launch_queue_tests {
     use super::*;
+
+    /// Pedido do dono (23/10/2026): com uma reconexão automática abrindo uma
+    /// conta, o Play recusava na hora. Agora espera ela terminar.
+    #[test]
+    fn play_waits_for_an_automatic_reconnect_instead_of_refusing() {
+        assert!(keep_waiting_for_busy_launch(std::time::Duration::from_secs(0)));
+        assert!(keep_waiting_for_busy_launch(std::time::Duration::from_secs(60)));
+        assert!(!keep_waiting_for_busy_launch(std::time::Duration::from_secs(91)));
+    }
 
     /// `last_use` alimenta a coluna "3d"/"2mo" e a bolinha de envelhecimento: só
     /// pode andar quando o cliente subiu de fato, nunca na tentativa.

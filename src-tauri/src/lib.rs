@@ -692,6 +692,7 @@ pub fn run() {
             cancel_launch,
             get_launch_queue,
             cancel_account_launch,
+            answer_multi_roblox_confirm,
             stop_launch_queue,
             next_account,
             start_botting_mode,

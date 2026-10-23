@@ -1049,10 +1049,50 @@ where
         .map_err(|e| format!("{label} task failed: {e}"))
 }
 
+/// Resposta pendente do "abrir mesmo assim?" (`multi-roblox-confirm`). Uma por
+/// vez: uma pergunta nova responde "não" à anterior.
+static LAUNCH_ANYWAY_ANSWER: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<bool>>> =
+    std::sync::Mutex::new(None);
+
+/// Quanto o launch espera a pessoa responder. Sem resposta (ninguém na frente
+/// do PC, reconexão automática), conta como "não": nada é fechado.
+const LAUNCH_ANYWAY_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+fn register_launch_anyway_question() -> tokio::sync::oneshot::Receiver<bool> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let previous = LAUNCH_ANYWAY_ANSWER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .replace(tx);
+    if let Some(previous) = previous {
+        let _ = previous.send(false);
+    }
+    rx
+}
+
+/// Entrega a resposta da tela. `false` se não havia pergunta pendente.
+fn answer_launch_anyway(allow: bool) -> bool {
+    let pending = LAUNCH_ANYWAY_ANSWER.lock().unwrap_or_else(|e| e.into_inner()).take();
+    pending.map(|tx| tx.send(allow).is_ok()).unwrap_or(false)
+}
+
+async fn wait_launch_anyway_answer(
+    rx: tokio::sync::oneshot::Receiver<bool>,
+    wait: std::time::Duration,
+) -> bool {
+    matches!(tokio::time::timeout(wait, rx).await, Ok(Ok(true)))
+}
+
+#[tauri::command]
+fn answer_multi_roblox_confirm(allow: bool) -> bool {
+    answer_launch_anyway(allow)
+}
+
 #[cfg(target_os = "windows")]
 async fn ensure_multi_roblox_enabled(
     auto_close_conflicts: bool,
     reserve_singleton_event: bool,
+    ask: Option<&tauri::AppHandle>,
 ) -> Result<Option<String>, String> {
     // Experimental e desligado por padrão (ideia 3): com a opção ligada, o
     // `enable_multi_roblox` também reserva o nome `ROBLOX_singletonEvent`.
@@ -1068,6 +1108,17 @@ async fn ensure_multi_roblox_enabled(
     // Seguiu apesar de outro programa segurar a trava: o aviso volta para o
     // chamador pôr no log do launch.
     let notice = platform::windows::multi_roblox_notice(&outcome);
+    // Abrir fecharia uma janela: pergunta na tela em vez de dar erro. Sem
+    // resposta em 2 min (ou recusa), segue o caminho de sempre — nada fecha.
+    if let (Some(app), Some(question)) = (ask, platform::windows::launch_anyway_question(&outcome)) {
+        let rx = register_launch_anyway_question();
+        if app.emit("multi-roblox-confirm", &question).is_ok()
+            && wait_launch_anyway_answer(rx, LAUNCH_ANYWAY_WAIT).await
+        {
+            platform::windows::lock_roblox_cookies()?;
+            return Ok(Some(platform::windows::MULTI_ROBLOX_LAUNCHED_ANYWAY.to_string()));
+        }
+    }
     if let Some(response) = platform::windows::held_event_response(outcome, auto_close_conflicts) {
         return response.map(|()| notice);
     }
@@ -3191,5 +3242,46 @@ mod client_window_order_tests {
             let enforce = pos(corpo, "spawn_client_window_enforcement(", nome);
             assert!(pid < enforce, "{nome}: a janela só é conferida depois do PID");
         }
+    }
+}
+
+#[cfg(test)]
+mod launch_anyway_tests {
+    use super::*;
+
+    /// A pergunta pendente é global: um teste por vez.
+    static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    // "Abrir mesmo assim?" (23/10/2026): o launch espera a resposta da tela.
+
+    #[tokio::test]
+    async fn a_yes_from_the_screen_lets_the_launch_go_on() {
+        let _serial = SERIAL.lock().await;
+        let rx = register_launch_anyway_question();
+        assert!(answer_launch_anyway(true));
+        assert!(wait_launch_anyway_answer(rx, std::time::Duration::from_secs(1)).await);
+    }
+
+    #[tokio::test]
+    async fn no_or_no_answer_keeps_the_old_safe_path() {
+        let _serial = SERIAL.lock().await;
+        let rx = register_launch_anyway_question();
+        assert!(answer_launch_anyway(false));
+        assert!(!wait_launch_anyway_answer(rx, std::time::Duration::from_secs(1)).await);
+
+        let rx = register_launch_anyway_question();
+        assert!(!wait_launch_anyway_answer(rx, std::time::Duration::from_millis(50)).await);
+        // A pergunta que expirou não aceita resposta atrasada.
+        assert!(!answer_launch_anyway(true));
+    }
+
+    #[tokio::test]
+    async fn a_new_question_answers_no_to_the_old_one() {
+        let _serial = SERIAL.lock().await;
+        let old = register_launch_anyway_question();
+        let new = register_launch_anyway_question();
+        assert!(!wait_launch_anyway_answer(old, std::time::Duration::from_secs(1)).await);
+        assert!(answer_launch_anyway(true));
+        assert!(wait_launch_anyway_answer(new, std::time::Duration::from_secs(1)).await);
     }
 }

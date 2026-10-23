@@ -37,6 +37,7 @@ export const SUITES: Record<string, TestSuite> = {
       "exit_cleanup_tests",
       "launch_resolve_tests",
       "launch_shared_helper_tests",
+      "launch_anyway_tests",
       "channel_follow_tests",
       "channel_build_pairing_tests",
       "channel_repair_tests",
@@ -60,6 +61,7 @@ export const SUITES: Record<string, TestSuite> = {
     front: [
       "src/store.test.ts",
       "src/components/ChooseGameScreen.test.tsx",
+      "src/components/MultiRobloxConfirm.test.tsx",
       "src/components/session",
       "src/components/pages/SessionPage.test.tsx",
       "src/accountLaunchOverrides.test.ts",
