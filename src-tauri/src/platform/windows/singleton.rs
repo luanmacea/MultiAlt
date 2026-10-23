@@ -19,7 +19,7 @@
 // Cuidados que o código respeita (a varredura mexe em processo de terceiros):
 // - primeiro só processos cujo executável é do Roblox (`find_roblox_pids_all`);
 //   se o nome ainda existir depois disso, outro programa (Fishtrap, executor)
-//   o segura, e `close_foreign_singleton_events` fecha o handle nele também;
+//   o segura: `find_foreign_singleton_holders` só diz quem é, sem fechar nada;
 // - só handles do **tipo Event** — o índice do tipo é descoberto criando um
 //   evento nosso e localizando-o na tabela, o que evita chamar `NtQueryObject`
 //   num handle de pipe (pode travar a chamada indefinidamente);
@@ -463,68 +463,94 @@ fn singleton_holders(
     }
 }
 
-/// Resultado de `close_foreign_singleton_events`.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct ForeignCloseReport {
-    pub closed: usize,
-    /// Processos que **comprovadamente** seguram a trava e não puderam ser
-    /// abertos (rodando como administrador). Só a busca exata sabe dizer.
-    pub unreachable_holders: Vec<u32>,
+/// `pid` tem um Event chamado exatamente `name`? Só **lê** o nome (uma cópia
+/// do handle, fechada na hora): nada é fechado no outro processo. `None` se o
+/// processo nem abre (administrador).
+fn process_holds_named_event(
+    pid: u32,
+    name: &str,
+    snapshot: &[SystemHandleEntryEx],
+    event_type_index: u16,
+) -> Option<bool> {
+    let target = unsafe { OpenProcess(PROCESS_DUP_HANDLE, 0, pid) };
+    if target.is_null() {
+        return None;
+    }
+    let this_process = unsafe { GetCurrentProcess() };
+    let pid_key = pid as usize;
+    let mut found = false;
+    for entry in snapshot
+        .iter()
+        .filter(|e| e.unique_process_id == pid_key && e.object_type_index == event_type_index)
+    {
+        let mut probe: HANDLE = std::ptr::null_mut();
+        let duplicated = unsafe {
+            DuplicateHandle(
+                target,
+                entry.handle_value as HANDLE,
+                this_process,
+                &mut probe,
+                0,
+                0,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if duplicated == 0 {
+            continue;
+        }
+        let matches = handle_object_name(probe).is_some_and(|n| singleton_name_matches(&n, name));
+        unsafe { CloseHandle(probe) };
+        if matches {
+            found = true;
+            break;
+        }
+    }
+    unsafe { CloseHandle(target) };
+    Some(found)
 }
 
-/// Fecha o Event `name` em **qualquer** processo que o segure, fora os de
-/// `skip_pids` (os clientes do Roblox, já tratados, e o próprio app).
+/// Quais processos (fora `skip_pids`) seguram o Event `name`. Só diagnóstico:
+/// a trava **não** é liberada neles.
 ///
 /// Ferramentas como o Fishtrap e executores (Real) seguram um handle do
-/// `ROBLOX_singletonEvent`; enquanto ele existir, o próximo cliente desiste.
-/// Fechar o handle (o mesmo `DUPLICATE_CLOSE_SOURCE` dos clientes) não fecha o
-/// programa — ele só deixa de segurar o nome. Só roda quando o nome ainda
-/// existe depois da passada nos clientes.
-fn close_foreign_singleton_events(name: &str, skip_pids: &[u32]) -> ForeignCloseReport {
-    let mut report = ForeignCloseReport::default();
+/// `ROBLOX_singletonEvent`; enquanto ele existir, o próximo cliente desiste e
+/// o app só consegue dizer quem é para a pessoa fechar. Fechar o handle no
+/// outro programa resolveria, mas foi testado e descartado em 23/10/2026: a
+/// edição completa passou a ser marcada por um motor de análise.
+fn find_foreign_singleton_holders(name: &str, skip_pids: &[u32]) -> Vec<u32> {
     let wide = encode_wide(name);
     let probe = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, wide.as_ptr()) };
     if probe.is_null() {
-        return report;
+        return Vec::new();
     }
     let self_pid = unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() } as usize;
     let probe_value = probe as usize;
     let snapshot = snapshot_with_event_type_index();
-    // A sonda segura o nome também: fecha antes de mexer nos outros.
     unsafe { CloseHandle(probe) };
     let Some((snapshot, event_type_index)) = snapshot else {
-        return report;
+        return Vec::new();
     };
-
-    let holders = singleton_holders(&snapshot, self_pid, probe_value, event_type_index);
-    let (pids, exact) = match holders {
-        SingletonHolders::Exact(pids) => (pids, true),
-        SingletonHolders::Candidates(pids) => (pids, false),
-    };
-    for pid in pids.into_iter().filter(|pid| !skip_pids.contains(pid)) {
-        match close_singleton_events_in_process(pid, name, &snapshot, event_type_index) {
-            Some(closed) => report.closed += closed,
-            None if exact => report.unreachable_holders.push(pid),
-            None => {}
+    match singleton_holders(&snapshot, self_pid, probe_value, event_type_index) {
+        // A tabela já diz quem é: nem precisa abrir processo nenhum.
+        SingletonHolders::Exact(pids) => {
+            pids.into_iter().filter(|pid| !skip_pids.contains(pid)).collect()
         }
+        SingletonHolders::Candidates(pids) => pids
+            .into_iter()
+            .filter(|pid| !skip_pids.contains(pid))
+            .filter(|pid| {
+                process_holds_named_event(*pid, name, &snapshot, event_type_index) == Some(true)
+            })
+            .collect(),
     }
-    report
 }
 
-/// `close_foreign_singleton_events` para o `ROBLOX_singletonEvent`, pulando os
-/// clientes do Roblox (a passada deles respeita a carência do cliente novo) e
-/// o próprio app.
-pub fn close_foreign_roblox_singleton_handles() -> ForeignCloseReport {
+/// Quem, fora os clientes do Roblox e o próprio app, segura o
+/// `ROBLOX_singletonEvent`.
+pub fn find_foreign_roblox_singleton_holders() -> Vec<u32> {
     let mut skip = find_roblox_pids_all();
     skip.push(unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() });
-    let report = close_foreign_singleton_events(ROBLOX_SINGLETON_EVENT, &skip);
-    if report.closed > 0 {
-        eprintln!(
-            "Multi Roblox: {} handle(s) de {} fechado(s) em outro programa (sem fechar o programa)",
-            report.closed, ROBLOX_SINGLETON_EVENT
-        );
-    }
-    report
+    find_foreign_singleton_holders(ROBLOX_SINGLETON_EVENT, &skip)
 }
 
 /// `OpenEventW` falhou (handle nulo) com `last_error`: esse nome segura um
@@ -873,24 +899,20 @@ mod singleton_event_tests {
     }
 
     #[test]
-    fn an_event_held_by_a_process_that_is_not_roblox_is_found_and_closed() {
+    fn an_event_held_by_a_process_that_is_not_roblox_is_found_and_left_alone() {
         let name = "RAMTest_foreignHolder_singletonEvent";
-        let mut event = create_named_event(name).expect("CreateEventW falhou");
-        // Pulando o próprio processo nada é fechado.
-        let skipped = close_foreign_singleton_events(name, &[self_pid()]);
-        assert_eq!(skipped.closed, 0);
-        assert!(named_event_exists(name));
-        // Sem pular, o "outro programa" (este runner) perde o handle.
-        let report = close_foreign_singleton_events(name, &[]);
-        assert_eq!(report.closed, 1, "{report:?}");
-        event.forget();
-        assert!(!named_event_exists(name), "o nome devia ter sumido");
+        let _event = create_named_event(name).expect("CreateEventW falhou");
+        // Pulando o próprio processo, ninguém segura.
+        assert!(find_foreign_singleton_holders(name, &[self_pid()]).is_empty());
+        // Sem pular, o "outro programa" (este runner) aparece...
+        assert_eq!(find_foreign_singleton_holders(name, &[]), vec![self_pid()]);
+        // ...e a trava continua com ele: só diagnóstico.
+        assert!(named_event_exists(name), "nada pode ser fechado no outro programa");
     }
 
     #[test]
-    fn no_event_no_work() {
-        let report = close_foreign_singleton_events("RAMTest_absent_singletonEvent", &[]);
-        assert_eq!(report, ForeignCloseReport::default());
+    fn no_event_no_holder() {
+        assert!(find_foreign_singleton_holders("RAMTest_absent_singletonEvent", &[]).is_empty());
     }
 
     /// Processo que não abre (Roblox como administrador, ou já saiu) era

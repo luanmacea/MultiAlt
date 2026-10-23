@@ -147,8 +147,7 @@ pub enum MultiRobloxOutcome {
     /// segue. `unreachable` = clientes cujo processo nem abriu (admin).
     EventStillHeld { unreachable: usize },
     /// A trava continua de pé porque **outro programa** (não um cliente) a
-    /// segura e não pôde ser destravado — em geral por rodar como
-    /// administrador. `programs` = os executáveis, para a mensagem.
+    /// segura. `programs` = os executáveis, para a mensagem.
     EventHeldByProgram { programs: String },
 }
 
@@ -160,10 +159,10 @@ pub const MULTI_ROBLOX_EVENT_HELD: &str = "Another Roblox window could not be un
 /// mais comum é ele rodar como administrador.
 pub const MULTI_ROBLOX_EVENT_HELD_ADMIN: &str = "Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.";
 
-/// Outro programa segura a trava e não pôde ser destravado. O nome do
+/// Outro programa segura a trava (o app não mexe nela). O nome do
 /// programa vai no fim (`event_held_by_program_message`); o frontend traduz a
 /// frase e mantém o nome.
-pub const MULTI_ROBLOX_EVENT_HELD_BY_PROGRAM: &str = "Another program is holding the Roblox lock that allows several windows and could not be unlocked (it may be running as administrator), so this launch was skipped. Close it and try again:";
+pub const MULTI_ROBLOX_EVENT_HELD_BY_PROGRAM: &str = "Another program is holding the Roblox lock that allows several windows, so this launch was skipped. Close it and try again:";
 
 pub fn event_held_by_program_message(programs: &str) -> String {
     format!("{MULTI_ROBLOX_EVENT_HELD_BY_PROGRAM} {programs}")
@@ -247,8 +246,8 @@ fn with_other_program_holder(
     }
 }
 
-/// A trava ainda barra e quem a segura é outro programa que não pôde ser
-/// destravado: a resposta vira `EventHeldByProgram`, com o nome dele.
+/// A trava ainda barra e quem a segura é outro programa: a resposta vira
+/// `EventHeldByProgram`, com o nome dele.
 fn with_foreign_holders(
     outcome: MultiRobloxOutcome,
     event_blocks: bool,
@@ -276,31 +275,23 @@ pub fn enable_multi_roblox_checked() -> Result<MultiRobloxOutcome, String> {
     let report = close_roblox_singleton_handles();
     apply_singleton_reservation();
     let roblox_running = !find_roblox_pids_all().is_empty();
-    let mut event_blocks = event_blocks_next_client(
+    let event_blocks = event_blocks_next_client(
         named_event_exists(ROBLOX_SINGLETON_EVENT),
         singleton_reservation_held(),
     );
     // Ainda de pé depois dos clientes: outro programa (Fishtrap, executor)
-    // segura o nome. Fecha o handle nele também — sem fechar o programa.
-    let mut foreign = ForeignCloseReport::default();
-    if event_blocks {
-        foreign = close_foreign_roblox_singleton_handles();
-        if foreign.closed > 0 {
-            apply_singleton_reservation();
-            event_blocks = event_blocks_next_client(
-                named_event_exists(ROBLOX_SINGLETON_EVENT),
-                singleton_reservation_held(),
-            );
-        }
-    }
-    let foreign_programs: Vec<String> = foreign
-        .unreachable_holders
-        .iter()
-        .map(|pid| exe_name_of(*pid).unwrap_or_else(|| format!("PID {pid}")))
-        .collect();
+    // segura o nome. O app só diz quem é, para a pessoa fechar.
+    let foreign_programs: Vec<String> = if event_blocks {
+        find_foreign_roblox_singleton_holders()
+            .into_iter()
+            .map(|pid| exe_name_of(pid).unwrap_or_else(|| format!("PID {pid}")))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let outcome = multi_roblox_outcome(
         holds_mutex,
-        report.closed + foreign.closed,
+        report.closed,
         roblox_running,
         event_blocks,
         report.unreachable,
@@ -340,7 +331,7 @@ pub fn enable_multi_roblox_checked() -> Result<MultiRobloxOutcome, String> {
         }
         MultiRobloxOutcome::EventHeldByProgram { ref programs } => {
             eprintln!(
-                "Multi Roblox: {} preso em outro programa que não abre ({}); launch pulado",
+                "Multi Roblox: {} preso em outro programa ({}); launch pulado",
                 ROBLOX_SINGLETON_EVENT, programs
             );
         }
@@ -1055,7 +1046,7 @@ mod multi_roblox_decision_tests {
     }
 
     // Tickets de 22/10/2026 (Fishtrap, Real): outro programa segura o
-    // `ROBLOX_singletonEvent` e não pôde ser destravado. A mensagem diz qual.
+    // `ROBLOX_singletonEvent`. A mensagem diz qual.
 
     #[test]
     fn a_lock_held_by_a_program_that_could_not_be_unlocked_names_it() {
