@@ -60,6 +60,47 @@ pub fn chromium_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Arquivos sem os quais o Chromium abre uma janela em branco e não responde,
+/// com um tamanho mínimo bem abaixo do real (`chrome.dll` ~300 MB, `chrome.exe`
+/// ~4,5 MB, medidos na 154): pegam arquivo ausente ou cortado, não versão.
+#[cfg(target_os = "windows")]
+const REQUIRED_FILES: &[(&str, u64)] = &[
+    ("chrome.exe", 1024 * 1024),
+    ("chrome.dll", 20 * 1024 * 1024),
+    ("resources.pak", 1024 * 1024),
+    ("icudtl.dat", 1024 * 1024),
+    ("v8_context_snapshot.bin", 100 * 1024),
+];
+
+/// A instalação baixada está completa? `None` = sim (ou não sabemos conferir
+/// nesta plataforma). Só confere o que existe no disco: antivírus que apaga um
+/// arquivo depois da extração, ou uma extração cortada, deixava o `chrome.exe`
+/// no lugar e a instalação passava por boa — o navegador abria em branco.
+fn installation_problem(binary: &Path) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let Some(dir) = binary.parent() else {
+            return Some("chrome.exe".to_string());
+        };
+        for (name, min_bytes) in REQUIRED_FILES {
+            match std::fs::metadata(dir.join(name)) {
+                Ok(meta) if meta.is_file() && meta.len() >= *min_bytes => {}
+                Ok(_) => return Some(format!("{name} is incomplete")),
+                Err(_) => return Some(format!("{name} is missing")),
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if binary.exists() {
+            None
+        } else {
+            Some("the browser executable is missing".to_string())
+        }
+    }
+}
+
 fn cached_binary(app: &AppHandle) -> Option<PathBuf> {
     let dir = chromium_dir(app).ok()?;
     let manifest = dir.join("version.json");
@@ -67,7 +108,9 @@ fn cached_binary(app: &AppHandle) -> Option<PathBuf> {
     let json: Value = serde_json::from_str(&raw).ok()?;
     let binary = json.get("binary").and_then(Value::as_str)?;
     let path = PathBuf::from(binary);
-    if path.exists() {
+    // Instalação incompleta = como se não houvesse: `ensure_chromium` baixa de
+    // novo em vez de entregar um navegador que abre em branco.
+    if installation_problem(&path).is_none() {
         Some(path)
     } else {
         None
@@ -307,7 +350,7 @@ pub async fn ensure_chromium(app: &AppHandle) -> Result<PathBuf, String> {
     let version_dir = dir.join(&version);
     let binary = binary_path(&version_dir);
 
-    if !binary.exists() {
+    if installation_problem(&binary).is_some() {
         let archive = dir.join("download.zip");
         let client = archive_client(ARCHIVE_IDLE_TIMEOUT)?;
         download_archive(&client, &url, &archive, |downloaded, total| {
