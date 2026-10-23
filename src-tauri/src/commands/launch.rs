@@ -1432,7 +1432,11 @@ async fn launch_roblox_windows(
 
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
     if multi_rbx {
-        ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await?;
+        if let Some(notice) =
+            ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await?
+        {
+            emit_launch_log(&app, user_id, "warn", "multi-roblox", notice);
+        }
     } else {
         let _ = windows::disable_multi_roblox();
     }
@@ -2252,9 +2256,13 @@ async fn run_launch_queue_windows(
         if multi_rbx {
             // Falha de Multi Roblox aborta a fila inteira (diferente dos erros
             // por conta): sem o mutex, todo cliente novo derruba o anterior.
-            if let Err(err) = ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await {
-                sequence.abort(Some(uid), &err);
-                return Err(err);
+            match ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await {
+                Ok(Some(notice)) => emit_launch_log(app, uid, "warn", "multi-roblox", notice),
+                Ok(None) => {}
+                Err(err) => {
+                    sequence.abort(Some(uid), &err);
+                    return Err(err);
+                }
             }
         } else {
             let _ = windows::disable_multi_roblox();
