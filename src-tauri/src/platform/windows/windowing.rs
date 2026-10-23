@@ -1,6 +1,9 @@
-use windows_sys::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
+use windows_sys::Win32::Graphics::Gdi::{
+    MonitorFromPoint, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AdjustWindowRectEx, GetWindow, GetWindowLongW, IsZoomed, SetWindowLongW, SetWindowPos,
+    AdjustWindowRectEx, GetWindow, GetWindowLongW, GetWindowPlacement, IsZoomed, SetWindowLongW,
+    SetWindowPlacement, SetWindowPos, WINDOWPLACEMENT,
     GWL_EXSTYLE, GWL_STYLE, GW_HWNDPREV, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
     SWP_NOOWNERZORDER, SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWMINNOACTIVE,
     SW_SHOWNOACTIVATE, WS_CAPTION, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME,
@@ -968,6 +971,121 @@ unsafe extern "system" fn roblox_win_cb(hwnd: HWND, lparam: isize) -> i32 {
     1
 }
 
+/// Janelas de grade: as visíveis e as minimizadas (no retângulo que voltam a
+/// ter ao restaurar), em ordem de leitura. Só as visíveis contavam, então uma
+/// janela minimizada não ocupava célula nenhuma e as abertas depois caíam em
+/// cima dela.
+fn grid_windows(mut visible: Vec<RobloxWin>, minimized: Vec<RobloxWin>) -> Vec<RobloxWin> {
+    visible.extend(minimized);
+    visible.sort_by_key(|w| (w.y, w.x));
+    visible
+}
+
+/// O `GetWindowPlacement` dá `rcNormalPosition` em coordenadas da **área de
+/// trabalho**, cuja origem é o canto da área útil do monitor principal — não o
+/// da tela. Com a barra de tarefas no topo ou à esquerda, as duas diferem.
+/// `work` = canto da área útil, `monitor` = canto do monitor.
+fn workspace_offset(work: (i32, i32), monitor: (i32, i32)) -> (i32, i32) {
+    (work.0 - monitor.0, work.1 - monitor.1)
+}
+
+fn workspace_to_screen(rect: (i32, i32, i32, i32), offset: (i32, i32)) -> (i32, i32, i32, i32) {
+    (rect.0 + offset.0, rect.1 + offset.1, rect.2, rect.3)
+}
+
+fn screen_to_workspace(rect: (i32, i32, i32, i32), offset: (i32, i32)) -> (i32, i32, i32, i32) {
+    (rect.0 - offset.0, rect.1 - offset.1, rect.2, rect.3)
+}
+
+/// O deslocamento da área de trabalho do monitor principal.
+fn primary_workspace_offset() -> (i32, i32) {
+    unsafe {
+        let monitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return (0, 0);
+        }
+        workspace_offset(
+            (info.rcWork.left, info.rcWork.top),
+            (info.rcMonitor.left, info.rcMonitor.top),
+        )
+    }
+}
+
+struct MinimizedCollect {
+    pids: std::collections::HashSet<u32>,
+    offset: (i32, i32),
+    out: Vec<RobloxWin>,
+}
+
+unsafe extern "system" fn minimized_win_cb(hwnd: HWND, lparam: isize) -> i32 {
+    let data = &mut *(lparam as *mut MinimizedCollect);
+    if IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) == 0 {
+        return 1;
+    }
+    let mut pid: u32 = 0;
+    GetWindowThreadProcessId(hwnd, &mut pid);
+    if !data.pids.contains(&pid) {
+        return 1;
+    }
+    let mut placement: WINDOWPLACEMENT = std::mem::zeroed();
+    placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+    if GetWindowPlacement(hwnd, &mut placement) == 0 {
+        return 1;
+    }
+    let r = placement.rcNormalPosition;
+    let (x, y, w, h) =
+        workspace_to_screen((r.left, r.top, r.right - r.left, r.bottom - r.top), data.offset);
+    if w < 200 || h < 200 {
+        return 1;
+    }
+    data.out.push(RobloxWin {
+        hwnd: hwnd as isize,
+        pid,
+        x,
+        y,
+        w,
+        h,
+    });
+    1
+}
+
+/// Roblox windows that are minimized, at the rectangle they get back when
+/// restored (not the -32000 placeholder of a minimized window).
+pub fn list_minimized_roblox_windows() -> Vec<RobloxWin> {
+    let mut data = MinimizedCollect {
+        pids: get_roblox_pids().into_iter().collect(),
+        offset: primary_workspace_offset(),
+        out: Vec::new(),
+    };
+    unsafe {
+        EnumWindows(Some(minimized_win_cb), &mut data as *mut _ as isize);
+    }
+    data.out
+}
+
+/// Muda onde uma janela **minimizada** volta ao restaurar, sem restaurá-la nem
+/// roubar o foco. `rect` em coordenadas da tela.
+fn place_minimized_window(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
+    let (x, y, w, h) = screen_to_workspace(rect, primary_workspace_offset());
+    unsafe {
+        let mut placement: WINDOWPLACEMENT = std::mem::zeroed();
+        placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+        if GetWindowPlacement(hwnd, &mut placement) == 0 {
+            return false;
+        }
+        placement.rcNormalPosition = RECT {
+            left: x,
+            top: y,
+            right: x + w,
+            bottom: y + h,
+        };
+        placement.showCmd = SW_SHOWMINNOACTIVE as u32;
+        SetWindowPlacement(hwnd, &placement) != 0
+    }
+}
+
 /// Visible, non-minimized Roblox windows, ordered top→bottom, left→right.
 pub fn list_roblox_windows() -> Vec<RobloxWin> {
     let pids: std::collections::HashSet<u32> = get_roblox_pids().into_iter().collect();
@@ -1358,7 +1476,10 @@ pub fn place_in_grid(
         grid_cell_size(requested, accepted_size(hwnd, current, requested, small), small);
     let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
     let slots = grid_slots(&monitors, cell_w, cell_h, request.gap);
-    let others: Vec<RobloxWin> = list_roblox_windows().into_iter().filter(|w| w.pid != pid).collect();
+    let others: Vec<RobloxWin> = grid_windows(list_roblox_windows(), list_minimized_roblox_windows())
+        .into_iter()
+        .filter(|w| w.pid != pid)
+        .collect();
     let (blockers, occupants): (Vec<RobloxWin>, Vec<RobloxWin>) =
         others.into_iter().partition(|w| request.excluded_pids.contains(&w.pid));
     let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
@@ -1416,9 +1537,15 @@ pub fn arrange_roblox_grid(
     } else {
         release_borderless_for(&own);
     }
-    let (excluded, wins): (Vec<RobloxWin>, Vec<RobloxWin>) = list_roblox_windows()
-        .into_iter()
-        .partition(|w| excluded_pids.contains(&w.pid));
+    // As minimizadas entram na grade e ganham a célula delas (ficam minimizadas,
+    // e voltam ao lugar certo ao restaurar): sem isso, as visíveis ocupavam as
+    // mesmas células e tudo se sobrepunha ao restaurar.
+    let minimized = list_minimized_roblox_windows();
+    let minimized_hwnds: std::collections::HashSet<isize> = minimized.iter().map(|w| w.hwnd).collect();
+    let (excluded, wins): (Vec<RobloxWin>, Vec<RobloxWin>) =
+        grid_windows(list_roblox_windows(), minimized)
+            .into_iter()
+            .partition(|w| excluded_pids.contains(&w.pid));
     let window_pids: Vec<u32> = wins.iter().map(|w| w.pid).collect();
     let small = grid_small_allowed(style.allow_small, &window_pids, &own);
     let blockers: Vec<(i32, i32, i32, i32)> = excluded.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
@@ -1433,10 +1560,17 @@ pub fn arrange_roblox_grid(
     if monitors.is_empty() {
         return Err("Selecione ao menos um monitor válido.".to_string());
     }
+    // Medir e testar o tamanho só numa janela visível: numa minimizada o
+    // retângulo vivo não diz nada.
+    let probe = wins.iter().find(|w| !minimized_hwnds.contains(&w.hwnd)).copied();
     let (cell_w, cell_h) = match size {
         Some((tw, th)) => {
-            let first = wins[0];
-            let client = client_area_size(first.hwnd as HWND).unwrap_or((first.w, first.h));
+            let first = probe.unwrap_or(wins[0]);
+            let client = if probe.is_some() {
+                client_area_size(first.hwnd as HWND).unwrap_or((first.w, first.h))
+            } else {
+                (first.w, first.h)
+            };
             outer_size_for_target(
                 (tw as i32, th as i32),
                 learned_size_semantics(),
@@ -1446,17 +1580,19 @@ pub fn arrange_roblox_grid(
         }
         None => most_common_size(&wins),
     };
-    let first = wins[0];
-    let (cell_w, cell_h) = grid_cell_size(
-        (cell_w, cell_h),
-        accepted_size(
-            first.hwnd as HWND,
-            (first.x, first.y, first.w, first.h),
+    let (cell_w, cell_h) = match probe {
+        Some(first) => grid_cell_size(
             (cell_w, cell_h),
+            accepted_size(
+                first.hwnd as HWND,
+                (first.x, first.y, first.w, first.h),
+                (cell_w, cell_h),
+                small,
+            ),
             small,
         ),
-        small,
-    );
+        None => (cell_w, cell_h),
+    };
     let slots = unblocked_slots(&grid_slots(&monitors, cell_w, cell_h, gap), (cell_w, cell_h), &blockers);
     if slots.is_empty() {
         return Err("Nenhuma célula coube nos monitores (janelas grandes demais para o gap?).".to_string());
@@ -1465,6 +1601,12 @@ pub fn arrange_roblox_grid(
     for (i, w) in wins.iter().enumerate() {
         let cell = slots[manual_slot(i, slots.len())];
         let hwnd = w.hwnd as HWND;
+        if minimized_hwnds.contains(&w.hwnd) {
+            if place_minimized_window(hwnd, (cell.x, cell.y, cell_w, cell_h)) {
+                arranged += 1;
+            }
+            continue;
+        }
         if unsafe { IsZoomed(hwnd) } != 0 {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -1877,6 +2019,54 @@ mod win_grid_slot_tests {
     fn grid_slots_refuse_a_degenerate_cell() {
         assert!(grid_slots(&[monitor(1, 0, 0, 1000, 1000)], 0, 400, 10).is_empty());
         assert!(grid_slots(&[monitor(1, 0, 0, 1000, 1000)], 400, -1, 10).is_empty());
+    }
+
+    // Relato (23/10/2026): com as janelas organizadas e minimizadas, duas contas
+    // abertas à mão caíam nas células 0 e 1 — as das minimizadas — e, ao
+    // restaurar, tudo ficava por cima. A janela minimizada ocupa a célula do
+    // retângulo que ela volta a ter ao restaurar.
+
+    fn robloxwin(x: i32, y: i32, w: i32, h: i32) -> RobloxWin {
+        RobloxWin { hwnd: 0, pid: 0, x, y, w, h }
+    }
+
+    #[test]
+    fn minimized_windows_join_the_visible_ones_in_reading_order() {
+        let visible = vec![robloxwin(420, 10, 400, 400)];
+        let minimized = vec![robloxwin(10, 420, 400, 400), robloxwin(10, 10, 400, 400)];
+        let all = grid_windows(visible, minimized);
+        let xy: Vec<(i32, i32)> = all.iter().map(|w| (w.x, w.y)).collect();
+        assert_eq!(xy, vec![(10, 10), (420, 10), (10, 420)]);
+    }
+
+    #[test]
+    fn a_minimized_window_still_occupies_its_slot() {
+        let visible = vec![robloxwin(10, 10, 400, 400)];
+        let minimized = vec![robloxwin(420, 10, 400, 400)];
+        let all = grid_windows(visible, minimized);
+        let occupants: Vec<(i32, i32, i32, i32)> = all.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
+        // A nova janela não pode cair na célula 1, onde a minimizada volta.
+        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &occupants, &[]), Some(2));
+    }
+
+    #[test]
+    fn workspace_coordinates_are_shifted_by_the_taskbar_edge() {
+        // Barra de tarefas embaixo: a área de trabalho começa em (0, 0).
+        assert_eq!(workspace_offset((0, 0), (0, 0)), (0, 0));
+        // Barra no topo (48 px) e à esquerda (60 px).
+        assert_eq!(workspace_offset((0, 48), (0, 0)), (0, 48));
+        assert_eq!(workspace_offset((60, 0), (0, 0)), (60, 0));
+        // Monitor principal que não começa em (0, 0).
+        assert_eq!(workspace_offset((-1920, 48), (-1920, 0)), (0, 48));
+    }
+
+    #[test]
+    fn screen_and_workspace_rects_round_trip() {
+        let offset = (0, 48);
+        let workspace = (100, 20, 800, 600);
+        let screen = workspace_to_screen(workspace, offset);
+        assert_eq!(screen, (100, 68, 800, 600));
+        assert_eq!(screen_to_workspace(screen, offset), workspace);
     }
 
     #[test]

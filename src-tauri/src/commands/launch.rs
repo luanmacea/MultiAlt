@@ -374,8 +374,21 @@ fn should_shuffle_server(shuffle_job: bool, follow_user: bool, job_id: &str) -> 
     shuffle_job && !follow_user && job_id.trim().is_empty()
 }
 
+/// O retângulo é de uma janela de verdade? O Windows põe a janela minimizada em
+/// (-32000, -32000) com ~160x28, e é isso que `GetWindowRect` devolve: gravar
+/// isso como "a posição da conta" mandava a janela do launch seguinte para fora
+/// da tela, no tamanho mínimo. Coordenadas negativas comuns (um monitor à
+/// esquerda ou acima do principal) são válidas.
+fn window_rect_is_usable(x: i32, y: i32, w: i32, h: i32) -> bool {
+    const MINIMIZED_AXIS: i32 = -30000;
+    const MAX_SIDE: i32 = 30000;
+    x > MINIMIZED_AXIS && y > MINIMIZED_AXIS && (1..=MAX_SIDE).contains(&w) && (1..=MAX_SIDE).contains(&h)
+}
+
 /// The saved window rectangle of an account, or `None` when any part is
-/// missing or unparsable (a half-applied rectangle would misplace the window).
+/// missing or unparsable (a half-applied rectangle would misplace the window),
+/// or when it is the placeholder of a minimized window (`window_rect_is_usable`
+/// — dado já gravado por versões antigas, ignorado em vez de aplicado).
 fn window_rect_from_fields(
     fields: &std::collections::HashMap<String, String>,
 ) -> Option<(i32, i32, i32, i32)> {
@@ -383,7 +396,7 @@ fn window_rect_from_fields(
     let y = fields.get("Window_Position_Y")?.parse::<i32>().ok()?;
     let w = fields.get("Window_Width")?.parse::<i32>().ok()?;
     let h = fields.get("Window_Height")?.parse::<i32>().ok()?;
-    Some((x, y, w, h))
+    window_rect_is_usable(x, y, w, h).then_some((x, y, w, h))
 }
 
 // ---------------------------------------------------------------------------
@@ -4599,6 +4612,35 @@ mod launch_command_tests {
             window_rect_from_fields(&rect_fields("-1920", "-50", "800", "600")),
             Some((-1920, -50, 800, 600))
         );
+    }
+
+    // Relato (23/10/2026): com as janelas organizadas, "minimizar tudo" e abrir
+    // duas contas à mão devolvia o tamanho pequeno padrão do Roblox. Uma janela
+    // minimizada reporta (-32000, -32000, ~160x28) e o Watcher gravava isso como
+    // o retângulo da conta; no launch seguinte a janela ia para -32000.
+
+    #[test]
+    fn window_rect_from_fields_ignores_a_minimized_placeholder() {
+        assert_eq!(
+            window_rect_from_fields(&rect_fields("-32000", "-32000", "160", "28")),
+            None,
+            "o retângulo de uma janela minimizada já gravado tem que ser ignorado"
+        );
+        assert_eq!(window_rect_from_fields(&rect_fields("-32000", "50", "800", "600")), None);
+        assert_eq!(window_rect_from_fields(&rect_fields("50", "-32000", "800", "600")), None);
+    }
+
+    #[test]
+    fn window_rect_is_usable_rejects_placeholders_and_nonsense_sizes() {
+        assert!(window_rect_is_usable(100, 200, 1280, 720));
+        // Monitor à esquerda e acima do principal: coordenadas negativas de verdade.
+        assert!(window_rect_is_usable(-1920, -1080, 800, 600));
+        assert!(window_rect_is_usable(-3840, 0, 1000, 700));
+        assert!(!window_rect_is_usable(-32000, -32000, 160, 28));
+        assert!(!window_rect_is_usable(-30000, 0, 800, 600));
+        assert!(!window_rect_is_usable(0, 0, 0, 600));
+        assert!(!window_rect_is_usable(0, 0, 800, -5));
+        assert!(!window_rect_is_usable(0, 0, 100_000, 600));
     }
 
     #[test]

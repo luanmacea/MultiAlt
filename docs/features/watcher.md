@@ -31,6 +31,7 @@ Varredura periódica dos clientes Roblox **lançados e rastreados pelo app** par
       - **Beta** (`ExitOnBeta`): título contém "roblox beta" (case-insensitive) → mata e emite `roblox-beta-detected {userId, title}`.
       - **Sem conexão** (`ExitIfNoConnection`): o log do cliente diz que caiu (ver [Quedas](#quedas-lidas-do-log-do-cliente)); sem log achado, o título contém "disconnected", "connection error", "lost connection" ou "no connection" → começa a contar; se persistir ≥ `NoConnectionTimeout` s → mata e emite `roblox-no-connection {userId, title, timeout}`. Título normal zera o contador.
       - **Posição** (`SaveWindowPositions`, após grace): se (x, y, w, h) mudou desde a última gravação, salva em `Window_Position_X/Y`, `Window_Width`, `Window_Height` da conta.
+      - **Só janela de verdade (23/10/2026):** uma janela minimizada reporta (-32000, -32000, ~160x28) e isso **não** é gravado (`window_rect_is_usable`, [launch.rs](../../src-tauri/src/commands/launch.rs)). Antes, "minimizar tudo" gravava esse retângulo como a posição da conta e o launch seguinte levava a janela para fora da tela, no tamanho mínimo do Roblox ("voltou ao tamanho pequeno padrão"). O dado já gravado por versões antigas é **ignorado** na leitura (`window_rect_from_fields`), então se conserta sozinho; coordenadas negativas de um monitor à esquerda/acima continuam válidas.
 4. Dorme entre 50 ms e 1 s até a próxima varredura.
 
 ```mermaid
