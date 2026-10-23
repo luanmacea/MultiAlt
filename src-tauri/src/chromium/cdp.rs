@@ -64,16 +64,44 @@ pub async fn spawn_chrome(
         return Ok((child, None));
     }
 
-    for _ in 0..160 {
+    let mut child = child;
+    for _ in 0..ACTIVE_PORT_POLLS {
         if let Ok(contents) = std::fs::read_to_string(&active_port_file) {
             if let Some(port) = parse_active_port(&contents) {
                 return Ok((child, Some(port)));
             }
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // O navegador já saiu (arquivo faltando, perfil em uso): esperar o resto
+        // do prazo não muda nada.
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(ACTIVE_PORT_POLL_MS)).await;
     }
 
     Ok((child, None))
+}
+
+/// Quantas vezes (a cada `ACTIVE_PORT_POLL_MS`) se espera o `DevToolsActivePort`
+/// aparecer: 30 s. Eram 8 s, pouco para a primeira abertura de um Chromium
+/// recém-extraído sob antivírus.
+const ACTIVE_PORT_POLLS: u32 = 600;
+const ACTIVE_PORT_POLL_MS: u64 = 50;
+
+/// Erro quando o navegador não chegou a abrir o endpoint de depuração no prazo.
+/// Em inglês: o frontend traduz (`chromiumErrorText`, src/utils/chromiumErrors.ts,
+/// que lê esta constante do fonte no teste). A janela que ficou aberta em
+/// about:blank é fechada por quem devolve este erro.
+pub const BROWSER_DID_NOT_OPEN: &str = "The browser did not open in time. Check your antivirus and firewall, then try Reinstall in Settings > Accounts.";
+
+/// O texto de erro de um `Page.navigate` que falhou (DNS, proxy, firewall), se
+/// houve: o comando responde com sucesso e põe o erro no resultado.
+fn navigation_error(result: &Value) -> Option<String> {
+    result
+        .get("errorText")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
 }
 
 /// First line of `DevToolsActivePort`, which holds the port the browser
@@ -223,8 +251,15 @@ pub struct CdpClient {
 impl CdpClient {
     pub async fn connect(port: u16) -> Result<Self, String> {
         let mut ws_url = None;
+        // Cliente com prazo: o `reqwest::get` não tinha, e um proxy do sistema
+        // ou um firewall travava a conexão local para sempre.
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .map_err(|e| format!("Could not attach to the browser: {}", e))?;
         for _ in 0..40 {
-            if let Ok(resp) = reqwest::get(format!("http://127.0.0.1:{}/json", port)).await {
+            if let Ok(resp) = http.get(format!("http://127.0.0.1:{}/json", port)).send().await {
                 if let Ok(targets) = resp.json::<Value>().await {
                     ws_url = page_ws_url_from_targets(&targets);
                     if ws_url.is_some() {
@@ -236,8 +271,9 @@ impl CdpClient {
         }
 
         let ws_url = ws_url.ok_or("Could not attach to the browser")?;
-        let (socket, _) = connect_async(ws_url.as_str())
+        let (socket, _) = tokio::time::timeout(Duration::from_secs(10), connect_async(ws_url.as_str()))
             .await
+            .map_err(|_| "Could not attach to the browser: timed out".to_string())?
             .map_err(|e| format!("Could not attach to the browser: {}", e))?;
 
         let mut client = Self { socket, next_id: 0 };
@@ -317,8 +353,11 @@ impl CdpClient {
     }
 
     pub async fn navigate(&mut self, url: &str) -> Result<(), String> {
-        self.send("Page.navigate", json!({ "url": url })).await?;
-        Ok(())
+        let result = self.send("Page.navigate", json!({ "url": url })).await?;
+        match navigation_error(&result) {
+            Some(error) => Err(format!("The page did not load: {error}")),
+            None => Ok(()),
+        }
     }
 
     pub async fn inject_stealth(&mut self) -> Result<(), String> {
@@ -401,6 +440,35 @@ mod chromium_cdp_tests {
 
     // Message building and parsing only: nothing here starts a browser or
     // opens a socket.
+
+    // ── espera pela porta e falha de navegação ──────────────────────────────
+
+    /// Relato (23/10/2026): com o navegador demorando mais que 8 s para abrir
+    /// (antivírus examinando os 300 MB, disco lento), o app desistia e deixava
+    /// a janela aberta em about:blank. A espera agora tem folga.
+    #[test]
+    fn the_wait_for_the_debug_port_is_long_enough_for_a_slow_first_start() {
+        let waited_ms = ACTIVE_PORT_POLLS as u64 * ACTIVE_PORT_POLL_MS;
+        assert!(waited_ms >= 30_000, "{waited_ms} ms");
+    }
+
+    #[test]
+    fn the_browser_did_not_open_message_says_what_to_try() {
+        assert!(BROWSER_DID_NOT_OPEN.contains("antivirus"));
+        assert!(BROWSER_DID_NOT_OPEN.contains("Reinstall"));
+    }
+
+    #[test]
+    fn a_failed_navigation_is_reported_with_its_error_text() {
+        let failed = json!({ "frameId": "A1", "errorText": "net::ERR_NAME_NOT_RESOLVED" });
+        assert_eq!(
+            navigation_error(&failed),
+            Some("net::ERR_NAME_NOT_RESOLVED".to_string())
+        );
+        assert_eq!(navigation_error(&json!({ "frameId": "A1", "loaderId": "L1" })), None);
+        assert_eq!(navigation_error(&json!({ "errorText": "" })), None);
+        assert_eq!(navigation_error(&json!({})), None);
+    }
 
     // ── chrome_args ────────────────────────────────────────────────────────
 

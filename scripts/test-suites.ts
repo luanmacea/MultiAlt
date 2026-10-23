@@ -482,7 +482,7 @@ export const SUITES: Record<string, TestSuite> = {
       "chromium_commands_tests",
       "chromium_download_tests",
     ],
-    front: [],
+    front: ["src/utils/chromiumErrors.test.ts"],
   },
   signup: {
     description: "Criação de contas no formulário do Roblox (CAPTCHA pelo usuário)",

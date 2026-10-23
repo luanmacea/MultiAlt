@@ -327,7 +327,12 @@ pub async fn start_signup_session(
 
     let (child, port) = spawn_chrome(&binary, &profile, "about:blank", true, stealth).await?;
     chromium.track(LOGIN_KEY, child);
-    let port = port.ok_or("Não foi possível abrir o navegador de cadastro")?;
+    let Some(port) = port else {
+        // A janela que abriu mas não respondeu ficava aberta em about:blank,
+        // com o painel em "Inativo" (relato de 23/10/2026).
+        chromium.close_login_session();
+        return Err(super::cdp::BROWSER_DID_NOT_OPEN.to_string());
+    };
 
     let mut cdp = match CdpClient::connect(port).await {
         Ok(cdp) => cdp,

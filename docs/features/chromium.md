@@ -62,6 +62,17 @@ Se nenhuma das três resolver, o erro do download original é devolvido (com a d
 - **Extração atômica**: a extração vai para `<chromium_dir>/<versão>.tmp`, nunca direto em `<chromium_dir>/<versão>` (o caminho que `cached_binary` lê do `version.json`). Só depois que a extração inteira termina com sucesso é que `finalize_extraction` troca os nomes (`remove_dir_all` se já existir algo ali, depois `rename`). **Se o processo morrer no meio da extração** (energia, antivírus, disco cheio), o que sobra é só o `.tmp` — o caminho final nunca existe pela metade, então a próxima abertura do app detecta que não há instalação válida e baixa de novo, em vez de aceitar um Chromium com `chrome.exe` presente mas DLLs/recursos faltando (o que aconteceria se o zip gravasse o executável antes dos outros arquivos e a extração fosse interrompida escrevendo direto no destino final).
 - **Reinstalar substitui**: `reinstall_chromium` apaga `chromium_dir` inteiro antes de chamar `ensure_chromium` de novo — é o que o botão "Reinstall" de Settings > Accounts usa (`ensure_browser` com `force: true`). Sem isso, trocar de versão deixava a pasta da versão antiga para trás, ocupando espaço à toa.
 
+## Navegador que abre e não responde (23/10/2026)
+
+Relato: no criador de contas o Chromium abria e ficava em `about:blank` para sempre, com o painel em "Inativo". Causas achadas no código e o que mudou:
+
+- **Instalação incompleta passava por boa.** `cached_binary` só olhava se o `chrome.exe` existia. Agora `installation_problem` confere também `chrome.dll`, `resources.pak`, `icudtl.dat` e `v8_context_snapshot.bin` (tamanho mínimo bem abaixo do real, medido numa instalação 154: `chrome.dll` ~300 MB). Faltando ou cortado (antivírus que apagou um arquivo depois da extração, extração interrompida), a instalação conta como ausente e `ensure_chromium` baixa de novo (antes o `binary.exists()` pulava o download). Só no Windows; nas outras plataformas confere só o executável.
+- **A espera pela porta de debug era de 8 s** e, estourando, o comando devolvia erro **sem fechar a janela** — ela ficava aberta em `about:blank` e o painel nunca saía de "Inativo". Agora espera 30 s (`ACTIVE_PORT_POLLS`), desiste na hora se o processo já saiu, e quem devolve o erro (criador de contas e os dois logins) fecha a janela do app (`close_login_session`) com a frase `BROWSER_DID_NOT_OPEN` (antivírus/firewall, "Reinstall" em Configurações › Contas), traduzida no frontend (`chromiumErrorText`).
+- **O CDP não tinha prazo de conexão:** `CdpClient::connect` usava `reqwest::get` (com proxy do sistema, e sem prazo) e `connect_async` sem timeout. Agora o cliente local ignora proxy, tem 3 s por tentativa, e o WebSocket 10 s.
+- **`Page.navigate` que falha** (DNS, proxy, firewall) respondia sucesso com `errorText` e o app seguia esperando o formulário; agora vira erro na hora (`navigation_error`).
+
+Não confirmado: por que o navegador do relato (Chrome for Testing 136, versão antiga: o app baixa a "stable" da hora e guarda para sempre) não respondia; as checagens acima cobrem as causas que o código permite, e o próximo relato mostra qual era pela mensagem.
+
 ## Segurança: a porta de debug
 
 ### O risco

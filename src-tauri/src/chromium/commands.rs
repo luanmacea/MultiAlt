@@ -442,7 +442,11 @@ pub async fn open_login_browser(
     let (child, port) = spawn_chrome(&binary, &profile, start_url, true, stealth).await?;
     chromium.track(LOGIN_KEY, child);
 
-    let port = port.ok_or("Could not start the login browser")?;
+    let Some(port) = port else {
+        // A janela que abriu mas não respondeu ficava aberta em about:blank.
+        chromium.close_login_session();
+        return Err(super::cdp::BROWSER_DID_NOT_OPEN.to_string());
+    };
 
     let mut cdp = match CdpClient::connect(port).await {
         Ok(cdp) => cdp,
@@ -535,7 +539,11 @@ pub async fn import_userpass(
     let (child, port) = spawn_chrome(&binary, &profile, start_url, true, stealth).await?;
     chromium.track(LOGIN_KEY, child);
 
-    let port = port.ok_or("Could not start the login browser")?;
+    let Some(port) = port else {
+        // A janela que abriu mas não respondeu ficava aberta em about:blank.
+        chromium.close_login_session();
+        return Err(super::cdp::BROWSER_DID_NOT_OPEN.to_string());
+    };
     let mut cdp = match CdpClient::connect(port).await {
         Ok(cdp) => cdp,
         Err(e) => {

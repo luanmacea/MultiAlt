@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Copy, Loader2, ShieldCheck, SlidersHorizontal, UserPlus } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
+import { chromiumErrorText } from "../../utils/chromiumErrors";
 import { NumericInput } from "../ui/NumericInput";
 import type { SignupIdentity, SignupStatus } from "../../types";
 
@@ -153,7 +154,7 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
       const started = await invoke<SignupStatus>("start_signup_session", { count });
       setStatus(started);
     } catch (e) {
-      store.addToast(String(e));
+      store.addToast(chromiumErrorText(e, t));
     } finally {
       if (mounted.current) setBusy(false);
     }

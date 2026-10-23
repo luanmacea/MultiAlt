@@ -425,6 +425,7 @@
   "Downloading...": "Baixando...",
   "Retry Download": "Tentar de novo",
   "Reinstall": "Reinstalar",
+  "The browser did not open in time. Check your antivirus and firewall, then try Reinstall in Settings > Accounts.": "O navegador não abriu a tempo. Confira o antivírus e o firewall e tente Reinstall em Configurações > Contas.",
   "Download": "Baixar",
   "Contacting download service...": "Contatando o serviço de download...",
   "Import cancelled": "Importação cancelada",
