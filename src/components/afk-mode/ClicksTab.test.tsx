@@ -526,6 +526,33 @@ describe("ClicksTab — dá para saber que está funcionando", () => {
  * em vez de roubar o foco (`afk_fullscreen_gate`). Ligado por padrão — protege
  * quem está vendo algo — e a tela diz quando está esperando.
  */
+/**
+ * Pedido de usuários (24/10/2026): ver um filme enquanto o AFK roda, sem as
+ * janelas do Roblox pulando na tela (`Afk.HideWindows`, hidden_focus.rs).
+ */
+describe("ClicksTab — janelas fora de vista", () => {
+  it("nasce ligado, explica e grava a escolha no INI", async () => {
+    const { store } = renderDialog();
+    const toggle = screen.getByRole("button", { name: "Keep Roblox windows out of sight" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/gets the key without showing up/i)).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "HideWindows", "false");
+  });
+
+  it("lê a escolha desligada do INI", () => {
+    const settings = defaultSettings();
+    settings.Afk = { ...(settings.Afk ?? {}), HideWindows: "false" };
+    renderDialog({ settings });
+    expect(screen.getByRole("button", { name: "Keep Roblox windows out of sight" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+  });
+});
+
 describe("ClicksTab — espera a tela cheia sair", () => {
   it("nasce ligado, explica numa frase e grava a escolha no INI", async () => {
     const { store } = renderDialog();

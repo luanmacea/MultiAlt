@@ -101,6 +101,8 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
   const [beepOnCycle, setBeepOnCycle] = useState(false);
   // Ligado por padrão: só `"false"` no INI desliga (`afk_wait_for_fullscreen_enabled`).
   const [waitForFullscreen, setWaitForFullscreen] = useState(true);
+  // Ligado por padrão: só `"false"` no INI desliga (`afk_hide_windows`).
+  const [hideWindows, setHideWindows] = useState(true);
   const [busy, setBusy] = useState(false);
   const [sendingNow, setSendingNow] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -129,6 +131,7 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     setBeepOnCycle(afk.BeepOnCycle === "true");
     setMode(parseAfkMode(afk.Mode));
     setWaitForFullscreen(afk.WaitForFullscreen !== "false");
+    setHideWindows(afk.HideWindows !== "false");
     setDefaultPoint(readAfkSettingsPoint(afk));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -505,6 +508,11 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     setWaitForFullscreen: (v: boolean) => {
       setWaitForFullscreen(v);
       persist("WaitForFullscreen", v ? "true" : "false");
+    },
+    hideWindows,
+    setHideWindows: (v: boolean) => {
+      setHideWindows(v);
+      persist("HideWindows", v ? "true" : "false");
     },
     persist,
     sendErrorText,

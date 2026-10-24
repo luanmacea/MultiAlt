@@ -103,6 +103,16 @@ sequenceDiagram
 - **Config de sessão em andamento é derivada da sessão**, nunca copiada para o estado da tela: o efeito que relê o INI ao abrir corria contra a cópia e zerava a tecla escolhida (o botão de enviar ficava desabilitado com a sessão rodando).
 - **Parar não esquece quem estava no modo.** Com a sessão ligada, a seleção da tela acompanha as contas da sessão; quando a sessão acaba, continuam marcadas as que estavam nela — inclusive a que entrou com a sessão ligada, e também quando a tela abriu com uma sessão que já rodava —, e religar leva as mesmas. Intervalo e tecla só mudam com o modo parado, então "parar → mudar → ligar" é o caminho normal; antes a seleção voltava à de antes do start, e a conta acrescentada durante a sessão ficava de fora do próximo start sem aviso (e podia cair por inatividade). Desmarcar a última conta é a exceção: ela fica desmarcada, que é o que o usuário pediu.
 
+## Janelas fora de vista (`Afk.HideWindows`, 24/10/2026)
+
+Pedido de usuários no Discord: ver um filme enquanto o AFK roda, sem as 6 janelas do Roblox pulando na tela uma a uma. Não existe AFK sem foco — o Roblox só lê teclado da janela em primeiro plano (`input.rs`; mandar `WM_KEYDOWN` para a janela não move o personagem) —, mas a janela pode **ter o foco sem aparecer**. Técnica do Nudge Nest (MIT, só a ideia), em [hidden_focus.rs](../../src-tauri/src/platform/windows/hidden_focus.rs):
+
+1. A janela que **não estava à vista** — minimizada, ou sem nenhuma parte aparecendo (`window_partly_visible`: tira do retângulo dela o de cada janela visível por cima, ignorando as transparentes, as minimizadas e as "fantasma" do DWM, como apps suspensos e outras áreas de trabalho virtuais) — fica **100% transparente** (`WS_EX_LAYERED` + alpha 0) e sem animação de restaurar/minimizar enquanto tem o foco. Janela que aparece na tela **não** fica transparente: ela sumiria e voltaria (`should_hide_during_focus`).
+2. No mesmo instante em que ganha o foco, ela volta para a profundidade de antes (`tuck_window_after_focus`: embaixo de tudo se estava minimizada, sob a janela que estava acima dela se estava coberta). O foco fica com ela mesmo atrás das outras, e a tecla chega.
+3. No fim do ciclo, o caminho de sempre a devolve (`minimize_window_quietly`, `put_window_below`) e **só então** a transparência sai (`restore_window_visibility`). A ordem é travada por `a_hidden_window_stays_invisible_until_it_is_back_in_place`.
+
+**Só no modo tecla** (`afk_hide_windows`): clique e gravação clicam num ponto da tela, e com a janela escondida atrás o clique cairia na janela do usuário — nesses modos a janela vem para frente como antes. Ligado por padrão; desliga no cartão do AFK ("Keep Roblox windows out of sight"). O foco ainda sai por ~0,25 s por conta: uma tecla apertada nesse instante vai para o Roblox. Não validado ainda com o Roblox de verdade (a barra de tarefas pode piscar sobre um vídeo em tela cheia).
+
 ## Tela cheia na frente (ideia 25)
 
 Com um vídeo ou outro jogo em **tela cheia** na frente, o ciclo **espera** em

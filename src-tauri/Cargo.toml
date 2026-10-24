@@ -88,6 +88,9 @@ windows-sys = { version = "0.59", features = [
     # GetAsyncKeyState: Shift segurado no boot liga o safe mode do WebView2.
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Graphics_Gdi",
+    # AFK sem a janela aparecer (platform/windows/hidden_focus.rs): janela
+    # "fantasma" do DWM, retângulo visível e animação de restaurar/minimizar.
+    "Win32_Graphics_Dwm",
 ] }
 
 [dev-dependencies]

@@ -237,6 +237,18 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
       <ToggleRow label="Beep when a cycle finishes" checked={ctl.beepOnCycle} onChange={ctl.setBeepOnCycle} />
       <div>
         <ToggleRow
+          label="Keep Roblox windows out of sight"
+          checked={ctl.hideWindows}
+          onChange={ctl.setHideWindows}
+        />
+        <div className="text-[11px] theme-muted leading-4">
+          {t(
+            "In key mode, a Roblox window that was minimized or covered gets the key without showing up, so you can keep watching or working. Click mode still brings the window forward."
+          )}
+        </div>
+      </div>
+      <div>
+        <ToggleRow
           label="Wait while a fullscreen window is in front"
           checked={ctl.waitForFullscreen}
           onChange={ctl.setWaitForFullscreen}

@@ -694,6 +694,15 @@ fn afk_should_put_back(is_foreground: bool, focus_returned: bool) -> bool {
 /// espera ainda deixam folga.
 const AFK_FULLSCREEN_MAX_WAIT_MS: i64 = 5 * 60_000;
 
+/// `Afk.HideWindows`: ligada por padrão (o ciclo dá o foco às janelas do
+/// Roblox sem elas aparecerem na tela — `platform/windows/hidden_focus.rs`);
+/// só `"false"` desliga. Vale só para o modo **tecla**: clique e gravação
+/// clicam num ponto da tela, e com a janela escondida atrás o clique cairia na
+/// janela do usuário.
+fn afk_hide_windows(raw: &str, action_is_key: bool) -> bool {
+    action_is_key && raw.trim() != "false"
+}
+
 /// `Afk.WaitForFullscreen`: ligada por padrão (protege quem está vendo algo em
 /// tela cheia); só `"false"` desliga.
 fn afk_wait_for_fullscreen_enabled(raw: &str) -> bool {
@@ -1069,6 +1078,7 @@ fn run_afk_cycle_blocking(
     action: &AfkCycleAction,
     targets: &[i64],
     stop_flag: &AtomicBool,
+    hide_windows: bool,
 ) -> Result<Vec<(i64, Option<AfkSendError>)>, String> {
     use platform::windows;
 
@@ -1118,6 +1128,9 @@ fn run_afk_cycle_blocking(
     // Como cada janela que o ciclo trouxe volta ao lugar, no fim.
     let mut put_back: Vec<(isize, AfkPutBack)> = Vec::new();
     let mut outcome: Vec<(i64, Option<AfkSendError>)> = Vec::new();
+    // Janelas que o ciclo deixou transparentes: voltam a aparecer só depois
+    // de devolvidas ao lugar (minimizadas ou atrás), no fim.
+    let mut hidden: Vec<windows::HiddenWindow> = Vec::new();
 
     for &user_id in targets {
         let hwnd = window_of(user_id);
@@ -1153,7 +1166,26 @@ fn run_afk_cycle_blocking(
                 // Recusado (o usuário mexeu em outra janela), tenta de novo
                 // depois de um movimento de mouse de zero pixel — ver
                 // `bring_forward_for_cycle`.
+                // Foco sem aparecer (Afk.HideWindows): a janela que não estava à
+                // vista fica transparente enquanto tem o foco.
+                if windows::should_hide_during_focus(
+                    hide_windows,
+                    was_minimized,
+                    !was_minimized && windows::window_partly_visible(hwnd),
+                ) {
+                    if let Some(saved) = windows::make_window_invisible(hwnd) {
+                        hidden.push(saved);
+                    }
+                }
                 let requested = windows::bring_forward_for_cycle(hwnd);
+                if requested && hide_windows {
+                    // Volta na hora para a profundidade de antes; o foco fica.
+                    windows::tuck_window_after_focus(
+                        hwnd,
+                        was_minimized,
+                        above as windows_sys::Win32::Foundation::HWND,
+                    );
+                }
                 focus_taken = true;
                 cycle_windows.push(hwnd);
                 std::thread::sleep(std::time::Duration::from_millis(AFK_FOCUS_SETTLE_MS));
@@ -1248,6 +1280,10 @@ fn run_afk_cycle_blocking(
             }
             AfkPutBack::Leave => {}
         }
+    }
+    // Já de volta ao lugar: agora podem aparecer de novo.
+    for saved in hidden {
+        windows::restore_window_visibility(saved);
     }
 
     Ok(outcome)
@@ -1344,12 +1380,16 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
 
         if !targets.is_empty() && !waiting {
             let action = afk_cycle_action(&app, &config, &targets);
+            let hide = afk_hide_windows(
+                &app.state::<SettingsStore>().get_string("Afk", "HideWindows"),
+                matches!(action, AfkCycleAction::Key(_)),
+            );
             let stop = session.stop_flag.clone();
             let cycle_targets = targets.clone();
             let result = {
                 let _guard = AFK_CYCLE_LOCK.lock().await;
                 tokio::task::spawn_blocking(move || {
-                    run_afk_cycle_blocking(&action, &cycle_targets, &stop)
+                    run_afk_cycle_blocking(&action, &cycle_targets, &stop, hide)
                 })
                 .await
                 .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))
@@ -1536,13 +1576,17 @@ async fn afk_trigger_now(app: tauri::AppHandle, user_ids: Vec<i64>) -> Result<u3
     validate_afk_start(config.mode, &config.key, &user_ids)?;
 
     let action = afk_cycle_action(&app, &config, &user_ids);
+    let hide = afk_hide_windows(
+        &app.state::<SettingsStore>().get_string("Afk", "HideWindows"),
+        matches!(action, AfkCycleAction::Key(_)),
+    );
     let cycle_targets = user_ids.clone();
     let outcome = {
         let _guard = AFK_CYCLE_LOCK.lock().await;
         // Sem stop_flag: este ciclo é o clique do usuário, não o agendador.
         let idle = AtomicBool::new(false);
         tokio::task::spawn_blocking(move || {
-            run_afk_cycle_blocking(&action, &cycle_targets, &idle)
+            run_afk_cycle_blocking(&action, &cycle_targets, &idle, hide)
         })
         .await
         .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))?
@@ -2137,6 +2181,39 @@ mod afk_command_tests {
         let snapshot = cycle.find("windows::window_above(").expect("lê a janela acima");
         let bring = cycle.find("windows::bring_forward_for_cycle(").expect("traz a janela");
         assert!(snapshot < bring);
+    }
+
+    // ── foco sem aparecer (Afk.HideWindows, 24/10/2026) ────────────────────
+
+    #[test]
+    fn hiding_the_windows_is_on_by_default_and_only_for_the_key_mode() {
+        assert!(afk_hide_windows("", true));
+        assert!(afk_hide_windows("true", true));
+        assert!(!afk_hide_windows("false", true));
+        // Clique e gravação clicam num ponto da tela: com a janela escondida
+        // atrás, o clique cairia na janela do usuário.
+        assert!(!afk_hide_windows("", false));
+    }
+
+    /// A ordem que deixa a janela invisível do começo ao fim: transparente
+    /// antes de vir, de volta para trás logo depois, e visível de novo só
+    /// depois de devolvida ao lugar.
+    #[test]
+    fn a_hidden_window_stays_invisible_until_it_is_back_in_place() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/afk.rs"),
+        )
+        .expect("commands/afk.rs tem de existir");
+        let body = super::afk_input_safety_tests::production_only(&source);
+        let cycle = &body[body.find("fn run_afk_cycle_blocking(").expect("o ciclo sumiu")..];
+        let cycle = &cycle[..cycle.find("fn afk_cycle_action(").expect("fim do ciclo")];
+        let invisible = cycle.find("windows::make_window_invisible(").expect("esconde");
+        let bring = cycle.find("windows::bring_forward_for_cycle(").expect("traz a janela");
+        let tuck = cycle.find("windows::tuck_window_after_focus(").expect("volta para trás");
+        let minimize = cycle.find("windows::minimize_window_quietly(").expect("re-minimiza");
+        let visible = cycle.find("windows::restore_window_visibility(").expect("reaparece");
+        assert!(invisible < bring && bring < tuck, "transparente antes de vir, para trás logo depois");
+        assert!(minimize < visible, "só reaparece depois de voltar ao lugar");
     }
 
     // ── quanto tempo o foco fica fora ───────────────────────────────────────

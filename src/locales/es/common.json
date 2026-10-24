@@ -1,4 +1,6 @@
 {
+  "Keep Roblox windows out of sight": "Mantener las ventanas de Roblox fuera de la vista",
+  "In key mode, a Roblox window that was minimized or covered gets the key without showing up, so you can keep watching or working. Click mode still brings the window forward.": "En el modo tecla, la ventana de Roblox que estaba minimizada o tapada recibe la tecla sin aparecer, y puedes seguir viendo o trabajando. El modo clic todavía trae la ventana al frente.",
   "A Roblox window is running as administrator, so MultiAlt cannot unlock it. Opening another account will close that window.": "Una ventana de Roblox se está ejecutando como administrador, así que MultiAlt no puede desbloquearla. Abrir otra cuenta cerrará esa ventana.",
   "{{programs}} looks like a Roblox window that MultiAlt cannot unlock. Opening another account may close it.": "{{programs}} parece una ventana de Roblox que MultiAlt no puede desbloquear. Abrir otra cuenta puede cerrarla.",
   "Open anyway": "Abrir de todos modos",

@@ -1,4 +1,6 @@
 {
+  "Keep Roblox windows out of sight": "Keep Roblox windows out of sight",
+  "In key mode, a Roblox window that was minimized or covered gets the key without showing up, so you can keep watching or working. Click mode still brings the window forward.": "In key mode, a Roblox window that was minimized or covered gets the key without showing up, so you can keep watching or working. Click mode still brings the window forward.",
   "A Roblox window is running as administrator, so MultiAlt cannot unlock it. Opening another account will close that window.": "A Roblox window is running as administrator, so MultiAlt cannot unlock it. Opening another account will close that window.",
   "{{programs}} looks like a Roblox window that MultiAlt cannot unlock. Opening another account may close it.": "{{programs}} looks like a Roblox window that MultiAlt cannot unlock. Opening another account may close it.",
   "Open anyway": "Open anyway",

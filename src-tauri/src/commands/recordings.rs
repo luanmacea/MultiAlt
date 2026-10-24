@@ -631,7 +631,8 @@ async fn run_recording_playback(
             let action = AfkCycleAction::Recording(plans);
             let cycle_targets = targets.clone();
             tokio::task::spawn_blocking(move || {
-                run_afk_cycle_blocking(&action, &cycle_targets, &RECORDING_PLAYBACK_STOP)
+                // Gravação clica num ponto da tela: a janela vem para frente (sem esconder).
+                run_afk_cycle_blocking(&action, &cycle_targets, &RECORDING_PLAYBACK_STOP, false)
             })
             .await
             .unwrap_or_else(|e| Err(format!("Recording playback failed: {e}")))

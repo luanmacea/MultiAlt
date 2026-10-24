@@ -226,6 +226,7 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "afk_command_tests",
       "afk_input_safety_tests",
+      "hidden_focus_tests",
       "win_input_tests",
       "win_focus_tests",
       // Parada de emergência por chacoalhar o mouse (shake_stop.rs, Afk.ShakeToStop).
