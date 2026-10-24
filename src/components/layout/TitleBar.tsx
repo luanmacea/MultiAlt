@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
+import { TEST_BUILD_LABEL, titleVersion } from "../../buildInfo";
 import { Minus, Square, Copy, X, Github } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
@@ -11,7 +13,15 @@ export function TitleBar({ controlsHidden = false }: { controlsHidden?: boolean 
   const repoUrl = REPO_URL;
   const [maximized, setMaximized] = useState(false);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
+  const [version, setVersion] = useState<string | null>(null);
   const appWindow = getCurrentWindow();
+
+  // A versão sempre à vista no título (pedido do dono, 24/10/2026): quem manda
+  // print num ticket já mostra qual build está usando.
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
+  const versionText = titleVersion(version, TEST_BUILD_LABEL);
 
   useEffect(() => {
     appWindow.isMaximized().then(setMaximized);
@@ -43,6 +53,11 @@ export function TitleBar({ controlsHidden = false }: { controlsHidden?: boolean 
         <span className="text-[11px] theme-muted tracking-tight">
           {t("Roblox Account Manager")}
         </span>
+        {versionText && (
+          <span data-testid="titlebar-version" className="text-[11px] theme-muted tabular-nums tracking-tight">
+            {versionText}
+          </span>
+        )}
       </div>
 
       <div
