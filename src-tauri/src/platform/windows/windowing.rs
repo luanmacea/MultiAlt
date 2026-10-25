@@ -1082,6 +1082,9 @@ fn place_minimized_window(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
             bottom: y + h,
         };
         placement.showCmd = SW_SHOWMINNOACTIVE as u32;
+        // Maximizada e depois minimizada: o Windows a restauraria maximizada,
+        // por cima da grade inteira. Organizar em grade a põe na célula.
+        placement.flags &= !windows_sys::Win32::UI::WindowsAndMessaging::WPF_RESTORETOMAXIMIZED;
         SetWindowPlacement(hwnd, &placement) != 0
     }
 }
@@ -1442,21 +1445,28 @@ fn release_borderless_for(pids: &std::collections::HashSet<u32>) {
     }
 }
 
-/// Minimizadas que a grade pôs numa célula **menor que o mínimo** do Roblox.
-/// A minimizada só ganha o `rcNormalPosition`, e ao restaurar o Roblox impõe o
-/// mínimo (~802x631) — as janelas voltavam umas por cima das outras (bateria de
-/// testes de 25/10/2026). Ao vê-la restaurada, a olhada de 1 s a põe na célula
-/// sem o aviso de tamanho, como as visíveis.
-static SMALL_MINIMIZED: std::sync::LazyLock<Mutex<HashMap<isize, (i32, i32, i32, i32)>>> =
+/// A célula que a grade deu a cada janela de cliente aberto pelo app, e se a
+/// janela estava minimizada na última olhada. Ao restaurar uma minimizada o
+/// Roblox impõe o mínimo (~802x631) por cima da célula — quando a célula é
+/// menor que isso, as janelas voltavam umas por cima das outras (bateria de
+/// testes de 25/10/2026). Vale tanto para a que estava minimizada na hora de
+/// organizar quanto para a que a pessoa minimizou depois.
+#[derive(Debug, Clone, Copy)]
+struct GridCellMemory {
+    rect: (i32, i32, i32, i32),
+    was_minimized: bool,
+}
+
+static GRID_CELLS: std::sync::LazyLock<Mutex<HashMap<isize, GridCellMemory>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// `Some(rect)` anota a célula pequena da minimizada; `None` esquece (a grade
-/// a pôs de outro jeito).
-fn remember_small_minimized(hwnd: isize, rect: Option<(i32, i32, i32, i32)>) {
-    let mut map = SMALL_MINIMIZED.lock().unwrap_or_else(|e| e.into_inner());
+/// `Some(rect)` anota a célula da janela (`minimized`: se ela está minimizada
+/// agora); `None` esquece (a grade a deixou fora).
+fn remember_grid_cell(hwnd: isize, rect: Option<(i32, i32, i32, i32)>, minimized: bool) {
+    let mut map = GRID_CELLS.lock().unwrap_or_else(|e| e.into_inner());
     match rect {
         Some(rect) => {
-            map.insert(hwnd, rect);
+            map.insert(hwnd, GridCellMemory { rect, was_minimized: minimized });
         }
         None => {
             map.remove(&hwnd);
@@ -1464,62 +1474,106 @@ fn remember_small_minimized(hwnd: isize, rect: Option<(i32, i32, i32, i32)>) {
     }
 }
 
-/// O que fazer com uma minimizada anotada.
-#[derive(Debug, PartialEq, Eq)]
-enum SmallMinimizedStep {
-    /// Ainda minimizada: espera.
-    Wait,
-    /// Restaurada: vai para a célula e sai da lista.
-    Snap,
-    /// Fechada, ou maximizada pela pessoa: sai da lista sem mexer.
-    Forget,
+/// Janela em que o Windows impõe o tamanho mínimo (o `WM_GETMINMAXINFO` só vale
+/// para janela redimensionável): moldura normal, sem estar maximizada nem em
+/// tela cheia.
+fn window_enforces_min_size(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    frame_enforces_min_size(style) && unsafe { IsZoomed(hwnd) } == 0 && !window_is_fullscreen_like(hwnd, rect)
 }
 
-fn small_minimized_step(exists: bool, minimized: bool, maximized: bool) -> SmallMinimizedStep {
-    if !exists || maximized {
-        SmallMinimizedStep::Forget
+fn frame_enforces_min_size(style: u32) -> bool {
+    style & WS_THICKFRAME != 0 && style & WS_POPUP == 0
+}
+
+/// O que a olhada faz com uma janela anotada.
+#[derive(Debug, PartialEq, Eq)]
+enum GridCellStep {
+    /// Fechou: sai da lista.
+    Forget,
+    /// Minimizada: anota, para pegar a volta.
+    MarkMinimized,
+    /// Acabou de voltar de minimizada, na própria célula: vai para a célula
+    /// no tamanho dela.
+    Snap,
+    /// Nada a fazer (maximizada, em tela cheia, arrastada pela pessoa...).
+    Keep,
+}
+
+/// `at_cell`: o canto da janela está no canto da célula — é onde ela volta ao
+/// restaurar. Janela que a pessoa arrastou para outro lugar não é tocada, e
+/// janela que não estava minimizada também não: quem a redimensionou no canto
+/// foi a pessoa, e a olhada não briga com ela.
+fn grid_cell_step(exists: bool, minimized: bool, maximized: bool, was_minimized: bool, at_cell: bool) -> GridCellStep {
+    if !exists {
+        GridCellStep::Forget
     } else if minimized {
-        SmallMinimizedStep::Wait
+        GridCellStep::MarkMinimized
+    } else if was_minimized && !maximized && at_cell {
+        GridCellStep::Snap
     } else {
-        SmallMinimizedStep::Snap
+        GridCellStep::Keep
     }
 }
 
-/// A olhada: cada minimizada anotada que voltou vai para a célula pequena.
-fn snap_restored_small_windows() {
-    let pending: Vec<(isize, (i32, i32, i32, i32))> = {
-        let map = SMALL_MINIMIZED.lock().unwrap_or_else(|e| e.into_inner());
+/// Tolerância do "no canto da célula", em pixels.
+const AT_CELL_TOLERANCE: i32 = 2;
+
+fn is_at_cell(current: Option<(i32, i32, i32, i32)>, cell: (i32, i32, i32, i32)) -> bool {
+    current.is_some_and(|r| (r.0 - cell.0).abs() <= AT_CELL_TOLERANCE && (r.1 - cell.1).abs() <= AT_CELL_TOLERANCE)
+}
+
+/// A olhada (a cada 250 ms, `start_grid_snap_loop`): a janela anotada que
+/// voltou de minimizada vai para a célula sem o aviso de tamanho, como as
+/// visíveis.
+pub fn snap_restored_small_windows() {
+    let entries: Vec<(isize, GridCellMemory)> = {
+        let map = GRID_CELLS.lock().unwrap_or_else(|e| e.into_inner());
         if map.is_empty() {
             return;
         }
-        map.iter().map(|(h, r)| (*h, *r)).collect()
+        map.iter().map(|(h, m)| (*h, *m)).collect()
     };
     let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
-    for (raw, rect) in pending {
+    for (raw, memory) in entries {
         let hwnd = raw as HWND;
-        let step = unsafe {
-            small_minimized_step(
+        let (exists, minimized, maximized) = unsafe {
+            (
                 windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(hwnd) != 0,
                 IsIconic(hwnd) != 0,
                 IsZoomed(hwnd) != 0,
             )
         };
+        let at_cell = exists && !minimized && is_at_cell(get_window_position(hwnd), memory.rect);
+        let step = grid_cell_step(exists, minimized, maximized, memory.was_minimized, at_cell);
+        let mut map = GRID_CELLS.lock().unwrap_or_else(|e| e.into_inner());
         match step {
-            SmallMinimizedStep::Wait => continue,
-            SmallMinimizedStep::Snap => {
-                let _ = place_window_with(hwnd, rect, grid_swp_flags(true));
+            GridCellStep::Forget => {
+                map.remove(&raw);
             }
-            SmallMinimizedStep::Forget => {}
+            GridCellStep::MarkMinimized => {
+                if let Some(m) = map.get_mut(&raw) {
+                    m.was_minimized = true;
+                }
+            }
+            GridCellStep::Snap => {
+                let _ = place_window_with(hwnd, memory.rect, grid_swp_flags(true));
+                if let Some(m) = map.get_mut(&raw) {
+                    m.was_minimized = false;
+                }
+            }
+            GridCellStep::Keep => {
+                if let Some(m) = map.get_mut(&raw) {
+                    m.was_minimized = false;
+                }
+            }
         }
-        remember_small_minimized(raw, None);
     }
 }
 
-/// A olhada de 1 s: a minimizada de célula pequena que voltou vai para a
-/// célula; cliente que saiu do rastreamento é esquecido; opção desligada
-/// devolve as molduras.
+/// A olhada de 1 s: cliente que saiu do rastreamento é esquecido; opção
+/// desligada devolve as molduras.
 pub fn grid_borders_tick(settings: &SettingsStore) {
-    snap_restored_small_windows();
     let ours = launched_client_pids();
     let pending = {
         let mut map = borderless_windows();
@@ -1615,14 +1669,13 @@ pub fn place_in_grid(
     // não batem e ela cai por cima das outras.
     let own = launched_client_pids();
     let grid_pids: Vec<u32> = occupant_wins.iter().map(|w| w.pid).chain([pid]).collect();
-    let shrunk = !occupant_wins.is_empty() && grid_small_allowed(true, &grid_pids, &own) && {
-        let (w, h) = most_common_size(&occupant_wins);
-        w < requested.0 && h < requested.1
-    };
-    let (small, requested) = if shrunk {
-        (true, most_common_size(&occupant_wins))
-    } else {
-        (small, requested)
+    // E vale também para célula maior: com a grade organizada em 1272x695 (a
+    // base era uma janela que a pessoa aumentou), a nova num 816x639 caía numa
+    // célula que só existe nesse tamanho, por cima das outras.
+    let all_own = !occupant_wins.is_empty() && grid_small_allowed(true, &grid_pids, &own);
+    let (small, requested) = match grid_cell_in_use(&occupant_wins) {
+        Some(cell) if all_own && cell != requested => (small || grid_already_shrunk(cell, requested), cell),
+        _ => (small, requested),
     };
     let (cell_w, cell_h) =
         grid_cell_size(requested, accepted_size(hwnd, current, requested, small), small);
@@ -1653,7 +1706,28 @@ pub fn place_in_grid(
         Some(i) => (slots[i].x, slots[i].y, cell_w, cell_h),
         None => (current.0, current.1, cell_w, cell_h),
     };
+    remember_grid_cell(hwnd as isize, Some(target), false);
     move_to_with(hwnd, current, target, small)
+}
+
+/// O tamanho de célula que a grade está usando: o das outras janelas, quando
+/// ele é de fato o da grade — de duas ou mais delas, ou da única aberta. Todas
+/// de tamanhos diferentes (arrastadas uma a uma) não dizem nada.
+fn grid_cell_in_use(occupants: &[RobloxWin]) -> Option<(i32, i32)> {
+    if occupants.len() == 1 {
+        return Some((occupants[0].w, occupants[0].h));
+    }
+    let common = most_common_size(occupants);
+    let holders = occupants.iter().filter(|w| (w.w, w.h) == common).count();
+    (holders >= 2).then_some(common)
+}
+
+/// A grade já foi encolhida (a célula das outras é menor que a da janela nova
+/// em **alguma** medida). Exigir as duas deixava passar a célula mais larga e
+/// mais baixa que o mínimo — que sai quando a base da grade era uma janela em
+/// tela cheia — e a nova caía numa célula de 816x639 por cima das outras.
+fn grid_already_shrunk(common: (i32, i32), requested: (i32, i32)) -> bool {
+    common.0 < requested.0 || common.1 < requested.1
 }
 
 /// O tamanho que a janela aceita de verdade: pede `requested` no lugar onde ela
@@ -1665,13 +1739,15 @@ fn accepted_size(
     requested: (i32, i32),
     allow_small: bool,
 ) -> (i32, i32) {
-    if (current.2, current.3) != requested {
-        place_window_with(
-            hwnd,
-            (current.0, current.1, requested.0, requested.1),
-            grid_swp_flags(allow_small),
-        );
-    }
+    // Pede sempre, mesmo já no tamanho: uma janela que a grade encolheu antes
+    // já está nele, e pular o pedido escondia o mínimo — na segunda
+    // "Organizar em grade" a célula parecia servir, as janelas iam sem
+    // `SWP_NOSENDCHANGING` e cresciam umas por cima das outras.
+    place_window_with(
+        hwnd,
+        (current.0, current.1, requested.0, requested.1),
+        grid_swp_flags(allow_small),
+    );
     get_window_position(hwnd).map(|r| (r.2, r.3)).unwrap_or(requested)
 }
 
@@ -1738,7 +1814,15 @@ fn arrange_roblox_grid_locked(
     }
     // Medir e testar o tamanho só numa janela visível: numa minimizada o
     // retângulo vivo não diz nada.
-    let probe = wins.iter().find(|w| !minimized_hwnds.contains(&w.hwnd)).copied();
+    // E de preferência numa com moldura normal: em tela cheia (sem borda),
+    // maximizada ou sem moldura o Windows não impõe o mínimo, a medida dizia
+    // que a célula pequena servia e as outras cresciam por cima umas das outras.
+    let visible: Vec<RobloxWin> = wins.iter().filter(|w| !minimized_hwnds.contains(&w.hwnd)).copied().collect();
+    let probe = visible
+        .iter()
+        .find(|w| window_enforces_min_size(w.hwnd as HWND, (w.x, w.y, w.w, w.h)))
+        .or_else(|| visible.first())
+        .copied();
     let (cell_w, cell_h) = match size {
         Some((tw, th)) => {
             let first = probe.unwrap_or(wins[0]);
@@ -1798,10 +1882,9 @@ fn arrange_roblox_grid_locked(
             // pelo app, não só quando a célula encolheu agora: na segunda
             // organização o `rcNormalPosition` já é pequeno, a célula cabe sem
             // encolher e `small` fica falso (bateria de 25/10/2026).
-            remember_small_minimized(w.hwnd, (small || own.contains(&w.pid)).then_some(rect));
+            remember_grid_cell(w.hwnd, (small || own.contains(&w.pid)).then_some(rect), true);
             continue;
         }
-        remember_small_minimized(w.hwnd, None);
         if unsafe { IsZoomed(hwnd) } != 0 {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -1810,6 +1893,12 @@ fn arrange_roblox_grid_locked(
         if place_window_with(hwnd, (cell.x, cell.y, cell_w, cell_h), grid_swp_flags(small)) {
             arranged += 1;
         }
+        // A pessoa pode minimizá-la depois: ao voltar, ela volta para cá.
+        remember_grid_cell(
+            w.hwnd,
+            (small || own.contains(&w.pid)).then_some((cell.x, cell.y, cell_w, cell_h)),
+            false,
+        );
     }
     Ok((arranged, wins.len()))
 }
