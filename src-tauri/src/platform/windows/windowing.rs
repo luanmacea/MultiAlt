@@ -1442,9 +1442,84 @@ fn release_borderless_for(pids: &std::collections::HashSet<u32>) {
     }
 }
 
-/// A olhada de 1 s: cliente que saiu do rastreamento é esquecido; opção
-/// desligada devolve as molduras.
+/// Minimizadas que a grade pôs numa célula **menor que o mínimo** do Roblox.
+/// A minimizada só ganha o `rcNormalPosition`, e ao restaurar o Roblox impõe o
+/// mínimo (~802x631) — as janelas voltavam umas por cima das outras (bateria de
+/// testes de 25/10/2026). Ao vê-la restaurada, a olhada de 1 s a põe na célula
+/// sem o aviso de tamanho, como as visíveis.
+static SMALL_MINIMIZED: std::sync::LazyLock<Mutex<HashMap<isize, (i32, i32, i32, i32)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// `Some(rect)` anota a célula pequena da minimizada; `None` esquece (a grade
+/// a pôs de outro jeito).
+fn remember_small_minimized(hwnd: isize, rect: Option<(i32, i32, i32, i32)>) {
+    let mut map = SMALL_MINIMIZED.lock().unwrap_or_else(|e| e.into_inner());
+    match rect {
+        Some(rect) => {
+            map.insert(hwnd, rect);
+        }
+        None => {
+            map.remove(&hwnd);
+        }
+    }
+}
+
+/// O que fazer com uma minimizada anotada.
+#[derive(Debug, PartialEq, Eq)]
+enum SmallMinimizedStep {
+    /// Ainda minimizada: espera.
+    Wait,
+    /// Restaurada: vai para a célula e sai da lista.
+    Snap,
+    /// Fechada, ou maximizada pela pessoa: sai da lista sem mexer.
+    Forget,
+}
+
+fn small_minimized_step(exists: bool, minimized: bool, maximized: bool) -> SmallMinimizedStep {
+    if !exists || maximized {
+        SmallMinimizedStep::Forget
+    } else if minimized {
+        SmallMinimizedStep::Wait
+    } else {
+        SmallMinimizedStep::Snap
+    }
+}
+
+/// A olhada: cada minimizada anotada que voltou vai para a célula pequena.
+fn snap_restored_small_windows() {
+    let pending: Vec<(isize, (i32, i32, i32, i32))> = {
+        let map = SMALL_MINIMIZED.lock().unwrap_or_else(|e| e.into_inner());
+        if map.is_empty() {
+            return;
+        }
+        map.iter().map(|(h, r)| (*h, *r)).collect()
+    };
+    let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
+    for (raw, rect) in pending {
+        let hwnd = raw as HWND;
+        let step = unsafe {
+            small_minimized_step(
+                windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(hwnd) != 0,
+                IsIconic(hwnd) != 0,
+                IsZoomed(hwnd) != 0,
+            )
+        };
+        match step {
+            SmallMinimizedStep::Wait => continue,
+            SmallMinimizedStep::Snap => {
+                let _ = place_window_with(hwnd, rect, grid_swp_flags(true));
+            }
+            SmallMinimizedStep::Forget => {}
+        }
+        remember_small_minimized(raw, None);
+    }
+}
+
+/// A olhada de 1 s: a minimizada de célula pequena que voltou vai para a
+/// célula; cliente que saiu do rastreamento é esquecido; opção desligada
+/// devolve as molduras.
 pub fn grid_borders_tick(settings: &SettingsStore) {
+    snap_restored_small_windows();
     let ours = launched_client_pids();
     let pending = {
         let mut map = borderless_windows();
@@ -1713,11 +1788,16 @@ fn arrange_roblox_grid_locked(
         let cell = slots[manual_slot(i, slots.len())];
         let hwnd = w.hwnd as HWND;
         if minimized_hwnds.contains(&w.hwnd) {
-            if place_minimized_window(hwnd, (cell.x, cell.y, cell_w, cell_h)) {
+            let rect = (cell.x, cell.y, cell_w, cell_h);
+            if place_minimized_window(hwnd, rect) {
                 arranged += 1;
             }
+            // Célula menor que o mínimo: ao restaurar o Roblox a aumentaria de
+            // volta; a olhada de 1 s a põe na célula (`snap_restored_small_windows`).
+            remember_small_minimized(w.hwnd, small.then_some(rect));
             continue;
         }
+        remember_small_minimized(w.hwnd, None);
         if unsafe { IsZoomed(hwnd) } != 0 {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
