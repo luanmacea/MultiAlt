@@ -301,7 +301,7 @@ export function CodeTab({ visible, openRequest, runtimeInstalled, runs, develope
             <>
               <div className="flex shrink-0 flex-wrap items-center gap-2 border-b theme-border px-3 py-1">
                 <span className="min-w-0 truncate font-mono text-[11.5px] text-zinc-400" title={activeFile.path}>
-                  {activeFile.path.replaceAll("/", " / ")}
+                  {activeFile.path.split("/").join(" / ")}
                 </span>
                 {activeFile.notice ? <span className="text-[11.5px] text-sky-300">{activeFile.notice}</span> : null}
                 <div className="ml-auto flex items-center gap-2">

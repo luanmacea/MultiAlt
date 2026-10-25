@@ -1,19 +1,14 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Code2, LayoutDashboard, ScanSearch, ShieldAlert, Terminal, type LucideIcon } from "lucide-react";
+import { useCallback, useRef, useState, type KeyboardEvent } from "react";
+import { Braces, Code2, LayoutDashboard, ScanSearch, ShieldAlert, Terminal, X, type LucideIcon } from "lucide-react";
 import { useStore } from "../../store";
-import { useConfirm } from "../../hooks/usePrompt";
+import { CodeTab, type OpenRequest } from "./CodeTab";
 import { DashboardView } from "./DashboardView";
 import { DeveloperPanel } from "./DeveloperPanel";
+import { GlobalFunctionsTab } from "./GlobalFunctionsTab";
 import { InspectorView } from "./InspectorView";
 import { InstallCard } from "./InstallCard";
-import { PythonTerminal } from "./PythonTerminal";
-import { RunPanel } from "./RunPanel";
-import { RunningList } from "./RunningList";
-import { ScriptEditor } from "./ScriptEditor";
-import { ScriptList } from "./ScriptList";
 import { usePythonRuns } from "./usePythonRuns";
 import { usePythonRuntime } from "./usePythonRuntime";
-import { usePythonScripts } from "./usePythonScripts";
 
 export const PYTHON_PAGE_INTRO = (
   <>
@@ -27,62 +22,57 @@ export const PYTHON_PAGE_INTRO = (
   </>
 );
 
-export type PythonTabId = "scripts" | "dashboard" | "inspector" | "developer";
+export const WARNING_DISMISSED_KEY = "ram_python_warning_dismissed";
+
+export type PythonTabId = "code" | "globals" | "dashboard" | "inspector" | "developer";
 
 const TABS: { id: PythonTabId; label: string; Icon: LucideIcon }[] = [
-  { id: "scripts", label: "Scripts", Icon: Code2 },
+  { id: "code", label: "Code", Icon: Code2 },
+  { id: "globals", label: "Global functions", Icon: Braces },
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { id: "inspector", label: "Inspector", Icon: ScanSearch },
   { id: "developer", label: "Developer", Icon: Terminal },
 ];
 
+function readWarningDismissed(): boolean {
+  try {
+    return window.localStorage.getItem(WARNING_DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /** The Roblox Player automation (Python) mode of the Scripts page. */
 export function PythonAutomationView() {
   const store = useStore();
-  const [tab, setTab] = useState<PythonTabId>("scripts");
+  const [tab, setTab] = useState<PythonTabId>("code");
+  const [warningDismissed, setWarningDismissed] = useState(readWarningDismissed);
+  const [openRequest, setOpenRequest] = useState<OpenRequest | null>(null);
   const tabRefs = useRef<Partial<Record<PythonTabId, HTMLButtonElement | null>>>({});
 
   const runtime = usePythonRuntime();
-  const { scripts, loaded, refresh: refreshScripts } = usePythonScripts();
   const { runs } = usePythonRuns();
-  const [selected, setSelected] = useState<string | null>(null);
-  // The editor has edits that are not saved yet: switching away asks first.
-  const [editorDirty, setEditorDirty] = useState(false);
-  const confirm = useConfirm();
 
   const addToast = store.addToast;
-  const toast = (message: string, tone?: "info" | "success" | "warn" | "error") => addToast(message, tone);
+  const toast = useCallback(
+    (message: string, tone?: "info" | "success" | "warn" | "error") => addToast(message, tone),
+    [addToast]
+  );
+  const developerMode = store.settings?.Python?.DeveloperMode === "true";
 
-  // Keep the selection valid: pick the first script on load, drop a deleted one.
-  useEffect(() => {
-    if (!loaded) return;
-    if (selected && scripts.some((script) => script.name === selected)) return;
-    setSelected(scripts[0]?.name ?? null);
-  }, [loaded, scripts, selected]);
-
-  const selectedFile = scripts.find((script) => script.name === selected) ?? null;
-
-  /** True when there is nothing unsaved, or the user agreed to drop it. */
-  async function mayLeaveEditor(next: string): Promise<boolean> {
-    if (!editorDirty || !selected) return true;
-    return confirm(`${selected} has unsaved changes. Discard them and open ${next}?`, true, {
-      confirmLabel: "Discard changes",
-    });
+  function dismissWarning() {
+    setWarningDismissed(true);
+    try {
+      window.localStorage.setItem(WARNING_DISMISSED_KEY, "1");
+    } catch {
+      // Not remembered: it comes back next time, which is the safe side.
+    }
   }
 
-  async function selectScript(name: string | null) {
-    if (name === selected) return;
-    // A deleted script has nothing left to keep.
-    if (name !== null && !(await mayLeaveEditor(name))) return;
-    setEditorDirty(false);
-    setSelected(name);
-  }
-
-  async function selectTab(next: PythonTabId) {
-    if (next === tab) return;
-    if (tab === "scripts" && !(await mayLeaveEditor(`the ${next} tab`))) return;
-    setTab(next);
-  }
+  const openInCode = useCallback((path: string) => {
+    setOpenRequest((prev) => ({ path, seq: (prev?.seq ?? 0) + 1 }));
+    setTab("code");
+  }, []);
 
   function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -90,7 +80,8 @@ export function PythonAutomationView() {
     const order = TABS.map((item) => item.id);
     const at = order.indexOf(tab);
     const next = order[(at + (event.key === "ArrowRight" ? 1 : order.length - 1)) % order.length];
-    void selectTab(next).then(() => tabRefs.current[next]?.focus());
+    setTab(next);
+    tabRefs.current[next]?.focus();
   }
 
   return (
@@ -110,7 +101,7 @@ export function PythonAutomationView() {
               aria-selected={on}
               aria-controls={`python-panel-${id}`}
               tabIndex={on ? 0 : -1}
-              onClick={() => void selectTab(id)}
+              onClick={() => setTab(id)}
               onKeyDown={onTabKeyDown}
               className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-[12.5px] transition-colors ${
                 on ? "border-sky-400 text-zinc-100" : "border-transparent text-zinc-500 hover:text-zinc-300"
@@ -123,74 +114,77 @@ export function PythonAutomationView() {
         })}
       </div>
 
-      <div
-        role="tabpanel"
-        id={`python-panel-${tab}`}
-        aria-labelledby={`python-tab-${tab}`}
-        className="min-h-0 flex-1 overflow-y-auto px-6 py-4"
-      >
+      <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
+        {!warningDismissed ? (
+          <div
+            role="note"
+            data-testid="python-warning"
+            className="mb-3 flex shrink-0 items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200"
+          >
+            <ShieldAlert size={14} strokeWidth={1.9} className="mt-0.5 shrink-0" />
+            <span className="min-w-0 flex-1">Python scripts have full access to your PC. Only run scripts you trust.</span>
+            <button
+              type="button"
+              aria-label="Dismiss the warning"
+              title="Dismiss"
+              onClick={dismissWarning}
+              className="-mr-1 shrink-0 rounded p-0.5 text-amber-300/80 hover:bg-amber-500/20 hover:text-amber-100"
+            >
+              <X size={13} strokeWidth={2} />
+            </button>
+          </div>
+        ) : null}
+
+        {/* The Code tab stays mounted while another tab shows, so open files keep their unsaved edits. */}
         <div
-          role="note"
-          className="mb-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-300"
+          role="tabpanel"
+          id="python-panel-code"
+          aria-labelledby="python-tab-code"
+          hidden={tab !== "code"}
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
         >
-          <ShieldAlert size={14} strokeWidth={1.9} className="mt-0.5 shrink-0" />
-          <span>Python scripts have full access to your PC. Only run scripts you trust.</span>
+          <InstallCard
+            status={runtime.status}
+            progress={runtime.progress}
+            error={runtime.error}
+            installing={runtime.installing}
+            onInstall={() => void runtime.install()}
+            onReinstall={() => void runtime.reinstall()}
+          />
+          <div className="min-h-[480px] flex-1">
+            <CodeTab
+              visible={tab === "code"}
+              openRequest={openRequest}
+              runtimeInstalled={runtime.status?.installed === true}
+              runs={runs}
+              developerMode={developerMode}
+              onOpenDeveloper={() => setTab("developer")}
+              onToast={toast}
+            />
+          </div>
         </div>
 
-        {tab === "scripts" && (
-          <div className="space-y-4">
-            <InstallCard
-              status={runtime.status}
-              progress={runtime.progress}
-              error={runtime.error}
-              installing={runtime.installing}
-              onInstall={() => void runtime.install()}
-              onReinstall={() => void runtime.reinstall()}
-            />
-
-            <div className="grid h-[400px] gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
-              <ScriptList
-                scripts={scripts}
-                loaded={loaded}
-                selected={selected}
-                onSelect={(name) => void selectScript(name)}
-                onChanged={refreshScripts}
+        {tab !== "code" ? (
+          <div
+            role="tabpanel"
+            id={`python-panel-${tab}`}
+            aria-labelledby={`python-tab-${tab}`}
+            className="min-h-0 flex-1 overflow-y-auto"
+          >
+            {tab === "globals" && (
+              <GlobalFunctionsTab
+                visible
+                developerMode={developerMode}
+                onOpenFile={openInCode}
+                onOpenDeveloper={() => setTab("developer")}
                 onToast={toast}
               />
-              {selectedFile ? (
-                <ScriptEditor
-                  key={selectedFile.name}
-                  name={selectedFile.name}
-                  modifiedMs={selectedFile.modifiedMs}
-                  onDirtyChange={setEditorDirty}
-                />
-              ) : (
-                <div className="flex items-center justify-center rounded-lg border border-dashed theme-border px-6 text-center text-[12.5px] text-zinc-500">
-                  Select a script to edit it, or create one with New.
-                </div>
-              )}
-            </div>
-
-            {selectedFile ? (
-              <RunPanel
-                script={selectedFile.name}
-                runtimeInstalled={runtime.status?.installed === true}
-                runs={runs}
-                onToast={toast}
-              />
-            ) : null}
-
-            <RunningList runs={runs} onToast={toast} />
-
-            <PythonTerminal runs={runs} className="h-[320px]" />
+            )}
+            {tab === "dashboard" && <DashboardView />}
+            {tab === "inspector" && <InspectorView />}
+            {tab === "developer" && <DeveloperPanel />}
           </div>
-        )}
-
-        {tab === "dashboard" && <DashboardView />}
-
-        {tab === "inspector" && <InspectorView />}
-
-        {tab === "developer" && <DeveloperPanel />}
+        ) : null}
       </div>
     </div>
   );

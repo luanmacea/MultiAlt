@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, act } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -10,11 +10,10 @@ vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/pro
 
 import { RunPanel } from "./RunPanel";
 import { RunningList, formatCountdown } from "./RunningList";
-import { PythonAutomationView } from "./PythonAutomationView";
 import type { PythonRunConfig, PythonRunInfo } from "./pythonApi";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
-import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
-import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
+import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
+import { resetPromptMocks } from "../../test-utils/promptMocks";
 
 function run(overrides: Partial<PythonRunInfo> = {}): PythonRunInfo {
   return {
@@ -237,93 +236,5 @@ describe("RunningList", () => {
     expect(formatCountdown(45_000, 0)).toBe("in 45s");
     expect(formatCountdown(125_000, 0)).toBe("in 2m 05s");
     expect(formatCountdown(0, 10_000)).toBe("in 0s");
-  });
-});
-
-describe("PythonAutomationView", () => {
-  beforeEach(() => {
-    setInvokeHandler((cmd) => {
-      switch (cmd) {
-        case "python_runtime_status":
-          return { installed: true, version: "3.12.7", pythonExe: "python.exe", packages: [], installing: false };
-        case "python_list_scripts":
-          return [{ name: "farm.py", size: 10, modifiedMs: 1 }];
-        case "python_read_script":
-          return "print(1)";
-        case "python_list_runs":
-        case "python_get_logs":
-          return [];
-        case "python_get_run_configs":
-          return {};
-        default:
-          return undefined;
-      }
-    });
-  });
-
-  it("shows the warning, the four tabs and the scripts screen", async () => {
-    render(<PythonAutomationView />);
-    expect(screen.getByText("Python scripts have full access to your PC. Only run scripts you trust.")).toBeInTheDocument();
-    for (const name of ["Scripts", "Dashboard", "Inspector", "Developer"]) {
-      expect(screen.getByRole("tab", { name })).toBeInTheDocument();
-    }
-    expect(await screen.findByText(/Python 3.12.7 installed/)).toBeInTheDocument();
-    const source = await screen.findByRole("textbox", { name: "Source of farm.py" });
-    await waitFor(() => expect(source).toHaveValue("print(1)"));
-    expect(screen.getByRole("log")).toBeInTheDocument();
-  });
-
-  it("asks before switching scripts when the editor has unsaved changes", async () => {
-    setInvokeHandler((cmd, args) => {
-      switch (cmd) {
-        case "python_runtime_status":
-          return { installed: true, version: "3.12.7", pythonExe: "python.exe", packages: [], installing: false };
-        case "python_list_scripts":
-          return [
-            { name: "farm.py", size: 10, modifiedMs: 1 },
-            { name: "other.py", size: 10, modifiedMs: 1 },
-          ];
-        case "python_read_script":
-          return `# ${(args as { name: string }).name}`;
-        case "python_list_runs":
-        case "python_get_logs":
-          return [];
-        case "python_get_run_configs":
-          return {};
-        default:
-          return undefined;
-      }
-    });
-    render(<PythonAutomationView />);
-    const source = await screen.findByRole("textbox", { name: "Source of farm.py" });
-    await waitFor(() => expect(source).toHaveValue("# farm.py"));
-    await userEvent.type(source, "\nprint('unsaved')");
-
-    // Cancel: nothing is lost.
-    promptAnswers.confirm = false;
-    await userEvent.click(screen.getByRole("button", { name: /^other\.py/ }));
-    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
-    expect(confirmMock.mock.calls[0][0]).toContain("farm.py");
-    expect(screen.getByRole("textbox", { name: "Source of farm.py" })).toHaveValue("# farm.py\nprint('unsaved')");
-
-    // Discard: the other script opens.
-    promptAnswers.confirm = true;
-    await userEvent.click(screen.getByRole("button", { name: /^other\.py/ }));
-    const other = await screen.findByRole("textbox", { name: "Source of other.py" });
-    await waitFor(() => expect(other).toHaveValue("# other.py"));
-
-    // No unsaved changes: no question.
-    confirmMock.mockClear();
-    await userEvent.click(screen.getByRole("button", { name: /^farm\.py/ }));
-    await screen.findByRole("textbox", { name: "Source of farm.py" });
-    expect(confirmMock).not.toHaveBeenCalled();
-  });
-
-  it("adds a run started from a terminal as soon as the backend announces it", async () => {
-    render(<PythonAutomationView />);
-    await screen.findByText(/Python 3.12.7 installed/);
-    act(() => emitTauriEvent("python-run-update", run({ id: "t1", script: "ai_test.py", source: "terminal" })));
-    expect(await screen.findByText("ai_test.py")).toBeInTheDocument();
-    expect(screen.getByText("terminal")).toBeInTheDocument();
   });
 });
