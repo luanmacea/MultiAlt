@@ -1792,9 +1792,13 @@ fn arrange_roblox_grid_locked(
             if place_minimized_window(hwnd, rect) {
                 arranged += 1;
             }
-            // Célula menor que o mínimo: ao restaurar o Roblox a aumentaria de
-            // volta; a olhada de 1 s a põe na célula (`snap_restored_small_windows`).
-            remember_small_minimized(w.hwnd, small.then_some(rect));
+            // Célula que pode ser menor que o mínimo: ao restaurar o Roblox a
+            // aumentaria de volta; a olhada de 1 s a põe na célula
+            // (`snap_restored_small_windows`). Vale para todo cliente aberto
+            // pelo app, não só quando a célula encolheu agora: na segunda
+            // organização o `rcNormalPosition` já é pequeno, a célula cabe sem
+            // encolher e `small` fica falso (bateria de 25/10/2026).
+            remember_small_minimized(w.hwnd, (small || own.contains(&w.pid)).then_some(rect));
             continue;
         }
         remember_small_minimized(w.hwnd, None);
@@ -3181,34 +3185,50 @@ $w = New-Object FakeRobloxWindow
         let monitor = primary_monitor_index();
         let gap = 8;
         let count = slots_at_min_size(monitor, gap) + 2;
-        let clients = spawn_fake_clients(count);
-        let hwnds: Vec<HWND> = clients
-            .children
-            .iter()
-            .map(|c| find_main_window(c.id()).expect("window"))
-            .collect();
-        for &hwnd in &hwnds {
-            unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+        // Os dois caminhos: minimizar antes da primeira organização (a célula
+        // encolhe agora) e organizar → minimizar → organizar de novo (o
+        // `rcNormalPosition` já é pequeno e a célula cabe sem encolher — o
+        // caso da bateria com 4 contas de verdade).
+        for arrange_first in [false, true] {
+            let clients = spawn_fake_clients(count);
+            let hwnds: Vec<HWND> = clients
+                .children
+                .iter()
+                .map(|c| find_main_window(c.id()).expect("window"))
+                .collect();
+            let arrange = || {
+                arrange_roblox_grid(
+                    &[monitor],
+                    gap,
+                    None,
+                    &std::collections::HashSet::new(),
+                    GridWindowStyle::default(),
+                )
+            };
+            if arrange_first {
+                let _ = arrange();
+                std::thread::sleep(Duration::from_millis(400));
+            }
+            for &hwnd in &hwnds {
+                unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+            }
+            std::thread::sleep(Duration::from_millis(400));
+            let result = arrange();
+            for &hwnd in &hwnds {
+                unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+            }
+            std::thread::sleep(Duration::from_millis(400));
+            // A olhada de 1 s do app.
+            snap_restored_small_windows();
+            std::thread::sleep(Duration::from_millis(600));
+            let overlaps = overlapping_pairs();
+            eprintln!(
+                "arrange_first={arrange_first}: minimized + arrange + restore of {count} windows -> {result:?}, overlapping pairs: {}",
+                overlaps.len()
+            );
+            assert!(overlaps.is_empty(), "arrange_first={arrange_first}: windows on top of one another: {overlaps:?}");
+            assert_eq!(windows_outside(monitor), 0, "arrange_first={arrange_first}: a window left the monitor");
         }
-        std::thread::sleep(Duration::from_millis(400));
-        let result = arrange_roblox_grid(
-            &[monitor],
-            gap,
-            None,
-            &std::collections::HashSet::new(),
-            GridWindowStyle::default(),
-        );
-        for &hwnd in &hwnds {
-            unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
-        }
-        std::thread::sleep(Duration::from_millis(400));
-        // A olhada de 1 s do app.
-        snap_restored_small_windows();
-        std::thread::sleep(Duration::from_millis(600));
-        let overlaps = overlapping_pairs();
-        eprintln!("minimized + arrange + restore of {count} windows -> {result:?}, overlapping pairs: {}", overlaps.len());
-        assert!(overlaps.is_empty(), "windows on top of one another: {overlaps:?}");
-        assert_eq!(windows_outside(monitor), 0, "a window left the monitor");
     }
 
     #[test]
