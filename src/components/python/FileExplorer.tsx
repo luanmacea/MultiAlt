@@ -18,12 +18,12 @@ import {
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { copyText } from "./copyText";
 import { errorText, pythonApi, type FsNode } from "./pythonApi";
+import { copyFileToScripts } from "./workspaceActions";
 import {
   SEGMENT_HELP,
   canRenameOrDelete,
   extensionOf,
   findNode,
-  freeCopyName,
   isImagePath,
   isValidSegment,
   joinPath,
@@ -228,10 +228,7 @@ export function FileExplorer({
   async function copyToScripts(node: FsNode) {
     setMenu(null);
     await guard(async () => {
-      const path = joinPath("scripts", freeCopyName(tree, node.path));
-      const text = await pythonApi.fsRead(node.path);
-      await pythonApi.fsCreate(path, "file");
-      await pythonApi.fsWrite(path, text);
+      const path = await copyFileToScripts(tree, node.path);
       await onChanged();
       setSelected(path);
       onOpen(path);
