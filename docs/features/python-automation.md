@@ -24,7 +24,9 @@ Não é injeção no cliente, executor de Lua nem leitura de memória do jogo.
 | Tipos do contrato (espelhados em `src/components/python/pythonApi.ts`) | [python/types.rs](../../src-tauri/src/python/types.rs) |
 | Códigos, mensagens e dicas dos erros | [python/errors.rs](../../src-tauri/src/python/errors.rs) |
 | Python portátil (download, hash, instalação) | [python/runtime.rs](../../src-tauri/src/python/runtime.rs) |
-| Pasta de trabalho, blocos padrão, scripts, `runs.json` | [python/workspace.rs](../../src-tauri/src/python/workspace.rs) |
+| Pasta de trabalho, blocos padrão, scripts, `runs.json`, exemplo semeado | [python/workspace.rs](../../src-tauri/src/python/workspace.rs) |
+| Explorer da aba Code (árvore, ler/gravar/criar/renomear/apagar, `.trash/`) | [python/explorer.rs](../../src-tauri/src/python/explorer.rs) |
+| Aba Global functions (`def` de topo dos blocos e de `lib/`, lidos como texto) | [python/globals.rs](../../src-tauri/src/python/globals.rs) |
 | Fila de foco (lease sobre o `AFK_CYCLE_LOCK`) | [python/focus.rs](../../src-tauri/src/python/focus.rs) |
 | Primitivas e travas | [python/primitives.rs](../../src-tauri/src/python/primitives.rs) |
 | Protocolo JSON por linha | [python/bridge.rs](../../src-tauri/src/python/bridge.rs) |
@@ -100,7 +102,23 @@ multialt/       SDK; _core/ e __init__ são do app (reescritos a cada sincroniza
 examples/ templates/ AGENTS.md CLAUDE.md docs/API.md   do app
 runs.json       configuração salva por script (contas, modo, gatilho)
 dashboard.json  últimos valores do dashboard
+.seeded-examples  marcador: o exemplo já foi criado (não recria)
+.trash/         o que o Explorer "apagou" (<ms>-<nome>)
 ```
+
+**Exemplo da primeira abertura** (`SEED_FILES`, embutidos de
+`src-tauri/python-sdk/seed/`): sem o marcador `.seeded-examples`, a
+sincronização cria `scripts/example_walk_jump.py`, `lib/__init__.py` e
+`lib/helpers.py` — só os que ainda não existem, nunca sobrescreve — e grava o
+marcador. Com o marcador, nada: apagado, o exemplo não volta (apagar o
+marcador traz de volta só o que falta). O exemplo anda (W, por
+`lib.helpers.walk_forward`), pula (Space), abre e fecha o menu (Escape),
+importa um bloco (`multialt.defaults.actions.jitter_sleep`) e alimenta o
+`farm_report()` (`REPORT = True` + `report_loop`). O `lib/__init__.py` deixa
+`lib` como pacote normal (sem ele o `from lib.helpers import ...` também
+funciona, como namespace package — os dois casos testados em
+`tests/test_seed.py`, num Python limpo com a pasta de trabalho no `sys.path`
+como o host faz).
 
 `sync_workspace` roda ao abrir a aba (`python_workspace_info`) e antes de cada
 execução. Bloco **não editado** (hash do disco = original registrado) acompanha o
@@ -171,12 +189,16 @@ a task morria calada e o Python esperava a resposta para sempre
   Sem cliente, `false/0/""`; sem o log ainda, o cliente aberto conta como no
   jogo e place/job ficam `0/""` (`accounts_are_read_live`). O `hello` leva o
   mesmo retrato do começo.
-- Teclas só da lista das Gravações (`RECORDING_KEYS`); `type_text` só letra
+- Teclas só da lista das Gravações (`RECORDING_KEYS`) **mais o `Escape`**
+  (`PYTHON_ONLY_KEYS`, `Esc` também vale; `python_key`). O Escape é só do
+  Python: as gravações e o Modo AFK continuam recusando (Esc + L sai do jogo, e
+  eles rodam sem ninguém escrevendo o passo seguinte); o AGENTS.md e o API.md
+  avisam. `type_text` só letra
   (maiúscula com Shift), dígito e espaço, e confere tudo antes de mandar a
   primeira tecla; cada tecla dele fica registrada no lease enquanto está
   apertada, como as do `key_down`, para o fim da execução soltá-la se o pedido
-  morrer no meio (`type_text_keys_are_released_if_the_request_dies`). Envio pelas portas do `input.rs` (`press_recording_key`,
-  `click_recording_point`); o primeiro clique depois de cada `bring_forward`
+  morrer no meio (`type_text_keys_are_released_if_the_request_dies`). Envio pelas portas do `input.rs` (`press_python_key`
+  — a das gravações mais o Escape —, `click_recording_point`); o primeiro clique depois de cada `bring_forward`
   leva o clique de foco.
 - Depois do Parar só passam `run.stopped/log/status`, `focus.release`,
   `input.key_up`, `window.restore_focus` e `accounts`; o resto devolve `stopped`.
@@ -286,6 +308,41 @@ arrastar. Quadro que não é mais o último da conta → "That capture is no lon
 available. Capture again, then select the area."
 (`the_asset_is_cut_from_the_frame_on_screen`).
 
+## Explorer e Global functions (tela v2)
+
+Comandos (stubs sem a feature: leitura devolve vazio, ação `NOT_AVAILABLE`):
+
+| Comando | O que faz |
+|---|---|
+| `python_fs_tree() -> FsNode` | árvore: `scripts/`, `lib/`, `assets/` (graváveis), `examples/` (só leitura), `multialt/defaults/` (só os 5 blocos, `pinned`; `writable` = Modo desenvolvedor) |
+| `python_fs_read(path) -> String` | texto até 1 MB; binário (NUL ou UTF-8 inválido) → erro claro; bloco lê pelo `read_block` |
+| `python_fs_read_image(path) -> String` | data URL (`data:image/<png\|jpeg\|bmp\|gif\|webp>;base64,…`), só em `assets/`, até 10 MB |
+| `python_fs_write(path, content)` | só `scripts/`, `lib/`, `assets/` (pasta tem de existir, até 1 MB); bloco → `write_block_gated`, o mesmo caminho do `python_write_default_block` |
+| `python_fs_create(path, kind)` | `"file"` (vazio) ou `"dir"`, nunca sobrescreve, só dentro das graváveis |
+| `python_fs_rename(from, to)` | dentro da mesma pasta gravável de topo (move entre subpastas vale; a raiz não se renomeia) |
+| `python_fs_delete(path)` | move para `.trash/<ms>-<nome>` (colisão ganha `-<n>`); a raiz não se apaga |
+| `python_list_global_functions() -> Vec<GlobalModule>` | os 5 blocos (com Modified / New default available) e os módulos de `lib/` (`lib/a/b.py` → `lib.a.b`; `__init__.py` sem função não aparece; nome que não é identificador Python não é importável e fica de fora) |
+
+Tipos em `types.rs` (`FsNode`, `GlobalModule`, `GlobalFunction`, camelCase).
+`FsNode.runnable` só para `scripts/<nome>.py` do topo com nome válido de
+script (o Run continua por nome simples). `pinned` vai nos blocos **e** nas
+pastas `multialt` e `multialt/defaults`.
+
+Regras de caminho (`explorer::split_path`): relativo, `/`, sem `\` nem `:`,
+cada pedaço `^[A-Za-z0-9 _\-.]{1,64}$` sem começar com `.`; também recusa
+terminar em espaço ou ponto e nome de dispositivo (`CON`, `NUL`, `COM1`...).
+Depois o ancestral mais fundo que existe é resolvido (`canonicalize`) e tem de
+cair dentro da pasta: junção em `lib/` apontando para fora é recusada, e a
+árvore pula link/junção, oculto (`.`) e `__pycache__`. Ocultos e recusados:
+`multialt/_core`, `multialt/__init__*`, o resto do SDK, `.trash`, `runs.json`,
+`dashboard.json`, `.originals.json`, `.seeded-examples`.
+
+As funções saem do texto (`globals::parse_functions`): `def`/`async def` na
+coluna 0, fora de string e de parênteses; assinatura de várias linhas vira uma
+(espaços colapsados, comentários e vírgula final fora, sem a anotação de
+retorno); doc = primeira linha não vazia da docstring (até 200 caracteres);
+nome com `_` na frente não aparece. Nunca roda Python.
+
 ## Modo desenvolvedor
 
 `Python.DeveloperMode` (padrão `false`, [settings.md](settings.md)). Ligado:
@@ -308,7 +365,14 @@ Ligar e o canal não abrir (ou desligar e ele não fechar) desfaz a gravação d
 
 Suíte `python` (`bun run t python`): o filtro Rust `python_` pega todo
 `mod python_*_tests` — erros, tipos, runtime (download mockado, hash errado,
-`._pth`, reinstall), workspace (sync, blocos, restore, nomes, modelos),
+`._pth`, reinstall), workspace (sync, blocos, restore, nomes, modelos), exemplo semeado uma vez só
+(`python_seed_tests`), Explorer (`python_fs_tests`: travessia e junção
+recusadas, escrita fora das graváveis recusada, apagar vai para `.trash`,
+árvore esconde os internos, `runnable` só no topo de `scripts/`), Global
+functions (`python_globals_tests`: assinatura de várias linhas, docstring,
+`def` dentro de string), Escape aceito no Python e recusado nas gravações
+(`escape_is_a_python_key_but_not_a_recording_key`,
+`python_keys_add_escape_but_recordings_still_refuse_it`),
 primitivas (cada trava, lease que expira solta teclas, sleep que para, pixel,
 `type_text`, fila compartilhada com o AFK), bridge (ids, linha quebrada,
 fire-and-forget, `stop` primeiro, canal que cai solta o lease), execuções (duas

@@ -17,7 +17,7 @@ unless the user asks.
 
 ```
 scripts/     <- WRITE YOUR SCRIPTS HERE (one .py per script)
-lib/         <- shared helpers: "from lib.tools import wait_for_menu"
+lib/         <- global functions shared by every script: "from lib.helpers import walk_forward"
 assets/      <- images for find_image (the app's Inspector saves cut-outs here)
 examples/    <- working examples, copy from them
 templates/   <- what "New script" starts from
@@ -27,7 +27,62 @@ multialt/    <- the library. DO NOT EDIT multialt/_core, multialt/__init__.py(i)
 multialt/defaults/  <- "blocks": editable ONLY if the user turned on developer mode
 ```
 
-Script file names: letters, digits, `_` and `-`, ending in `.py`, in `scripts/` only.
+Script file names: letters, digits, `_` and `-`, ending in `.py`, directly in
+`scripts/` (not in a subfolder): only those can be run.
+
+## Global functions (`lib/`)
+
+Code you want in more than one script goes in a `.py` file in `lib/`, and every
+script imports it:
+
+```python
+# lib/menus.py
+from multialt import Account, sleep
+
+def open_shop(account: Account) -> None:
+    """Open the shop with E and wait for it."""
+    with account.focused():
+        account.press("E")
+    sleep(1)
+```
+
+```python
+# scripts/farm.py
+from lib.menus import open_shop                     # lib/menus.py -> lib.menus
+from multialt.defaults.actions import jitter_sleep  # a default block works too
+```
+
+- Module name = path in `lib/` with dots: `lib/menus.py` is `lib.menus`,
+  `lib/ui/shop.py` is `lib.ui.shop`. File and folder names must be valid Python
+  names (letters, digits, `_`; no spaces or `-`) to be importable.
+- Top-level `def` only, with a one-line docstring: the app's **Global
+  functions** tab lists every public function of `lib/` (name, signature,
+  first docstring line) with the import line ready to copy. Names starting
+  with `_` are private and not listed.
+- A helper that sends input takes the window itself (`with account.focused():`
+  inside it); call it **outside** your own `focused()` block. Never sleep
+  inside `focused()` (rule 6), in a helper either.
+- `lib/__init__.py` makes `lib` a package; leave it there (empty is fine).
+- Importing a module runs it: no side effects at module level (no input, no
+  loops), only definitions.
+
+## The example the app creates
+
+On the first start MultiAlt creates, once, `scripts/example_walk_jump.py` and
+`lib/helpers.py` (`walk_forward(account, seconds)`). The example walks (W),
+jumps (Space), opens and closes the Roblox menu (Escape twice) in a loop per
+account and feeds the farm report (`REPORT = True`, `dashboard.report_loop`).
+It shows a `lib/` import, a default block import and, in comments, how to get
+a point and colour from the Inspector for `wait_pixel`/`click`. Both files
+belong to the user: deleted, they do not come back.
+
+## The explorer (app's Code tab)
+
+The user sees `scripts/`, `lib/`, `assets/` (editable), `examples/` (read only,
+"Copy to scripts") and `multialt/defaults/` (locked unless developer mode is
+on). Deleting a file there moves it to `.trash/` in this folder (named
+`<milliseconds>-<name>`), it is not erased: to bring one back, move it out of
+`.trash/` by hand. Do not write to `.trash/`.
 
 ## A script
 
@@ -146,6 +201,7 @@ The app still enforces every safety rule whatever a block does.
 ## Do / Don't
 
 - Do put new scripts in `scripts/`, keep one clear purpose each, log what happens with `account.log(...)` and `account.status(...)`.
+- Do put code two scripts share in `lib/` and import it (`from lib.<file> import <function>`).
 - Do start from `examples/` or `templates/`.
 - Don't edit anything under `multialt/_core`, `docs/`, `examples/`, `templates/`.
 - Don't use `subprocess`, other automation libraries or raw `SendInput`/`pyautogui`: they bypass the focus queue and fight the user's other windows.

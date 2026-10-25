@@ -238,6 +238,50 @@ loops forever, call `dashboard.report_loop(account)` once per lap.
   the app as "terminal" and its log shows in both places. Exit code: 0 done or
   stopped, 1 the script failed, 2 it could not start.
 
+## Global functions (`lib/`)
+
+Put shared code in `.py` files in `lib/` and import it from any script:
+`lib/helpers.py` is `from lib.helpers import walk_forward`, `lib/ui/shop.py` is
+`from lib.ui.shop import ...`. File and folder names must be valid Python
+names (letters, digits, `_`) to be importable. `lib/__init__.py` makes `lib` a
+package; keep it (empty is fine). The workspace folder is first on
+`sys.path`, so these imports work both from the Run button and from
+`python -m multialt run`.
+
+The **Global functions** tab of the app lists, for the default blocks and for
+every module of `lib/`, each public top-level function (`def` at column 0, name
+not starting with `_`): its signature, the first line of its docstring and the
+import line to copy. It reads the files as text and never runs them. **New
+function** creates `lib/<name>.py` from a template and opens it.
+
+A default block function is imported the same way:
+`from multialt.defaults.actions import jitter_sleep`.
+
+Helpers that send input should take the window themselves
+(`with account.focused():` inside the helper) and be called outside the
+caller's own `focused()` block.
+
+## Files and the explorer
+
+- Only `.py` files directly in `scripts/` can be run (`scripts/farm.py`); a
+  subfolder of `scripts/` is fine for notes or drafts but is not runnable.
+- The app's explorer edits `scripts/`, `lib/` and `assets/`. `examples/` is
+  read only and `multialt/defaults/` needs developer mode.
+- Deleting in the explorer moves the file or folder to `.trash/<ms>-<name>`
+  in the workspace; nothing is erased. Move it back by hand to restore it.
+- Names in the explorer: letters, digits, spaces, `_`, `-` and `.`, up to 64
+  characters, not starting with `.`.
+
+## The seeded example
+
+On first start the app creates `scripts/example_walk_jump.py` and
+`lib/helpers.py` once (deleted, they do not come back). The example loops per
+account: `walk_forward(account, 1.5)` from `lib.helpers` (holds W), Space,
+Escape (menu), `jitter_sleep(1500, 300)` from `multialt.defaults.actions`,
+Escape again, then `dashboard.report_loop(account)` with `REPORT = True`. It
+also shows, in comments, how to copy a point and colour from the Inspector
+into `wait_pixel`/`click`.
+
 ## Default blocks (developer mode)
 
 `multialt/defaults/` holds the parts you can rewrite, one by one, each with a
