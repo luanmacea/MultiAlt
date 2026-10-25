@@ -469,6 +469,9 @@ pub fn run() {
             // Otimização que segue o foco: o laço só age com a opção ligada.
             #[cfg(target_os = "windows")]
             start_focus_follow_loop(app.handle().clone());
+            // Grade: janela que volta de minimizada vai para a célula dela.
+            #[cfg(target_os = "windows")]
+            start_grid_snap_loop();
             // Devolver as configurações do Roblox sem esperar o app fechar.
             #[cfg(target_os = "windows")]
             start_settings_restore_loop(app.handle().clone());
