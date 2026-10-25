@@ -1442,9 +1442,84 @@ fn release_borderless_for(pids: &std::collections::HashSet<u32>) {
     }
 }
 
-/// A olhada de 1 s: cliente que saiu do rastreamento é esquecido; opção
-/// desligada devolve as molduras.
+/// Minimizadas que a grade pôs numa célula **menor que o mínimo** do Roblox.
+/// A minimizada só ganha o `rcNormalPosition`, e ao restaurar o Roblox impõe o
+/// mínimo (~802x631) — as janelas voltavam umas por cima das outras (bateria de
+/// testes de 25/10/2026). Ao vê-la restaurada, a olhada de 1 s a põe na célula
+/// sem o aviso de tamanho, como as visíveis.
+static SMALL_MINIMIZED: std::sync::LazyLock<Mutex<HashMap<isize, (i32, i32, i32, i32)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// `Some(rect)` anota a célula pequena da minimizada; `None` esquece (a grade
+/// a pôs de outro jeito).
+fn remember_small_minimized(hwnd: isize, rect: Option<(i32, i32, i32, i32)>) {
+    let mut map = SMALL_MINIMIZED.lock().unwrap_or_else(|e| e.into_inner());
+    match rect {
+        Some(rect) => {
+            map.insert(hwnd, rect);
+        }
+        None => {
+            map.remove(&hwnd);
+        }
+    }
+}
+
+/// O que fazer com uma minimizada anotada.
+#[derive(Debug, PartialEq, Eq)]
+enum SmallMinimizedStep {
+    /// Ainda minimizada: espera.
+    Wait,
+    /// Restaurada: vai para a célula e sai da lista.
+    Snap,
+    /// Fechada, ou maximizada pela pessoa: sai da lista sem mexer.
+    Forget,
+}
+
+fn small_minimized_step(exists: bool, minimized: bool, maximized: bool) -> SmallMinimizedStep {
+    if !exists || maximized {
+        SmallMinimizedStep::Forget
+    } else if minimized {
+        SmallMinimizedStep::Wait
+    } else {
+        SmallMinimizedStep::Snap
+    }
+}
+
+/// A olhada: cada minimizada anotada que voltou vai para a célula pequena.
+fn snap_restored_small_windows() {
+    let pending: Vec<(isize, (i32, i32, i32, i32))> = {
+        let map = SMALL_MINIMIZED.lock().unwrap_or_else(|e| e.into_inner());
+        if map.is_empty() {
+            return;
+        }
+        map.iter().map(|(h, r)| (*h, *r)).collect()
+    };
+    let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
+    for (raw, rect) in pending {
+        let hwnd = raw as HWND;
+        let step = unsafe {
+            small_minimized_step(
+                windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(hwnd) != 0,
+                IsIconic(hwnd) != 0,
+                IsZoomed(hwnd) != 0,
+            )
+        };
+        match step {
+            SmallMinimizedStep::Wait => continue,
+            SmallMinimizedStep::Snap => {
+                let _ = place_window_with(hwnd, rect, grid_swp_flags(true));
+            }
+            SmallMinimizedStep::Forget => {}
+        }
+        remember_small_minimized(raw, None);
+    }
+}
+
+/// A olhada de 1 s: a minimizada de célula pequena que voltou vai para a
+/// célula; cliente que saiu do rastreamento é esquecido; opção desligada
+/// devolve as molduras.
 pub fn grid_borders_tick(settings: &SettingsStore) {
+    snap_restored_small_windows();
     let ours = launched_client_pids();
     let pending = {
         let mut map = borderless_windows();
@@ -1713,11 +1788,16 @@ fn arrange_roblox_grid_locked(
         let cell = slots[manual_slot(i, slots.len())];
         let hwnd = w.hwnd as HWND;
         if minimized_hwnds.contains(&w.hwnd) {
-            if place_minimized_window(hwnd, (cell.x, cell.y, cell_w, cell_h)) {
+            let rect = (cell.x, cell.y, cell_w, cell_h);
+            if place_minimized_window(hwnd, rect) {
                 arranged += 1;
             }
+            // Célula menor que o mínimo: ao restaurar o Roblox a aumentaria de
+            // volta; a olhada de 1 s a põe na célula (`snap_restored_small_windows`).
+            remember_small_minimized(w.hwnd, small.then_some(rect));
             continue;
         }
+        remember_small_minimized(w.hwnd, None);
         if unsafe { IsZoomed(hwnd) } != 0 {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -2348,6 +2428,16 @@ mod win_grid_style_tests {
         assert_ne!(grid_swp_flags(false) & SWP_NOACTIVATE, 0);
     }
 
+    /// Minimizada em célula pequena: espera enquanto minimizada, vai para a
+    /// célula quando volta, e é esquecida se fechou ou foi maximizada.
+    #[test]
+    fn a_small_minimized_window_snaps_only_once_it_is_restored() {
+        assert_eq!(small_minimized_step(true, true, false), SmallMinimizedStep::Wait);
+        assert_eq!(small_minimized_step(true, false, false), SmallMinimizedStep::Snap);
+        assert_eq!(small_minimized_step(false, false, false), SmallMinimizedStep::Forget);
+        assert_eq!(small_minimized_step(true, false, true), SmallMinimizedStep::Forget);
+    }
+
     #[test]
     fn a_website_client_in_the_grid_keeps_the_cells_at_the_roblox_minimum() {
         let own: HashSet<u32> = [10, 20].into_iter().collect();
@@ -2906,7 +2996,40 @@ mod grid_overflow_real_tests {
     // `WM_GETMINMAXINFO`) — e ficam registradas como abertas pelo app.
 
     const POWERSHELL: &str = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
-    const FAKE_CLIENT: &str = "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $f = New-Object Windows.Forms.Form; $f.Text = 'FakeRobloxGrid'; $f.MinimumSize = New-Object Drawing.Size(816, 639); $f.Size = $f.MinimumSize; $f.StartPosition = 'Manual'; $f.Location = New-Object Drawing.Point(200, 200); [Windows.Forms.Application]::Run($f)";
+    // Janela Win32 crua (`NativeWindow`, sem a lógica do `Form`): o mínimo vem
+    // só do `WM_GETMINMAXINFO`, como no Roblox. O `Form` do WinForms guardava a
+    // própria posição de restauração e a reaplicava — ao contrário do Roblox,
+    // que volta onde o `rcNormalPosition` manda.
+    const FAKE_CLIENT: &str = r#"Add-Type -AssemblyName System.Windows.Forms
+Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+public class FakeRobloxWindow : NativeWindow {
+    [StructLayout(LayoutKind.Sequential)] struct Pt { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] struct MinMax { public Pt Reserved, MaxSize, MaxPos, MinTrack, MaxTrack; }
+    public FakeRobloxWindow() {
+        CreateParams cp = new CreateParams();
+        cp.Caption = "FakeRobloxGrid";
+        cp.X = 200; cp.Y = 200; cp.Width = 816; cp.Height = 639;
+        cp.Style = 0x10CF0000; // WS_OVERLAPPEDWINDOW | WS_VISIBLE
+        CreateHandle(cp);
+    }
+    protected override void WndProc(ref Message m) {
+        if (m.Msg == 0x0024) { // WM_GETMINMAXINFO
+            MinMax mm = (MinMax)Marshal.PtrToStructure(m.LParam, typeof(MinMax));
+            mm.MinTrack.X = 816; mm.MinTrack.Y = 639;
+            Marshal.StructureToPtr(mm, m.LParam, false);
+            m.Result = IntPtr.Zero;
+            return;
+        }
+        base.WndProc(ref m);
+    }
+}
+'@
+$w = New-Object FakeRobloxWindow
+[Windows.Forms.Application]::Run()
+"#;
 
     struct FakeClients {
         children: Vec<std::process::Child>,
@@ -2935,10 +3058,13 @@ mod grid_overflow_real_tests {
         std::fs::create_dir_all(&dir).expect("dir");
         let exe = dir.join("RobloxPlayerBeta.exe");
         std::fs::copy(POWERSHELL, &exe).expect("copy");
+        let script = dir.join("fake-client.ps1");
+        std::fs::write(&script, FAKE_CLIENT).expect("script");
         let mut clients = FakeClients { children: Vec::new(), dir, user_ids: Vec::new() };
         for _ in 0..count {
             let child = std::process::Command::new(&exe)
-                .args(["-NoProfile", "-NonInteractive", "-Command", FAKE_CLIENT])
+                .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&script)
                 .creation_flags(CREATE_NO_WINDOW)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
@@ -3043,6 +3169,46 @@ mod grid_overflow_real_tests {
         assert!(overlaps.is_empty(), "windows on top of one another: {overlaps:?}");
         assert_eq!(windows_outside(monitor), 0, "a window left the monitor");
         }
+    }
+
+    /// Bateria de testes de 25/10/2026: minimizar tudo, "Organizar em grade" e
+    /// restaurar. Com célula menor que o mínimo, a minimizada só ganhava o
+    /// `rcNormalPosition`; ao restaurar, o Roblox impunha o mínimo e as janelas
+    /// voltavam umas por cima das outras, saindo do monitor.
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_minimized_windows_keep_the_small_cell_when_restored() {
+        let monitor = primary_monitor_index();
+        let gap = 8;
+        let count = slots_at_min_size(monitor, gap) + 2;
+        let clients = spawn_fake_clients(count);
+        let hwnds: Vec<HWND> = clients
+            .children
+            .iter()
+            .map(|c| find_main_window(c.id()).expect("window"))
+            .collect();
+        for &hwnd in &hwnds {
+            unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        let result = arrange_roblox_grid(
+            &[monitor],
+            gap,
+            None,
+            &std::collections::HashSet::new(),
+            GridWindowStyle::default(),
+        );
+        for &hwnd in &hwnds {
+            unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        // A olhada de 1 s do app.
+        snap_restored_small_windows();
+        std::thread::sleep(Duration::from_millis(600));
+        let overlaps = overlapping_pairs();
+        eprintln!("minimized + arrange + restore of {count} windows -> {result:?}, overlapping pairs: {}", overlaps.len());
+        assert!(overlaps.is_empty(), "windows on top of one another: {overlaps:?}");
+        assert_eq!(windows_outside(monitor), 0, "a window left the monitor");
     }
 
     #[test]
