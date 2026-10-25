@@ -223,11 +223,20 @@ fn write_block_gated(developer_mode: bool, root: &std::path::Path, name: &str, s
     super::workspace::write_block(root, name, source)
 }
 
+/// Restaurar também mexe no bloco: recusado sem o Modo desenvolvedor.
+#[cfg(feature = "python-scripts")]
+fn restore_block_gated(developer_mode: bool, root: &std::path::Path, name: &str) -> Result<(), String> {
+    if !developer_mode {
+        return Err(super::workspace::DEVELOPER_MODE_OFF.into());
+    }
+    super::workspace::restore_block(root, name)
+}
+
 /// Restaura **um** bloco (a tela confirma antes).
 #[tauri::command]
-pub fn python_restore_default_block(name: String) -> Result<(), String> {
+pub fn python_restore_default_block(app: tauri::AppHandle, name: String) -> Result<(), String> {
     #[cfg(feature = "python-scripts")]
-    return super::workspace::restore_block(&ws_root(), &name);
+    return restore_block_gated(developer_mode_on(&app), &ws_root(), &name);
     #[cfg(not(feature = "python-scripts"))]
     unavailable!()
 }
@@ -550,6 +559,25 @@ mod python_commands_tests {
         write_block_gated(true, &ws, "runner.py", "# mine\n").unwrap();
         assert_eq!(std::fs::read_to_string(&runner).unwrap(), "# mine\n");
         assert!(write_block_gated(true, &ws, "protocol.py", "x").is_err());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    /// Restore default também é edição de bloco: sem o Modo desenvolvedor,
+    /// recusado e o arquivo do usuário fica como está (spec v2, 25/10/2026).
+    #[test]
+    fn restoring_a_block_needs_developer_mode() {
+        let ws = std::env::temp_dir().join(format!("ram-pyrestore-{}", now_ms()));
+        super::super::workspace::sync_workspace(&ws).unwrap();
+        let runner = ws.join("multialt/defaults/runner.py");
+        write_block_gated(true, &ws, "runner.py", "# mine
+").unwrap();
+        let error = restore_block_gated(false, &ws, "runner.py").unwrap_err();
+        assert_eq!(error, super::super::workspace::DEVELOPER_MODE_OFF);
+        assert_eq!(std::fs::read_to_string(&runner).unwrap(), "# mine
+");
+        restore_block_gated(true, &ws, "runner.py").unwrap();
+        assert_ne!(std::fs::read_to_string(&runner).unwrap(), "# mine
+");
         let _ = std::fs::remove_dir_all(&ws);
     }
 
