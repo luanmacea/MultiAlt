@@ -70,6 +70,38 @@
   --button-inset: none;
 }
 
+/* Code editor (CodeMirror, src/components/python/CodeEditor.tsx). */
+:root {
+  --cm-keyword: #c4b5fd;
+  --cm-string: #86efac;
+  --cm-number: #fcd34d;
+  --cm-comment: #8b8b95;
+  --cm-function: #7dd3fc;
+  --cm-definition: #67e8f9;
+  --cm-builtin: #f9a8d4;
+  --cm-property: #d4d4d8;
+  --cm-punctuation: #a1a1aa;
+  --cm-gutter: #71717a;
+  --cm-active-line: rgba(63, 63, 70, 0.28);
+  --cm-selection: rgba(14, 165, 233, 0.32);
+  --cm-match: rgba(250, 204, 21, 0.24);
+}
+:root[data-theme-tone="light"] {
+  --cm-keyword: #6d28d9;
+  --cm-string: #047857;
+  --cm-number: #b45309;
+  --cm-comment: #52525b;
+  --cm-function: #0369a1;
+  --cm-definition: #0e7490;
+  --cm-builtin: #be185d;
+  --cm-property: #27272a;
+  --cm-punctuation: #52525b;
+  --cm-gutter: #71717a;
+  --cm-active-line: rgba(0, 0, 0, 0.05);
+  --cm-selection: rgba(14, 165, 233, 0.25);
+  --cm-match: rgba(234, 179, 8, 0.3);
+}
+
 body {
   background: var(--app-bg);
   color: var(--app-fg);
