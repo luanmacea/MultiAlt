@@ -918,7 +918,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       value: hide ? "true" : "false",
     }).catch(() => {});
   }, []);
-  const [shuffleJobId, setShuffleJobId] = useState(false);
   const [serverPreference, _setServerPreference] = useState<ServerPreference>("bestfit");
   const [serverRegionFilter, _setServerRegionFilter] = useState("");
 
@@ -956,6 +955,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chooseGameOpen, setChooseGameOpen] = useState(false);
   const [settings, setSettings] = useState<Record<string, Record<string, string>> | null>(null);
+  // Sai direto das settings: a opção ligada nas Settings vale já no launch
+  // seguinte (antes só era lida ao abrir o app).
+  const shuffleJobId = settings?.General?.ShuffleJobId === "true";
+  const setShuffleJobId = (shuffle: boolean) => {
+    void updateSetting("General", "ShuffleJobId", shuffle ? "true" : "false");
+  };
   const [platformCapabilities, setPlatformCapabilities] = useState<PlatformCapabilities | null>(null);
   const [theme, setThemeState] = useState<ThemeData | null>(null);
   const [avatarUrls, setAvatarUrls] = useState<Map<number, string>>(new Map());
@@ -2912,7 +2917,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         void i18n.changeLanguage(normalizeLanguage(s?.General?.Language));
         if (s?.General?.HideUsernames === "true") setHideUsernamesState(true);
-        if (s?.General?.ShuffleJobId === "true") setShuffleJobId(true);
         _setServerPreference(normalizeServerPreference(s?.General?.ServerPreference));
         _setServerRegionFilter((s?.General?.ServerRegionFilter || "").trim().toUpperCase());
         _setServerScanPages(normalizeServerScanPages(Number(s?.General?.ServerScanPages)));
