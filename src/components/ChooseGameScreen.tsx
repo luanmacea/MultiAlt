@@ -141,7 +141,11 @@ function useLauncher() {
       // quando se segue alguém: aí quem escolhe o servidor é o Roblox).
       // Uma conta na entrada rápida: nada a buscar — o Roblox põe a conta num
       // servidor na hora. Era aqui que o clique demorava segundos.
-      const needsServer = !jobId.trim() && !extras.joinVip && !extras.followUserId;
+      // Com o Shuffle Job ID ligado, nada de servidor único para o lote: o
+      // shuffle pede servidores diferentes, e o backend só sorteia com Job ID
+      // vazio (antes a preferência "bestfit" punha todas no mesmo servidor).
+      const needsServer =
+        !jobId.trim() && !extras.joinVip && !extras.followUserId && !store.shuffleJobId;
       if (needsServer && !(quickJoin && userIds.length === 1)) {
         store.setLaunchPreparing({ userIds, step: "server" });
         const preferred = await resolvePreferredJob(userIds, placeId, quickJoin);
