@@ -330,11 +330,12 @@ fn input_gate(ctx: &RunCtx, user_id: i64) -> Result<isize, PyError> {
     Ok(hwnd)
 }
 
+/// A grafia canônica de uma tecla que o Python pode mandar: a lista das
+/// gravações mais o `Escape` (`Esc` também vale). As gravações e o AFK seguem
+/// recusando o `Escape`.
 fn canonical_key(key: &str) -> Result<String, PyError> {
-    crate::data::recordings::RECORDING_KEYS
-        .iter()
-        .find(|(name, _, _)| name.eq_ignore_ascii_case(key))
-        .map(|(name, _, _)| (*name).to_string())
+    crate::data::recordings::python_key(key)
+        .map(|(name, _, _)| name.to_string())
         .ok_or_else(|| PyError::unsupported_key(key))
 }
 
@@ -734,7 +735,7 @@ impl Desk for RealDesk {
         }
     }
     fn key(&self, key: &str, up: bool) -> bool {
-        crate::platform::windows::press_recording_key(key, up)
+        crate::platform::windows::press_python_key(key, up)
     }
     fn click(&self, hwnd: isize, x: f64, y: f64, focus_click: bool) -> Result<(), String> {
         let point = crate::AfkPoint::clamped(x * 100.0, y * 100.0);
@@ -1186,6 +1187,32 @@ pub mod python_primitives_tests {
             vec!["down:Shift", "down:H", "up:H", "up:Shift", "down:I", "up:I", "down:Space", "up:Space", "down:1", "up:1"]
         );
         assert_eq!(code(dispatch(&ctx, "input.key", json!({"user_id": 1, "key": "Enter"})).await), "unsupported_key");
+    }
+
+    /// O Escape (o menu do Roblox) é só do Python: `Esc` e `escape` viram
+    /// `Escape`, e as gravações (e o AFK) continuam recusando a tecla.
+    #[tokio::test]
+    async fn escape_is_a_python_key_but_not_a_recording_key() {
+        let desk = FakeDesk::with_window(1, 11);
+        *desk.front.lock().unwrap() = 11;
+        let ctx = ctx_with(desk.clone(), own_queue());
+        lease(&ctx, 1).await;
+        for name in ["Escape", "Esc", "escape"] {
+            dispatch(&ctx, "input.key", json!({"user_id": 1, "key": name, "hold_ms": 10})).await.unwrap();
+        }
+        dispatch(&ctx, "input.key_down", json!({"user_id": 1, "key": "esc"})).await.unwrap();
+        dispatch(&ctx, "input.key_up", json!({"user_id": 1, "key": "ESC"})).await.unwrap();
+        assert_eq!(
+            desk.sent(),
+            vec![
+                "down:Escape", "up:Escape", "down:Escape", "up:Escape", "down:Escape", "up:Escape",
+                "down:Escape", "up:Escape"
+            ]
+        );
+        assert_eq!(crate::data::recordings::recording_key("Escape"), None);
+        assert_eq!(crate::data::recordings::recording_key("Esc"), None);
+        assert_eq!(crate::afk_key_taps("Escape"), None);
+        assert_eq!(code(dispatch(&ctx, "input.key", json!({"user_id": 1, "key": "Tab"})).await), "unsupported_key");
     }
 
     /// Uma tecla de `type_text` apertada quando o pedido morre no meio (o canal

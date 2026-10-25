@@ -54,7 +54,7 @@ turns on the farm report in the Dashboard tab.
 5. **Never catch `Stopped`** and never write a bare `except:`. Catch specific `MultiAltError` subclasses and re-raise `Stopped`.
 6. Keep `with account.focused():` short, one action at a time, and never sleep or wait for a pixel/image inside it: other accounts and AFK mode wait for the queue. Do the input, leave the block, then sleep or wait. In `all_together` each account waits for its turn as long as it takes; elsewhere `focused()` gives up after 20 s (`FocusTimeout`) unless you pass `timeout_ms`.
 7. MultiAlt's API never sends cookies or passwords to scripts, and never will. Do not try to get them (from the API or from anywhere else on the PC).
-8. Keys: A-Z, 0-9, Space, Shift, Up, Down, Left, Right only (no Enter, Esc, Tab, F-keys, Ctrl, Alt).
+8. Keys: A-Z, 0-9, Space, Shift, Up, Down, Left, Right, Escape (`Esc` also works) only (no Enter, Tab, F-keys, Ctrl, Alt). **Escape opens the Roblox menu, and in that menu L leaves the game and R resets the character**: never press L or R after Escape unless the user asked for exactly that, and close the menu with a second Escape.
 
 ## How to test
 

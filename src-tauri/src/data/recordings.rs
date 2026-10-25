@@ -98,6 +98,24 @@ pub const RECORDING_KEYS: &[(&str, u16, bool)] = &[
     ("0", 0x30, false),
 ];
 
+/// Teclas que **só a automação Python** pode mandar, além da lista das
+/// gravações. As gravações e o Modo AFK continuam recusando: eles rodam sem
+/// ninguém escrevendo o que acontece depois, e Esc + L sai do jogo. No Python
+/// quem escreve o script decide (abrir e fechar o menu do Roblox).
+pub const PYTHON_ONLY_KEYS: &[(&str, u16, bool)] = &[("Escape", 0x1B, false)];
+
+/// O nome canônico e `(virtual key, estendida)` de uma tecla que um script
+/// Python pode mandar: a lista das gravações mais `PYTHON_ONLY_KEYS` (`Esc` é
+/// outro nome do `Escape`). `None` para qualquer outra.
+pub fn python_key(name: &str) -> Option<(&'static str, u16, bool)> {
+    let name = if name.eq_ignore_ascii_case("Esc") { "Escape" } else { name };
+    RECORDING_KEYS
+        .iter()
+        .chain(PYTHON_ONLY_KEYS.iter())
+        .find(|(key, _, _)| key.eq_ignore_ascii_case(name))
+        .map(|(key, vk, extended)| (*key, *vk, *extended))
+}
+
 /// Os nomes da lista, na ordem em que a tela os oferece.
 pub fn recording_key_names() -> Vec<String> {
     RECORDING_KEYS.iter().map(|(name, _, _)| (*name).to_string()).collect()

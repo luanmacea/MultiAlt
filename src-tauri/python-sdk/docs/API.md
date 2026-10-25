@@ -163,9 +163,15 @@ catch errors, catch `MultiAltError` subclasses by name and re-raise `Stopped`.
 ## Keys
 
 Names are case-insensitive: `A`-`Z`, `0`-`9`, `Space`, `Shift`, `Up`, `Down`,
-`Left`, `Right`. Enter, Tab, Escape, function keys, Alt, Ctrl, Windows,
-Backspace, Delete, `/` and the backtick are **not** available (they open
-menus, chat or can close the client).
+`Left`, `Right`, `Escape` (`Esc` also works). Enter, Tab, function keys, Alt,
+Ctrl, Windows, Backspace, Delete, `/` and the backtick are **not** available
+(they open the chat or can close the client).
+
+> **Careful with Escape.** It opens the Roblox menu, and in that menu `L`
+> leaves the game and `R` resets the character. Never press `L` or `R` while
+> the menu may be open unless that is the goal, and close the menu with a
+> second `Escape`. Escape is only available to Python scripts: recordings and
+> AFK mode still refuse it.
 
 ## Dashboard
 

@@ -19,7 +19,8 @@ from multialt._core import primitives
 def press(account: Any, key: str, hold_ms: int = 40) -> None:
     """Tap ``key`` and hold it ``hold_ms`` milliseconds (10-10000).
 
-    Key names: A-Z, 0-9, Space, Shift, Up, Down, Left, Right (case-insensitive).
+    Key names: A-Z, 0-9, Space, Shift, Up, Down, Left, Right, Escape (or Esc),
+    case-insensitive. Escape opens the Roblox menu: L there leaves the game.
     """
     primitives.input_key(account.user_id, key, hold_ms)
 
