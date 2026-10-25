@@ -1092,6 +1092,31 @@ describe("launchMultiple", () => {
     expect(lastArgs("launch_multiple")).toMatchObject({ shuffleJob: true });
   });
 
+  /**
+   * Achado na bateria de testes de 25/10/2026: ligar "Shuffle Job ID" nas
+   * Settings só valia depois de reiniciar o app — as 4 contas caíram no mesmo
+   * servidor. A opção tem de valer no launch seguinte, nos dois sentidos.
+   */
+  it("liga e desliga o shuffleJob na hora em que a setting muda, sem reiniciar", async () => {
+    const { result } = await setup();
+
+    await act(async () => {
+      await result.current.updateSetting("General", "ShuffleJobId", "true");
+    });
+    await act(async () => {
+      await result.current.launchMultiple([1, 2]);
+    });
+    expect(lastArgs("launch_multiple")).toMatchObject({ shuffleJob: true });
+
+    await act(async () => {
+      await result.current.updateSetting("General", "ShuffleJobId", "false");
+    });
+    await act(async () => {
+      await result.current.launchMultiple([1, 2]);
+    });
+    expect(lastArgs("launch_multiple")).toMatchObject({ shuffleJob: false });
+  });
+
   it("manda shuffleJob desligado quando a opção está desmarcada", async () => {
     const { result } = await setup();
 
