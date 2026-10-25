@@ -67,6 +67,16 @@ pub const SDK_FILES: &[SdkFile] = &[
     sdk!("templates/dashboard.py", AppOwned),
 ];
 
+/// O exemplo da primeira abertura (`python-sdk/seed/`): criado **uma vez só**,
+/// e só o arquivo que ainda não existe. Depois é do usuário: apagado, não
+/// volta (o marcador `SEED_MARKER` fica).
+pub const SEED_FILES: &[(&str, &str)] = &[
+    ("scripts/example_walk_jump.py", include_str!("../../python-sdk/seed/scripts/example_walk_jump.py")),
+    ("lib/__init__.py", include_str!("../../python-sdk/seed/lib/__init__.py")),
+    ("lib/helpers.py", include_str!("../../python-sdk/seed/lib/helpers.py")),
+];
+pub const SEED_MARKER: &str = ".seeded-examples";
+
 const BLOCKS_DIR: &str = "multialt/defaults";
 const ORIGINALS: &str = "multialt/defaults/.originals.json";
 const RUNS_FILE: &str = "runs.json";
@@ -88,6 +98,8 @@ pub struct SyncReport {
     pub written: Vec<String>,
     pub blocks_updated: Vec<String>,
     pub blocks_kept: Vec<String>,
+    /// Os arquivos do exemplo criados agora (só na primeira sincronização).
+    pub seeded: Vec<String>,
 }
 
 pub fn content_hash(text: &str) -> String {
@@ -120,6 +132,16 @@ fn find_block(name: &str) -> Option<&'static SdkFile> {
 fn block_name(file: &SdkFile) -> &'static str {
     file.path.rsplit('/').next().unwrap_or(file.path)
 }
+
+/// Os nomes dos blocos, na ordem da tela (`runner.py`, `focus.py`, ...).
+pub fn block_names() -> impl Iterator<Item = &'static str> {
+    block_files().map(block_name)
+}
+
+pub fn is_block_name(name: &str) -> bool {
+    find_block(name).is_some()
+}
+
 
 fn bad_block(name: &str) -> String {
     super::errors::PyError::bad_args("default block", &format!("\"{name}\" is not a default block"))
@@ -154,6 +176,7 @@ pub fn sync_workspace(root: &Path) -> Result<SyncReport, String> {
         let path = root.join(dir);
         std::fs::create_dir_all(&path).map_err(|e| io_err(&path, e))?;
     }
+    seed_examples(root, &mut report)?;
     let mut originals = load_originals(root);
     for file in SDK_FILES {
         let path = root.join(file.path);
@@ -204,6 +227,26 @@ pub fn sync_workspace(root: &Path) -> Result<SyncReport, String> {
     }
     save_originals(root, &originals)?;
     Ok(report)
+}
+
+/// Cria o exemplo uma vez: sem o marcador, grava cada arquivo de `SEED_FILES`
+/// que ainda não existe (o que o usuário já tem nunca é tocado) e deixa o
+/// marcador. Com o marcador, nada.
+fn seed_examples(root: &Path, report: &mut SyncReport) -> Result<(), String> {
+    let marker = root.join(SEED_MARKER);
+    if marker.exists() {
+        return Ok(());
+    }
+    for (rel, contents) in SEED_FILES {
+        let path = root.join(rel);
+        if path.exists() {
+            continue;
+        }
+        write_file(&path, contents)?;
+        report.seeded.push((*rel).to_string());
+    }
+    write_file(&marker, "Examples created once by MultiAlt. Delete this file to get them back.
+")
 }
 
 pub fn list_blocks(root: &Path) -> Result<Vec<DefaultBlockInfo>, String> {
@@ -630,10 +673,11 @@ mod python_workspace_tests {
         }
         assert!(create_script(&ws.0, "new_blank.py", "blank").is_err(), "never overwrites");
         assert!(create_script(&ws.0, "x.py", "nope").is_err());
+        // Os modelos mais o exemplo semeado.
         let listed: Vec<String> = list_scripts(&ws.0).unwrap().into_iter().map(|s| s.name).collect();
-        assert_eq!(listed.len(), TEMPLATES.len());
+        assert_eq!(listed.len(), TEMPLATES.len() + 1);
         delete_script(&ws.0, "new_blank.py").unwrap();
-        assert_eq!(list_scripts(&ws.0).unwrap().len(), TEMPLATES.len() - 1);
+        assert_eq!(list_scripts(&ws.0).unwrap().len(), TEMPLATES.len());
     }
 
     #[test]
@@ -668,6 +712,82 @@ mod python_workspace_tests {
         let blocks: Vec<&str> = block_files().map(block_name).collect();
         assert_eq!(blocks, vec!["runner.py", "focus.py", "vision.py", "actions.py", "dashboard.py"]);
         assert!(SDK_FILES.iter().all(|f| !f.contents.trim().is_empty()), "every SDK file has content");
+    }
+}
+
+#[cfg(test)]
+mod python_seed_tests {
+    use super::*;
+
+    fn temp(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("ram-pyseed-{tag}-{nanos}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_example_is_seeded_once_and_never_comes_back() {
+        let ws = temp("once");
+        let first = sync_workspace(&ws).unwrap();
+        let rels: Vec<&str> = SEED_FILES.iter().map(|(rel, _)| *rel).collect();
+        assert_eq!(first.seeded, rels);
+        for (rel, contents) in SEED_FILES {
+            assert_eq!(std::fs::read_to_string(ws.join(rel)).unwrap(), *contents, "{rel}");
+        }
+        assert!(ws.join(SEED_MARKER).is_file());
+        assert!(list_scripts(&ws).unwrap().iter().any(|s| s.name == "example_walk_jump.py"));
+
+        // Editado, fica como está; apagado, não volta.
+        std::fs::write(ws.join("lib/helpers.py"), "# mine
+").unwrap();
+        std::fs::remove_file(ws.join("scripts/example_walk_jump.py")).unwrap();
+        let again = sync_workspace(&ws).unwrap();
+        assert!(again.seeded.is_empty());
+        assert_eq!(std::fs::read_to_string(ws.join("lib/helpers.py")).unwrap(), "# mine
+");
+        assert!(!ws.join("scripts/example_walk_jump.py").exists());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn seeding_never_overwrites_a_file_the_user_already_has() {
+        let ws = temp("keep");
+        std::fs::create_dir_all(ws.join("lib")).unwrap();
+        std::fs::write(ws.join("lib/helpers.py"), "def mine():
+    pass
+").unwrap();
+        let report = sync_workspace(&ws).unwrap();
+        assert!(!report.seeded.contains(&"lib/helpers.py".to_string()));
+        assert_eq!(std::fs::read_to_string(ws.join("lib/helpers.py")).unwrap(), "def mine():
+    pass
+");
+        assert!(ws.join("scripts/example_walk_jump.py").is_file());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn the_seeded_example_uses_the_real_sdk_api() {
+        let example = SEED_FILES.iter().find(|(rel, _)| *rel == "scripts/example_walk_jump.py").unwrap().1;
+        assert!(validate_script_name("example_walk_jump.py").is_ok(), "runnable from the Run button");
+        for needle in [
+            "from lib.helpers import walk_forward",
+            "from multialt.defaults.actions import jitter_sleep",
+            "REPORT = True",
+            "dashboard.report_loop(account)",
+            "account.press(\"Escape\")",
+            "wait_pixel",
+            "Inspector",
+        ] {
+            assert!(example.contains(needle), "{needle}");
+        }
+        let actions = SDK_FILES.iter().find(|f| f.path == "multialt/defaults/actions.py").unwrap().contents;
+        assert!(actions.contains("def jitter_sleep("));
+        let helpers = SEED_FILES.iter().find(|(rel, _)| *rel == "lib/helpers.py").unwrap().1;
+        assert!(helpers.contains("def walk_forward(account"));
     }
 }
 
