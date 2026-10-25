@@ -83,6 +83,8 @@ describe("FileExplorer tree", () => {
     expect(within(screen.getByRole("treeitem", { name: /runner\.py/ })).getByLabelText("Locked default block")).toBeInTheDocument();
     expect(within(screen.getByRole("treeitem", { name: /walk_and_jump\.py/ })).getByLabelText("Read-only")).toBeInTheDocument();
     expect(within(screen.getByRole("treeitem", { name: "farm.py" })).queryByLabelText("Read-only")).not.toBeInTheDocument();
+    // The pinned folders are marked by the backend too, but only the block files get the lock.
+    expect(within(screen.getByRole("treeitem", { name: "defaults" })).queryByLabelText("Locked default block")).not.toBeInTheDocument();
   });
 });
 

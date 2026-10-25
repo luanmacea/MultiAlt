@@ -42,7 +42,7 @@ export function makeWorkspaceTree(options: { developerMode?: boolean } = {}): Fs
         file("scripts/farm.py", { runnable: true }),
         dir("scripts/tools", [file("scripts/tools/util.py")]),
       ]),
-      dir("lib", [file("lib/helpers.py")]),
+      dir("lib", [file("lib/__init__.py", { size: 0 }), file("lib/helpers.py")]),
       dir("assets", [file("assets/play_button.png")]),
       dir("examples", [file("examples/walk_and_jump.py", { writable: false })], { writable: false }),
       dir(
@@ -51,10 +51,10 @@ export function makeWorkspaceTree(options: { developerMode?: boolean } = {}): Fs
           dir(
             "multialt/defaults",
             ["runner.py", "focus.py", "vision.py", "actions.py", "dashboard.py"].map(pinned),
-            { writable: false }
+            { writable: false, pinned: true }
           ),
         ],
-        { writable: false }
+        { writable: false, pinned: true }
       ),
     ],
     { name: "" }

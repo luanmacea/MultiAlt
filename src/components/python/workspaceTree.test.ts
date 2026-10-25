@@ -43,7 +43,7 @@ describe("workspace tree helpers", () => {
 
   it("checks one path segment like the backend", () => {
     expect(isValidSegment("my farm-2.py")).toBe(true);
-    for (const bad of ["", ".hidden", "../x", "a/b", "a\\b", "c:x", "x".repeat(65)]) expect(isValidSegment(bad)).toBe(false);
+    for (const bad of ["", ".hidden", "../x", "a/b", "a\\b", "c:x", "x".repeat(65), "name.", "name ", "CON", "nul.txt", "COM1.py"]) expect(isValidSegment(bad)).toBe(false);
   });
 
   it("names a copy that does not collide", () => {

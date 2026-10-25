@@ -167,12 +167,8 @@ export function FileExplorer({
   async function newEntry(kind: "file" | "dir", dirOverride?: string) {
     setMenu(null);
     const dir = dirOverride ?? targetDirFor(tree, effective);
-    const label = kind === "file" ? "file" : "folder";
-    const raw = await prompt(
-      `Name of the new ${label} in ${dir}/ (for example ${kind === "file" ? "farm.py" : "helpers"})`,
-      "",
-      { maxLength: 64 }
-    );
+    const example = kind === "dir" ? " (for example helpers)" : dir === "scripts" || dir === "lib" ? " (for example farm.py)" : "";
+    const raw = await prompt(`Name of the new ${kind === "file" ? "file" : "folder"} in ${dir}/${example}`, "", { maxLength: 64 });
     if (raw === null) return;
     const name = kind === "file" ? withDefaultExtension(dir, raw) : raw.trim();
     if (!isValidSegment(name)) {
@@ -308,7 +304,7 @@ export function FileExplorer({
             </>
           )}
           <span className="min-w-0 flex-1 truncate">{node.name}</span>
-          {node.pinned ? (
+          {node.pinned && !isDir ? (
             <Lock size={11} strokeWidth={2} role="img" aria-label="Locked default block" className="shrink-0 text-zinc-500" />
           ) : null}
           {readOnly ? (

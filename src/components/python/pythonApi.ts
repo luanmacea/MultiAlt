@@ -44,7 +44,7 @@ export interface FsNode {
   modifiedMs: number;
   /** False for the examples, the pinned blocks without Developer mode and the internal folders. */
   writable: boolean;
-  /** One of the default blocks in `multialt/defaults/`. */
+  /** One of the default blocks in `multialt/defaults/`, or the `multialt` and `multialt/defaults` folders that hold them. */
   pinned: boolean;
   /** A `.py` file directly in `scripts/`: the only files a run can start from. */
   runnable: boolean;
@@ -175,7 +175,7 @@ export const pythonApi = {
 
   fsTree: () => invoke<FsNode>("python_fs_tree"),
   fsRead: (path: string) => invoke<string>("python_fs_read", { path }),
-  /** A `data:image/png;base64,...` URL; only files in `assets/`. */
+  /** A `data:image/<type>;base64,...` URL (png, jpeg, bmp, gif or webp, up to 10 MB); only files in `assets/`. */
   fsReadImage: (path: string) => invoke<string>("python_fs_read_image", { path }),
   fsWrite: (path: string, content: string) => invoke<void>("python_fs_write", { path, content }),
   fsCreate: (path: string, kind: FsKind) => invoke<void>("python_fs_create", { path, kind }),

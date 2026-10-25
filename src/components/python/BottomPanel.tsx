@@ -7,7 +7,7 @@ import { isRunActive } from "./usePythonRuns";
 
 export const PANEL_STATE_KEY = "ram_python_bottom_panel";
 export const PANEL_MIN_HEIGHT = 160;
-export const PANEL_DEFAULT_HEIGHT = 260;
+export const PANEL_DEFAULT_HEIGHT = 200;
 const PANEL_MAX_HEIGHT = 640;
 const KEY_STEP = 24;
 

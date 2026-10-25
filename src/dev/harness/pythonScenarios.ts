@@ -12,6 +12,7 @@
  * As contas do harness são as TestAccountN de `scenarios.ts`.
  */
 import { harnessEmit, setInvokeHandler, type InvokeHandler } from "./bus";
+import { createFakeWorkspace } from "./pythonWorkspaceFake";
 
 interface HarnessAccount {
   UserID: number;
@@ -43,29 +44,6 @@ interface LogLine {
   hint: string | null;
   ts: number;
 }
-
-const FARM_SOURCE = `import multialt
-from multialt import accounts, sleep, stopped, dashboard
-
-dashboard.farm_report()
-
-
-def main(account):
-    """Runs once per account."""
-    while not stopped():
-        with account.focused():
-            account.press("E")
-        dashboard.report_loop(account)
-        sleep(30)
-`;
-
-const SCRIPTS: Record<string, string> = {
-  "farm.py": FARM_SOURCE,
-  "anti_afk.py": 'from multialt import sleep, stopped\n\n\ndef main(account):\n    while not stopped():\n        with account.focused():\n            account.press("Space")\n        sleep(240)\n',
-  "claude_test.py": "def main(account):\n    account.log('hello from a terminal run')\n",
-};
-
-const BLOCKS = ["runner.py", "focus.py", "vision.py", "actions.py", "dashboard.py"];
 
 const PACKAGES = ["numpy 2.1.3", "opencv-python-headless 4.10.0"];
 
@@ -120,12 +98,14 @@ export function createPythonScenarios(
     }
 
     const now = Date.now();
-    const scripts = new Map<string, { source: string; modifiedMs: number }>();
-    if (options.scripts !== false) {
-      for (const [name, source] of Object.entries(SCRIPTS)) scripts.set(name, { source, modifiedMs: now });
-    }
     const blockModified = new Set<string>(options.devMode ? ["runner.py", "vision.py"] : []);
     const blockNewDefault = new Set<string>(options.devMode ? ["vision.py"] : []);
+    const workspace = createFakeWorkspace({
+      scripts: options.scripts !== false,
+      developerMode: () => developerMode,
+      modifiedBlocks: blockModified,
+      newDefaultBlocks: blockNewDefault,
+    });
     const configs: Record<string, unknown> = {};
     let developerMode = options.devMode === true;
     let installed = options.installed;
@@ -322,32 +302,35 @@ export function createPythonScenarios(
             cliCommand:
               '"C:\\Users\\you\\AppData\\Local\\MultiAlt\\python-runtime\\current\\python.exe" -m multialt run scripts/farm.py --account TestAccount1 --mode one_at_a_time',
           };
-        case "python_list_scripts":
-          return [...scripts.entries()].map(([name, file]) => ({ name, size: file.source.length, modifiedMs: file.modifiedMs }));
-        case "python_read_script":
-          return scripts.get(String(args.name))?.source ?? "";
-        case "python_write_script":
-          scripts.set(String(args.name), { source: String(args.source), modifiedMs: Date.now() });
+        case "python_fs_tree":
+          return workspace.tree();
+        case "python_fs_read":
+          return workspace.read(String(args.path));
+        case "python_fs_read_image":
+          return workspace.readImage(String(args.path));
+        case "python_fs_write": {
+          const path = String(args.path);
+          workspace.write(path, String(args.content));
+          if (path.startsWith("multialt/defaults/")) blockModified.add(path.slice(path.lastIndexOf("/") + 1));
           return undefined;
-        case "python_create_script":
-          scripts.set(String(args.name), { source: `# new ${String(args.template)} script\n`, modifiedMs: Date.now() });
+        }
+        case "python_fs_create":
+          workspace.create(String(args.path), args.kind === "dir" ? "dir" : "file");
           return undefined;
-        case "python_delete_script":
-          scripts.delete(String(args.name));
+        case "python_fs_rename":
+          workspace.rename(String(args.from), String(args.to));
           return undefined;
-        case "python_list_default_blocks":
-          return BLOCKS.map((name) => ({ name, modified: blockModified.has(name), newDefaultAvailable: blockNewDefault.has(name) }));
-        case "python_read_default_block":
-          return `# ${String(args.name)}\n# (default block shown by the harness)\n\n\ndef run(module, ctx):\n    pass\n`;
-        case "python_write_default_block":
-          blockModified.add(String(args.name));
+        case "python_fs_delete":
+          workspace.remove(String(args.path));
           return undefined;
+        case "python_list_global_functions":
+          return workspace.globals();
         case "python_restore_default_block":
           blockModified.delete(String(args.name));
           blockNewDefault.delete(String(args.name));
+          workspace.restoreBlock(String(args.name));
           return undefined;
         case "python_open_workspace_folder":
-        case "python_open_in_editor":
           return undefined;
         case "python_get_run_configs":
           return configs;

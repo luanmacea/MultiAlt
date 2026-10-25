@@ -235,7 +235,7 @@ export function CodeTab({ visible, openRequest, runtimeInstalled, runs, develope
   }
 
   return (
-    <div className="flex h-full min-h-[480px] flex-col overflow-hidden rounded-lg border theme-border">
+    <div className="flex h-full min-h-[560px] flex-col overflow-hidden rounded-lg border theme-border">
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(170px,230px)_minmax(0,1fr)]">
         <FileExplorer
           tree={tree}

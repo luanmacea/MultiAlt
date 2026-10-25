@@ -76,11 +76,16 @@ export function withDefaultExtension(dir: string, name: string): string {
 }
 
 /** Same shape check as the backend for one path segment (the backend has the last word). */
+const DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
 export function isValidSegment(name: string): boolean {
-  return /^[A-Za-z0-9 _\-.]{1,64}$/.test(name) && !name.startsWith(".");
+  return (
+    /^[A-Za-z0-9 _\-.]{1,64}$/.test(name) && !name.startsWith(".") && !/[ .]$/.test(name) && !DEVICE_NAMES.test(name)
+  );
 }
 
-export const SEGMENT_HELP = "Use letters, numbers, spaces, - _ and . (up to 64 characters, not starting with a dot).";
+export const SEGMENT_HELP =
+  "Use letters, numbers, spaces, - _ and . (up to 64 characters). It cannot start with a dot, end with a space or a dot, or be a Windows device name such as CON or NUL.";
 
 /** A name for `source` inside `scripts/` that does not exist yet: `farm.py`, `farm_copy.py`, `farm_copy2.py`... */
 export function freeCopyName(root: FsNode | null, source: string): string {
