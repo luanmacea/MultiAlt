@@ -1792,9 +1792,13 @@ fn arrange_roblox_grid_locked(
             if place_minimized_window(hwnd, rect) {
                 arranged += 1;
             }
-            // Célula menor que o mínimo: ao restaurar o Roblox a aumentaria de
-            // volta; a olhada de 1 s a põe na célula (`snap_restored_small_windows`).
-            remember_small_minimized(w.hwnd, small.then_some(rect));
+            // Célula que pode ser menor que o mínimo: ao restaurar o Roblox a
+            // aumentaria de volta; a olhada de 1 s a põe na célula
+            // (`snap_restored_small_windows`). Vale para todo cliente aberto
+            // pelo app, não só quando a célula encolheu agora: na segunda
+            // organização o `rcNormalPosition` já é pequeno, a célula cabe sem
+            // encolher e `small` fica falso (bateria de 25/10/2026).
+            remember_small_minimized(w.hwnd, (small || own.contains(&w.pid)).then_some(rect));
             continue;
         }
         remember_small_minimized(w.hwnd, None);
