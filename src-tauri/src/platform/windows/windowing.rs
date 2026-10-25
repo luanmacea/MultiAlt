@@ -1171,19 +1171,13 @@ fn slot_overlaps(slot: &GridCell, cell: (i32, i32), rect: (i32, i32, i32, i32)) 
     slot.x < x + w && x < slot.x + cell.0 && slot.y < y + h && y < slot.y + cell.1
 }
 
-/// A célula para a janela nova: a menos ocupada, empate na de menor índice —
-/// ou seja, a primeira livre; com a grade cheia, dá a volta a partir da 0.
-/// `occupants`: retângulos `(x, y, w, h)` das janelas da grade já abertas; uma
-/// janela ocupa a célula em que está o centro dela.
-/// `blockers`: janelas fora da grade (contas com tamanho próprio, como a
-/// principal). Elas não se mexem, então toda célula que elas cobrem conta como
-/// ocupada — senão a alt nasce por cima da principal.
-fn pick_grid_slot(
+/// Quantas janelas ocupam cada célula (pelo centro) ou a cobrem por fora.
+fn slot_occupancy(
     slots: &[GridCell],
     cell: (i32, i32),
     occupants: &[(i32, i32, i32, i32)],
     blockers: &[(i32, i32, i32, i32)],
-) -> Option<usize> {
+) -> Vec<usize> {
     let mut counts = vec![0usize; slots.len()];
     for &(x, y, w, h) in occupants {
         let (cx, cy) = (x + w / 2, y + h / 2);
@@ -1199,6 +1193,69 @@ fn pick_grid_slot(
             counts[i] += 1;
         }
     }
+    counts
+}
+
+/// A grade não tem célula livre: a próxima janela cairia por cima de outra.
+fn grid_is_full(
+    slots: &[GridCell],
+    cell: (i32, i32),
+    occupants: &[(i32, i32, i32, i32)],
+    blockers: &[(i32, i32, i32, i32)],
+) -> bool {
+    !slot_occupancy(slots, cell, occupants, blockers).contains(&0)
+}
+
+/// A maior célula, na mesma proporção de `cell`, em que cabem `count` janelas
+/// sem dar a volta (fora as células cobertas por `blockers`). `cell` mesmo se
+/// já cabem; `None` se nem no piso (`MIN_SMALL_GRID_CELL`) cabem.
+///
+/// Relato do Discord (25/10/2026): com mais janelas do que cabem no monitor no
+/// tamanho mínimo do Roblox, a grade dava a volta e empilhava ("they come on
+/// top of one another"). Encolher a célula é o que faz todas caberem.
+fn cell_that_fits(
+    monitors: &[MonitorInfoDto],
+    cell: (i32, i32),
+    gap: i32,
+    count: usize,
+    blockers: &[(i32, i32, i32, i32)],
+) -> Option<(i32, i32)> {
+    let fits = |c: (i32, i32)| -> bool {
+        let slots = grid_slots(monitors, c.0, c.1, gap);
+        let free = slots.iter().filter(|s| !blockers.iter().any(|&b| slot_overlaps(s, c, b))).count();
+        free >= count
+    };
+    if count == 0 || cell.0 <= 0 || cell.1 <= 0 || fits(cell) {
+        return Some(cell);
+    }
+    let mut w = cell.0;
+    while w > MIN_SMALL_GRID_CELL.0 {
+        w -= 1;
+        let h = ((w as i64 * cell.1 as i64) / cell.0 as i64) as i32;
+        if h < MIN_SMALL_GRID_CELL.1 {
+            break;
+        }
+        if fits((w, h)) {
+            return Some((w, h));
+        }
+    }
+    None
+}
+
+/// A célula para a janela nova: a menos ocupada, empate na de menor índice —
+/// ou seja, a primeira livre; com a grade cheia, dá a volta a partir da 0.
+/// `occupants`: retângulos `(x, y, w, h)` das janelas da grade já abertas; uma
+/// janela ocupa a célula em que está o centro dela.
+/// `blockers`: janelas fora da grade (contas com tamanho próprio, como a
+/// principal). Elas não se mexem, então toda célula que elas cobrem conta como
+/// ocupada — senão a alt nasce por cima da principal.
+fn pick_grid_slot(
+    slots: &[GridCell],
+    cell: (i32, i32),
+    occupants: &[(i32, i32, i32, i32)],
+    blockers: &[(i32, i32, i32, i32)],
+) -> Option<usize> {
+    let counts = slot_occupancy(slots, cell, occupants, blockers);
     counts
         .iter()
         .enumerate()
@@ -1472,19 +1529,51 @@ pub fn place_in_grid(
         ),
         None => (current.2, current.3),
     };
-    let (cell_w, cell_h) =
-        grid_cell_size(requested, accepted_size(hwnd, current, requested, small), small);
-    let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
-    let slots = grid_slots(&monitors, cell_w, cell_h, request.gap);
     let others: Vec<RobloxWin> = grid_windows(list_roblox_windows(), list_minimized_roblox_windows())
         .into_iter()
         .filter(|w| w.pid != pid)
         .collect();
-    let (blockers, occupants): (Vec<RobloxWin>, Vec<RobloxWin>) =
+    let (blocker_wins, occupant_wins): (Vec<RobloxWin>, Vec<RobloxWin>) =
         others.into_iter().partition(|w| request.excluded_pids.contains(&w.pid));
+    // A grade já foi encolhida para caber mais janelas (`cell_that_fits`): a
+    // nova entra no tamanho dela, não no mínimo do Roblox — senão as células
+    // não batem e ela cai por cima das outras.
+    let own = launched_client_pids();
+    let grid_pids: Vec<u32> = occupant_wins.iter().map(|w| w.pid).chain([pid]).collect();
+    let shrunk = !occupant_wins.is_empty() && grid_small_allowed(true, &grid_pids, &own) && {
+        let (w, h) = most_common_size(&occupant_wins);
+        w < requested.0 && h < requested.1
+    };
+    let (small, requested) = if shrunk {
+        (true, most_common_size(&occupant_wins))
+    } else {
+        (small, requested)
+    };
+    let (cell_w, cell_h) =
+        grid_cell_size(requested, accepted_size(hwnd, current, requested, small), small);
+    let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
+    let slots = grid_slots(&monitors, cell_w, cell_h, request.gap);
     let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
-    let occupants: Vec<(i32, i32, i32, i32)> = occupants.iter().map(rect).collect();
-    let blockers: Vec<(i32, i32, i32, i32)> = blockers.iter().map(rect).collect();
+    let occupants: Vec<(i32, i32, i32, i32)> = occupant_wins.iter().map(rect).collect();
+    let blockers: Vec<(i32, i32, i32, i32)> = blocker_wins.iter().map(rect).collect();
+    // Grade lotada: em vez de pôr esta por cima de outra, rearruma todas num
+    // tamanho em que caibam (só com todas abertas pelo app).
+    if grid_is_full(&slots, (cell_w, cell_h), &occupants, &blockers)
+        && grid_small_allowed(true, &grid_pids, &own)
+        && cell_that_fits(&monitors, (cell_w, cell_h), request.gap, occupants.len() + 1, &blockers).is_some()
+    {
+        let _ = arrange_roblox_grid_locked(
+            &request.monitor_indices,
+            request.gap,
+            size,
+            &request.excluded_pids,
+            request.style,
+        );
+        return match get_window_position(hwnd) {
+            Some(r) => WindowEnforcement::Placed(r),
+            None => WindowEnforcement::Skipped,
+        };
+    }
     let target = match pick_grid_slot(&slots, (cell_w, cell_h), &occupants, &blockers) {
         Some(i) => (slots[i].x, slots[i].y, cell_w, cell_h),
         None => (current.0, current.1, cell_w, cell_h),
@@ -1524,6 +1613,18 @@ pub fn arrange_roblox_grid(
     style: GridWindowStyle,
 ) -> Result<(usize, usize), String> {
     let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
+    arrange_roblox_grid_locked(monitor_indices, gap, size, excluded_pids, style)
+}
+
+/// `arrange_roblox_grid` com a trava da grade já tomada (a colocação do launch
+/// chama isto quando a grade lota).
+fn arrange_roblox_grid_locked(
+    monitor_indices: &[usize],
+    gap: i32,
+    size: Option<(u32, u32)>,
+    excluded_pids: &std::collections::HashSet<u32>,
+    style: GridWindowStyle,
+) -> Result<(usize, usize), String> {
     // Moldura e célula pequena só nos clientes que o app abriu; o aberto pelo
     // site é arrumado como sempre foi.
     let own: std::collections::HashSet<u32> = launched_client_pids()
@@ -1547,7 +1648,7 @@ pub fn arrange_roblox_grid(
             .into_iter()
             .partition(|w| excluded_pids.contains(&w.pid));
     let window_pids: Vec<u32> = wins.iter().map(|w| w.pid).collect();
-    let small = grid_small_allowed(style.allow_small, &window_pids, &own);
+    let mut small = grid_small_allowed(style.allow_small, &window_pids, &own);
     let blockers: Vec<(i32, i32, i32, i32)> = excluded.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
     if wins.is_empty() {
         return Err("Nenhuma janela de Roblox aberta foi encontrada.".to_string());
@@ -1592,6 +1693,16 @@ pub fn arrange_roblox_grid(
             small,
         ),
         None => (cell_w, cell_h),
+    };
+    // Mais janelas do que cabem: encolhe a célula até caberem todas, em vez de
+    // dar a volta e empilhar. Só com todas abertas pelo app — a de um cliente
+    // aberto pelo site cresceria de volta até o mínimo do Roblox.
+    let (cell_w, cell_h) = match cell_that_fits(&monitors, (cell_w, cell_h), gap, wins.len(), &blockers) {
+        Some(fit) if fit != (cell_w, cell_h) && grid_small_allowed(true, &window_pids, &own) => {
+            small = true;
+            fit
+        }
+        _ => (cell_w, cell_h),
     };
     let slots = unblocked_slots(&grid_slots(&monitors, cell_w, cell_h, gap), (cell_w, cell_h), &blockers);
     if slots.is_empty() {
@@ -2028,6 +2139,38 @@ mod win_grid_slot_tests {
 
     fn robloxwin(x: i32, y: i32, w: i32, h: i32) -> RobloxWin {
         RobloxWin { hwnd: 0, pid: 0, x, y, w, h }
+    }
+
+    // Relato do Discord (25/10/2026): mais janelas do que cabem no tamanho
+    // mínimo do Roblox → a grade dava a volta e empilhava.
+
+    #[test]
+    fn the_cell_shrinks_until_every_window_fits() {
+        let monitors = [monitor(1, 0, 0, 2560, 1392)];
+        // 816x639 + gap 8: 3 x 2 = 6 células.
+        assert_eq!(grid_slots(&monitors, 816, 639, 8).len(), 6);
+        assert_eq!(cell_that_fits(&monitors, (816, 639), 8, 6, &[]), Some((816, 639)));
+        let (w, h) = cell_that_fits(&monitors, (816, 639), 8, 8, &[]).expect("fits smaller");
+        assert!(w < 816 && h < 639, "{w}x{h}");
+        assert!(grid_slots(&monitors, w, h, 8).len() >= 8);
+        // A mesma proporção.
+        assert!(((w as f64 / h as f64) - 816.0 / 639.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn it_gives_up_below_the_smallest_cell() {
+        let tiny = [monitor(1, 0, 0, 400, 400)];
+        assert_eq!(cell_that_fits(&tiny, (816, 639), 8, 50, &[]), None);
+    }
+
+    #[test]
+    fn a_grid_with_no_free_cell_is_full() {
+        let slots = slots_1000();
+        let all = [(10, 10, 400, 400), (420, 10, 400, 400), (10, 420, 400, 400), (420, 420, 400, 400)];
+        assert!(grid_is_full(&slots, (400, 400), &all, &[]));
+        assert!(!grid_is_full(&slots, (400, 400), &all[..3], &[]));
+        // Célula coberta por uma janela fora da grade também conta.
+        assert!(grid_is_full(&slots, (400, 400), &all[..3], &[(420, 420, 400, 400)]));
     }
 
     #[test]
@@ -2744,5 +2887,189 @@ mod win_focus_tests {
         let desk = FakeDesktop::new(ROBLOX);
         assert_eq!(give_focus_back_with(&desk, 0, &[ROBLOX]), GiveBack::Gone);
         assert!(desk.calls.borrow().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod grid_overflow_real_tests {
+    use super::*;
+
+    // ---- Cenário de verdade (rodar à mão, sem Roblox aberto) -----------------
+    //
+    //   cargo test --all-features real_grid_scenario -- --ignored --test-threads=1
+    //
+    // Relato do Discord (25/10/2026): "they come on top of one another". Mais
+    // janelas do que cabem no monitor no tamanho mínimo do Roblox (~816x639):
+    // a grade dava a volta e empilhava. As janelas daqui são de verdade — uma
+    // cópia do PowerShell com o nome do cliente abrindo um formulário com o
+    // **mesmo tamanho mínimo** do Roblox (o Windows o impõe pelo mesmo
+    // `WM_GETMINMAXINFO`) — e ficam registradas como abertas pelo app.
+
+    const POWERSHELL: &str = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+    const FAKE_CLIENT: &str = "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $f = New-Object Windows.Forms.Form; $f.Text = 'FakeRobloxGrid'; $f.MinimumSize = New-Object Drawing.Size(816, 639); $f.Size = $f.MinimumSize; $f.StartPosition = 'Manual'; $f.Location = New-Object Drawing.Point(200, 200); [Windows.Forms.Application]::Run($f)";
+
+    struct FakeClients {
+        children: Vec<std::process::Child>,
+        dir: std::path::PathBuf,
+        user_ids: Vec<i64>,
+    }
+
+    impl Drop for FakeClients {
+        fn drop(&mut self) {
+            for child in &mut self.children {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            for uid in &self.user_ids {
+                tracker().untrack(*uid);
+            }
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn spawn_fake_clients(count: usize) -> FakeClients {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        assert!(get_roblox_pids().is_empty(), "close every Roblox client first");
+        let dir = std::env::temp_dir().join(format!("ram-fake-grid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let exe = dir.join("RobloxPlayerBeta.exe");
+        std::fs::copy(POWERSHELL, &exe).expect("copy");
+        let mut clients = FakeClients { children: Vec::new(), dir, user_ids: Vec::new() };
+        for _ in 0..count {
+            let child = std::process::Command::new(&exe)
+                .args(["-NoProfile", "-NonInteractive", "-Command", FAKE_CLIENT])
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("spawn fake client");
+            clients.children.push(child);
+        }
+        for _ in 0..200 {
+            if list_roblox_windows().len() >= count {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert_eq!(list_roblox_windows().len(), count, "the fake clients did not open");
+        for (i, child) in clients.children.iter().enumerate() {
+            let uid = 900_000 + i as i64;
+            tracker().track(uid, child.id(), String::new());
+            clients.user_ids.push(uid);
+        }
+        clients
+    }
+
+    fn primary_monitor_index() -> usize {
+        list_monitors().into_iter().find(|m| m.primary).map(|m| m.index).expect("primary monitor")
+    }
+
+    /// Pares de janelas cujas áreas visíveis se cruzam.
+    fn overlapping_pairs() -> Vec<(ScreenRect, ScreenRect)> {
+        let rects: Vec<ScreenRect> = list_roblox_windows()
+            .into_iter()
+            .filter_map(|w| visible_bounds(w.hwnd as HWND))
+            .collect();
+        let mut pairs = Vec::new();
+        for i in 0..rects.len() {
+            for j in i + 1..rects.len() {
+                if !rects[i].intersect(&rects[j]).is_empty() {
+                    pairs.push((rects[i], rects[j]));
+                }
+            }
+        }
+        pairs
+    }
+
+    /// Janelas cuja área visível sai do monitor da grade.
+    fn windows_outside(monitor: usize) -> usize {
+        let m = selected_monitors(&list_monitors(), &[monitor])[0].clone();
+        list_roblox_windows()
+            .into_iter()
+            .filter_map(|w| visible_bounds(w.hwnd as HWND))
+            .filter(|r| r.left < m.x || r.top < m.y || r.right > m.x + m.width || r.bottom > m.y + m.height)
+            .count()
+    }
+
+    fn slots_at_min_size(monitor: usize, gap: i32) -> usize {
+        let monitors = selected_monitors(&list_monitors(), &[monitor]);
+        grid_slots(&monitors, 816, 639, gap).len()
+    }
+
+    /// Versão lenta para gravar em vídeo: espera `RAM_GRID_DEMO_START_S`
+    /// segundos (para começar a gravação), abre as janelas empilhadas, mostra
+    /// assim por 5 s, arruma e deixa o resultado 10 s na tela.
+    #[test]
+    #[ignore]
+    fn real_grid_demo_for_recording() {
+        let start_s: u64 = std::env::var("RAM_GRID_DEMO_START_S").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        std::thread::sleep(Duration::from_secs(start_s));
+        let monitor = primary_monitor_index();
+        let gap = 8;
+        let count = slots_at_min_size(monitor, gap) + 8;
+        let _clients = spawn_fake_clients(count);
+        std::thread::sleep(Duration::from_secs(5));
+        let result = arrange_roblox_grid(
+            &[monitor],
+            gap,
+            None,
+            &std::collections::HashSet::new(),
+            GridWindowStyle::default(),
+        );
+        std::thread::sleep(Duration::from_secs(10));
+        eprintln!("demo: {count} windows -> {result:?}, overlapping pairs: {}", overlapping_pairs().len());
+    }
+
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_arrange_with_more_windows_than_cells() {
+        let monitor = primary_monitor_index();
+        let gap = 8;
+        for extra in [2usize, 8] {
+        let count = slots_at_min_size(monitor, gap) + extra;
+        let _clients = spawn_fake_clients(count);
+        let result = arrange_roblox_grid(
+            &[monitor],
+            gap,
+            None,
+            &std::collections::HashSet::new(),
+            GridWindowStyle::default(),
+        );
+        std::thread::sleep(Duration::from_millis(600));
+        let overlaps = overlapping_pairs();
+        eprintln!("arrange {count} windows -> {result:?}, overlapping pairs: {}", overlaps.len());
+        assert!(overlaps.is_empty(), "windows on top of one another: {overlaps:?}");
+        assert_eq!(windows_outside(monitor), 0, "a window left the monitor");
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_launch_placement_with_more_windows_than_cells() {
+        let monitor = primary_monitor_index();
+        let gap = 8;
+        for extra in [2usize, 8] {
+        let count = slots_at_min_size(monitor, gap) + extra;
+        let clients = spawn_fake_clients(count);
+        let request = GridRequest {
+            monitor_indices: vec![monitor],
+            gap,
+            excluded_pids: std::collections::HashSet::new(),
+            style: GridWindowStyle::default(),
+        };
+        // Uma por vez, como no launch: cada janela nova vai para a grade.
+        for child in &clients.children {
+            let hwnd = find_main_window(child.id()).expect("window");
+            let _ = place_in_grid(hwnd, child.id(), None, &request, true);
+            std::thread::sleep(Duration::from_millis(300));
+        }
+        std::thread::sleep(Duration::from_millis(600));
+        let overlaps = overlapping_pairs();
+        eprintln!("launch placement of {count} windows, overlapping pairs: {}", overlaps.len());
+        assert!(overlaps.is_empty(), "windows on top of one another: {overlaps:?}");
+        assert_eq!(windows_outside(monitor), 0, "a window left the monitor");
+        }
     }
 }

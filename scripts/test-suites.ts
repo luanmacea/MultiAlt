@@ -595,6 +595,7 @@ export const SUITES: Record<string, TestSuite> = {
       "diagnostics_tests",
       "win_windowing_tests",
       "win_grid_slot_tests",
+      "grid_overflow_real_tests",
       "win_optimization_tests",
       "generator_command_tests",
       "generator_http_tests",
