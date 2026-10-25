@@ -16,7 +16,11 @@ pub mod devpipe;
 pub mod dashboard;
 pub mod errors;
 #[cfg(feature = "python-scripts")]
+pub mod explorer;
+#[cfg(feature = "python-scripts")]
 pub mod focus;
+#[cfg(feature = "python-scripts")]
+pub mod globals;
 #[cfg(feature = "python-scripts")]
 pub mod inspector;
 #[cfg(feature = "python-scripts")]

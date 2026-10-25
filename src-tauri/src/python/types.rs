@@ -42,6 +42,49 @@ pub struct PythonScriptFile {
     pub modified_ms: u64,
 }
 
+/// Um nó do Explorer da aba Code (`python_fs_tree`).
+#[derive(Serialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FsNode {
+    /// Relativo à pasta de trabalho, com `/`; `""` é a raiz.
+    pub path: String,
+    pub name: String,
+    /// "file" | "dir"
+    pub kind: String,
+    pub size: u64,
+    pub modified_ms: u64,
+    pub writable: bool,
+    /// Os blocos padrão (e as pastas deles): com cadeado.
+    pub pinned: bool,
+    /// `scripts/<nome>.py` do topo (o Run só roda esses).
+    pub runnable: bool,
+    pub children: Option<Vec<FsNode>>,
+}
+
+/// Uma função de nível de topo de um módulo da aba Global functions.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalFunction {
+    pub name: String,
+    /// `walk_forward(account, seconds=1.0)`
+    pub signature: String,
+    /// A primeira linha da docstring (vazio sem docstring).
+    pub doc: String,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalModule {
+    /// `lib/helpers.py`, `multialt/defaults/vision.py`
+    pub path: String,
+    /// `lib.helpers`, `multialt.defaults.vision`
+    pub module: String,
+    pub pinned: bool,
+    pub modified: bool,
+    pub new_default_available: bool,
+    pub functions: Vec<GlobalFunction>,
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct DefaultBlockInfo {

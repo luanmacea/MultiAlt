@@ -208,14 +208,19 @@ pub fn python_write_default_block(
     source: String,
 ) -> Result<(), String> {
     #[cfg(feature = "python-scripts")]
-    {
-        if !developer_mode_on(&app) {
-            return Err(super::workspace::DEVELOPER_MODE_OFF.into());
-        }
-        return super::workspace::write_block(&ws_root(), &name, &source);
-    }
+    return write_block_gated(developer_mode_on(&app), &ws_root(), &name, &source);
     #[cfg(not(feature = "python-scripts"))]
     unavailable!()
+}
+
+/// O caminho único de gravação de um bloco (a aba Developer e o editor da
+/// aba Code): recusado sem o Modo desenvolvedor.
+#[cfg(feature = "python-scripts")]
+fn write_block_gated(developer_mode: bool, root: &std::path::Path, name: &str, source: &str) -> Result<(), String> {
+    if !developer_mode {
+        return Err(super::workspace::DEVELOPER_MODE_OFF.into());
+    }
+    super::workspace::write_block(root, name, source)
 }
 
 /// Restaura **um** bloco (a tela confirma antes).
@@ -225,6 +230,96 @@ pub fn python_restore_default_block(name: String) -> Result<(), String> {
     return super::workspace::restore_block(&ws_root(), &name);
     #[cfg(not(feature = "python-scripts"))]
     unavailable!()
+}
+
+// ── Explorer e editor da aba Code (docs/features/python-automation.md) ────
+
+/// A árvore da pasta de trabalho (só o que a tela mostra).
+#[tauri::command]
+pub fn python_fs_tree(app: tauri::AppHandle) -> Result<FsNode, String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        return super::explorer::tree(&root, developer_mode_on(&app));
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(FsNode::default())
+}
+
+/// O texto de um arquivo da árvore (até 1 MB; binário é recusado).
+#[tauri::command]
+pub fn python_fs_read(path: String) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::read_text(&ws_root(), &path);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Uma imagem de `assets/` como data URL, para a prévia.
+#[tauri::command]
+pub fn python_fs_read_image(path: String) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::read_image(&ws_root(), &path);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Grava em `scripts/`, `lib/` ou `assets/`; bloco padrão vai pelo caminho do
+/// `python_write_default_block` (Modo desenvolvedor).
+#[tauri::command]
+pub fn python_fs_write(app: tauri::AppHandle, path: String, content: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        use super::explorer::{self, WriteTarget};
+        let root = ws_root();
+        return match explorer::write_target(&root, &path)? {
+            WriteTarget::File(file) => explorer::write_file(&file, &content),
+            WriteTarget::Block(name) => write_block_gated(developer_mode_on(&app), &root, &name, &content),
+        };
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// `kind` = "file" | "dir", só dentro de `scripts/`, `lib/` e `assets/`.
+#[tauri::command]
+pub fn python_fs_create(path: String, kind: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::create(&ws_root(), &path, &kind);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Renomeia ou move dentro da mesma pasta gravável de topo.
+#[tauri::command]
+pub fn python_fs_rename(from: String, to: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::rename(&ws_root(), &from, &to);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Não apaga: move para `.trash/<ms>-<nome>` (a tela confirma antes).
+#[tauri::command]
+pub fn python_fs_delete(path: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::delete(&ws_root(), &path).map(|_| ());
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Os módulos importáveis (blocos padrão e `lib/`) com as funções de cada um.
+#[tauri::command]
+pub fn python_list_global_functions() -> Result<Vec<GlobalModule>, String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        return super::globals::list_global_functions(&root);
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(Vec::new())
 }
 
 #[tauri::command]
@@ -440,6 +535,23 @@ pub fn python_get_logs(app: tauri::AppHandle) -> Result<Vec<PythonLogLine>, Stri
 #[cfg(all(test, feature = "python-scripts"))]
 mod python_commands_tests {
     use super::*;
+
+    /// O editor da aba Code grava um bloco pelo mesmo caminho da aba
+    /// Developer: sem o Modo desenvolvedor, recusado e o arquivo intacto.
+    #[test]
+    fn block_writes_from_the_editor_need_developer_mode() {
+        let ws = std::env::temp_dir().join(format!("ram-pycmd-{}", now_ms()));
+        super::super::workspace::sync_workspace(&ws).unwrap();
+        let runner = ws.join("multialt/defaults/runner.py");
+        let before = std::fs::read_to_string(&runner).unwrap();
+        let error = write_block_gated(false, &ws, "runner.py", "# mine\n").unwrap_err();
+        assert_eq!(error, super::super::workspace::DEVELOPER_MODE_OFF);
+        assert_eq!(std::fs::read_to_string(&runner).unwrap(), before);
+        write_block_gated(true, &ws, "runner.py", "# mine\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&runner).unwrap(), "# mine\n");
+        assert!(write_block_gated(true, &ws, "protocol.py", "x").is_err());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 
     /// Ligar o Modo desenvolvedor e o canal não abrir (nome de pipe ocupado,
     /// workspace sem escrita) não pode deixar `DeveloperMode = true` gravado:
