@@ -34,17 +34,42 @@ export interface PythonWorkspaceInfo {
   cliCommand: string;
 }
 
-export interface PythonScriptFile {
+/** One entry of the workspace tree (`python_fs_tree`). The root has `path: ""`. */
+export interface FsNode {
+  /** Relative to the workspace, `/` as separator. */
+  path: string;
   name: string;
+  kind: "file" | "dir";
   size: number;
   modifiedMs: number;
+  /** False for the examples, the pinned blocks without Developer mode and the internal folders. */
+  writable: boolean;
+  /** One of the default blocks in `multialt/defaults/`. */
+  pinned: boolean;
+  /** A `.py` file directly in `scripts/`: the only files a run can start from. */
+  runnable: boolean;
+  children?: FsNode[] | null;
 }
 
-export interface DefaultBlockInfo {
+export interface GlobalFunction {
   name: string;
+  /** `walk_forward(account, seconds=1.0)` */
+  signature: string;
+  /** First line of the docstring, empty when there is none. */
+  doc: string;
+}
+
+export interface GlobalModule {
+  path: string;
+  /** Import path: `lib.helpers` or `multialt.defaults.vision`. */
+  module: string;
+  pinned: boolean;
   modified: boolean;
   newDefaultAvailable: boolean;
+  functions: GlobalFunction[];
 }
+
+export type FsKind = "file" | "dir";
 
 export type PythonTrigger =
   | { kind: "manual" }
@@ -135,8 +160,6 @@ export interface FracRect {
   h: number;
 }
 
-export type PythonScriptTemplate = "blank" | "per_account" | "controller" | "dashboard";
-
 export const PYTHON_EVENTS = {
   installProgress: "python-install-progress",
   log: "python-log",
@@ -144,34 +167,26 @@ export const PYTHON_EVENTS = {
   dashboardUpdate: "python-dashboard-update",
 } as const;
 
-const SCRIPT_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}\.py$/;
-
-/** Same rule as the backend: a plain `.py` name inside `scripts/`, no separators. */
-export function isValidScriptName(name: string): boolean {
-  return SCRIPT_NAME_PATTERN.test(name);
-}
-
 export const pythonApi = {
   runtimeStatus: () => invoke<PythonRuntimeStatus>("python_runtime_status"),
   installRuntime: () => invoke<void>("python_install_runtime"),
   reinstallRuntime: () => invoke<void>("python_reinstall_runtime"),
   workspaceInfo: () => invoke<PythonWorkspaceInfo>("python_workspace_info"),
 
-  listScripts: () => invoke<PythonScriptFile[]>("python_list_scripts"),
-  readScript: (name: string) => invoke<string>("python_read_script", { name }),
-  writeScript: (name: string, source: string) => invoke<void>("python_write_script", { name, source }),
-  createScript: (name: string, template: PythonScriptTemplate) =>
-    invoke<void>("python_create_script", { name, template }),
-  deleteScript: (name: string) => invoke<void>("python_delete_script", { name }),
+  fsTree: () => invoke<FsNode>("python_fs_tree"),
+  fsRead: (path: string) => invoke<string>("python_fs_read", { path }),
+  /** A `data:image/png;base64,...` URL; only files in `assets/`. */
+  fsReadImage: (path: string) => invoke<string>("python_fs_read_image", { path }),
+  fsWrite: (path: string, content: string) => invoke<void>("python_fs_write", { path, content }),
+  fsCreate: (path: string, kind: FsKind) => invoke<void>("python_fs_create", { path, kind }),
+  fsRename: (from: string, to: string) => invoke<void>("python_fs_rename", { from, to }),
+  /** Moves to the workspace `.trash/`; nothing is erased. */
+  fsDelete: (path: string) => invoke<void>("python_fs_delete", { path }),
+  listGlobalFunctions: () => invoke<GlobalModule[]>("python_list_global_functions"),
 
-  listDefaultBlocks: () => invoke<DefaultBlockInfo[]>("python_list_default_blocks"),
-  readDefaultBlock: (name: string) => invoke<string>("python_read_default_block", { name }),
-  writeDefaultBlock: (name: string, source: string) =>
-    invoke<void>("python_write_default_block", { name, source }),
   restoreDefaultBlock: (name: string) => invoke<void>("python_restore_default_block", { name }),
 
   openWorkspaceFolder: () => invoke<void>("python_open_workspace_folder"),
-  openInEditor: (name: string) => invoke<void>("python_open_in_editor", { name }),
 
   getRunConfigs: () => invoke<Record<string, PythonRunConfig>>("python_get_run_configs"),
   saveRunConfig: (config: PythonRunConfig) => invoke<void>("python_save_run_config", { config }),
