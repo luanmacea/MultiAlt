@@ -167,7 +167,7 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 
 | Aba | Faz |
 |---|---|
-| Favorites | favoritos com VIPs, em grade de cards; clicar abre a gaveta (linha inteira, abaixo do card) com Join Game e os VIPs. |
+| Favorites | favoritos com VIPs, em grade de cards; clicar abre um balão logo abaixo do próprio card, na largura dele e por cima dos de baixo (como o balão de amigo do Roblox — pedido de 26/10/2026, a gaveta da linha inteira com o botão à esquerda incomodava): Join Game na largura toda, os VIPs e Add VIP Server. Fecha com clique fora ou Esc (pela pilha: a Choose Game fica aberta). |
 | Games | busca de jogos, em grade de cards; clicar lança todas as selecionadas. |
 | Recent | fileiras de cards: "Abertos pelo MultiAlt" e uma por conta (ver [server-list.md](server-list.md#recentes-de-cada-conta-choose-game-desde-14102026)). |
 | Follow | Campo de join link ([join-links.md](join-links.md)) e o card "Follow a Player": `lookup_user` + `get_presence` resolvem o servidor do alvo **uma vez** e `launchAll` manda todas as contas selecionadas para lá (`launch_multiple` com várias contas, com o piso anti-captcha). Alvo fora de jogo (`presence < 2`) vira toast e nada é lançado; em jogo mas com o servidor escondido pela privacidade, pede confirmação para cair num servidor público do mesmo jogo. (Isto já foi um laço de `launch_roblox` com `followUser: true` e 3 s entre contas, que furava o piso de 8 s.) Atalhos para Server List, Utilities, Auto Rejoin e Scripts. |

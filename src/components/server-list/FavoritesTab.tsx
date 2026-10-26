@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import type { FavoriteGame, VipServer } from "./types";
 import { loadFavorites, updateFavorites, makeVipId } from "./types";
 import { useGameListsChanged } from "./gameListsSync";
@@ -61,6 +62,28 @@ export function FavoritesTab({
   const confirm = useConfirm();
   const [favorites, setFavorites] = useState<FavoriteGame[]>(loadFavorites);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  // O card aberto e o balão dele: clique fora fecha, Esc também (pela pilha,
+  // para não fechar a Choose Game junto).
+  const openCellRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (expandedId === null) return;
+    function onPointerDown(e: MouseEvent) {
+      if (openCellRef.current && !openCellRef.current.contains(e.target as Node)) {
+        setExpandedId(null);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [expandedId]);
+  useEscapeStack(expandedId !== null, () => setExpandedId(null), { ignoreFromFields: true });
+  // Abriu perto do fim da lista: o balão aparece inteiro.
+  useEffect(() => {
+    if (expandedId === null) return;
+    const popover = openCellRef.current?.querySelector('[data-testid^="favorite-popover-"]');
+    if (popover && "scrollIntoView" in popover) {
+      (popover as HTMLElement).scrollIntoView?.({ block: "nearest" });
+    }
+  }, [expandedId]);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; game: FavoriteGame } | null>(null);
   const [addingVipFor, setAddingVipFor] = useState<number | null>(null);
   const backfilledRef = useRef(false);
@@ -248,15 +271,21 @@ export function FavoritesTab({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {/* Grade de cards (pedido do dono, 14/10/2026). A gaveta do favorito
-            aberto ocupa a linha inteira logo abaixo dele; `grid-flow-dense`
-            puxa os outros cards para os buracos que ela deixaria. */}
-        <div className={`${GAME_CARD_GRID} grid-flow-dense px-1`}>
+        {/* Grade de cards (pedido do dono, 14/10/2026). O favorito aberto
+            mostra um balão logo abaixo do próprio card, na largura dele e por
+            cima dos de baixo (pedido de 26/10/2026: a gaveta da linha inteira,
+            com o botão encostado à esquerda, incomodava). */}
+        <div className={`${GAME_CARD_GRID} px-1 pb-2`}>
           {favorites.map((game) => {
             const vips = getVips(game);
             const expanded = expandedId === game.placeId;
             return (
-              <Fragment key={game.placeId}>
+              <div
+                key={game.placeId}
+                data-testid={`favorite-cell-${game.placeId}`}
+                ref={expanded ? openCellRef : undefined}
+                className={`relative ${expanded ? "z-20" : ""}`}
+              >
                 <GameCard
                   variant="grid"
                   active={expanded}
@@ -298,11 +327,15 @@ export function FavoritesTab({
                 />
 
                 {expanded && (
-                  <div className="col-span-full mb-2 p-3 rounded-xl border theme-border bg-[var(--panel-soft)] flex flex-col items-start gap-1.5">
-                    <div className="text-[12px] font-medium text-[var(--panel-fg)] truncate">{game.name}</div>
+                  <div
+                    data-testid={`favorite-popover-${game.placeId}`}
+                    role="group"
+                    aria-label={game.name}
+                    className="absolute left-0 right-0 top-full mt-1 p-2 rounded-xl border theme-border bg-[var(--panel-soft)] shadow-xl shadow-black/40 flex flex-col gap-1.5 animate-fade-in"
+                  >
                     <button
                       onClick={() => onSelectGame(game.placeId)}
-                      className="flex items-center justify-center gap-2 px-4 py-1.5 rounded-lg text-[12px] font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors"
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[12px] font-semibold bg-sky-600 hover:bg-sky-500 text-white transition-colors"
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <polygon points="5 3 19 12 5 21 5 3" />
@@ -311,16 +344,16 @@ export function FavoritesTab({
                     </button>
 
                     {vips.length > 0 && (
-                      <div className="flex flex-col gap-1 mt-1 w-full max-w-xl">
+                      <div className="flex flex-col gap-1 w-full">
                         {vips.map((vip) => (
-                          <div key={vip.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-zinc-800/40">
+                          <div key={vip.id} className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-zinc-800/40" title={vip.link}>
                             <div className="flex-1 min-w-0">
                               <div className="text-[12px] text-amber-300/90 truncate">{vip.name}</div>
                               <div className="text-[11px] text-zinc-600 font-mono truncate">{vip.link}</div>
                             </div>
                             <button
                               onClick={() => onSelectGame(game.placeId, vip.link)}
-                              className="px-3 py-1 rounded-md text-[12px] font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0"
+                              className="px-2.5 py-1 rounded-md text-[12px] font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0"
                             >
                               {t("Join")}
                             </button>
@@ -342,7 +375,7 @@ export function FavoritesTab({
                     )}
 
                     {addingVipFor === game.placeId ? (
-                      <div className="flex flex-col gap-1.5 mt-1 p-2 rounded-lg border border-dashed border-zinc-700 w-full max-w-md">
+                      <div className="flex flex-col gap-1.5 p-2 rounded-lg border border-dashed border-zinc-700 w-full">
                         <input
                           autoFocus
                           value={vipDraftLink}
@@ -388,7 +421,7 @@ export function FavoritesTab({
                     ) : (
                       <button
                         onClick={() => startAddVip(game.placeId)}
-                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors mt-1"
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors"
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <line x1="12" y1="5" x2="12" y2="19" />
@@ -399,7 +432,7 @@ export function FavoritesTab({
                     )}
                   </div>
                 )}
-              </Fragment>
+              </div>
             );
           })}
         </div>
