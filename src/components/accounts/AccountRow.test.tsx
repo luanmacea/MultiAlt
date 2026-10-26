@@ -252,6 +252,21 @@ describe("AccountRow", () => {
     expect(screen.getByLabelText(/Aged: 25 days/)).toHaveAttribute("data-status", "aged");
   });
 
+  it("marks a client the app opened with the rocket", () => {
+    renderRow({ launchedByProgram: new Set([501]) });
+    expect(screen.getByLabelText("Launched by MultiAlt")).toHaveAttribute("data-status", "launched");
+  });
+
+  /**
+   * Relato de 26/10/2026: a principal jogada pelo site aparecia com o foguete
+   * laranja de "aberto pelo MultiAlt" — o dono leu como o aviso de conta
+   * parada. Cliente do site reconhecido pelo log não foi aberto pelo app.
+   */
+  it("does not mark a client opened from the website as launched by MultiAlt", () => {
+    renderRow({ launchedByProgram: new Set([501]), adoptedClients: new Set([501]) });
+    expect(screen.queryByLabelText("Launched by MultiAlt")).toBeNull();
+  });
+
   /** Ideia 8: a moderação lida do Roblox aparece na linha, com ícone próprio. */
   it("shows a banned account with its end date and the moderator note", () => {
     const until = new Date(Date.now() + 3 * 86400000);
