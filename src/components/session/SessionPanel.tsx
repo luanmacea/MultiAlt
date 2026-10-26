@@ -685,7 +685,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
       const before = previous.get(id);
       if (before === undefined || before === status) continue;
       const name = nameFor(id);
-      if (status === "dropped" || status === "notResponding") {
+      if (status === "dropped" || status === "notResponding" || status === "humanCheck") {
         const info = clientHealthLabel(store.clientHealth?.get(id), t);
         if (info) messages.push(`${name}: ${info.label}`);
       } else if (status === "reconnecting") {

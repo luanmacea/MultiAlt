@@ -3312,11 +3312,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ),
       // Queda lida do log do Roblox (commands/client_health.rs): vale com o
       // Watcher desligado também — só avisa, não fecha nada.
-      listen<{ userId: number; drop?: ClientDrop | null; notResponding?: boolean }>("roblox-client-health", (e) => {
-        const { userId, drop, notResponding } = e.payload;
+      listen<{ userId: number; drop?: ClientDrop | null; notResponding?: boolean; challenge?: boolean }>("roblox-client-health", (e) => {
+        const { userId, drop, notResponding, challenge } = e.payload;
         void refreshRunningRef.current();
         const awayEvent = clientHealthEvent(e.payload, Date.now());
         if (awayEvent) dispatchAway({ type: "add", event: awayEvent });
+        // A verificação "confirme que é humano" apareceu (bateria de
+        // 25/10/2026: 3 de 4 contas paradas nela, e o app só dizia "ainda fora
+        // de um jogo"). O botão traz a janela certa para frente.
+        if (challenge === true) {
+          const acct = accountsRef.current.find((a) => a.UserID === userId);
+          const name = accountLabel(acct, nameMaskingRef.current, userId);
+          addToast(
+            tr("{{name}}: Roblox is asking to confirm you're human. Solve it in the game window.", { name }),
+            "warn",
+            { action: { label: tr("Show window"), run: () => void focusRobloxClient(userId) } }
+          );
+          return;
+        }
         if (!drop && !notResponding) return;
         const status = clientHealthLabel({ pid: 0, logFound: true, drop: drop ?? null, notResponding }, tr);
         if (!status) return;

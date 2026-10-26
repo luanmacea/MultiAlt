@@ -531,6 +531,12 @@ export interface ClientHealth {
    * servidor subiu (`Server Prefix`). Ausente/`null` = o log não disse.
    */
   server?: ClientServer | null;
+  /**
+   * A tela "confirme que é humano" do Roblox está na janela, esperando a
+   * pessoa (lido do log do cliente: `challengeDisplayed` até `challengeCompleted`
+   * ou a entrada no jogo).
+   */
+  challenge?: boolean;
 }
 
 /** O servidor de um cliente (`ClientServerView`, commands/client_health.rs). */
