@@ -64,7 +64,10 @@ export function AccountRow({ account, variant = "row" }: { account: Account; var
   const wrapLongNames = store.settings?.General?.WrapLongNames === "true";
   const nameOverflowClass = wrapLongNames ? "min-w-0 wrap-anywhere" : "truncate";
   const presenceType = store.presenceByUserId.get(account.UserID) ?? 0;
-  const launchedLocally = store.launchedByProgram.has(account.UserID);
+  // Cliente aberto pelo site e reconhecido pelo log também entra no
+  // rastreamento, mas não foi o app que abriu: sem foguete (26/10/2026).
+  const launchedLocally =
+    store.launchedByProgram.has(account.UserID) && !store.adoptedClients.has(account.UserID);
   const isJoining = store.joiningAccounts.has(account.UserID);
 
   const presenceMeta =
