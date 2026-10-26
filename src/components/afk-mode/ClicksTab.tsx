@@ -253,7 +253,7 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
         />
         <div className="text-[11px] theme-muted leading-4">
           {t(
-            "In key mode, a Roblox window that was minimized or covered gets the key without showing up, so you can keep watching or working. Click mode still brings the window forward."
+            "A Roblox window that was minimized or covered does its turn without showing up, so you can keep watching or working. In click and recording modes the mouse pointer still jumps to the click point for a moment."
           )}
         </div>
       </div>
