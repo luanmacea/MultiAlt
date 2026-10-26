@@ -248,6 +248,9 @@ pub(crate) struct ClientWindowPlan {
     /// resolvido): se a janela aparecer em tela cheia, essa tela cheia veio do
     /// XML regravado por outro cliente, e é tirada — uma vez.
     pub leave_fullscreen: bool,
+    /// A janela vai para a grade: se nascer maximizada, volta ao normal — uma
+    /// vez (`should_leave_maximized`).
+    pub leave_maximized: bool,
 }
 
 impl ClientWindowPlan {
@@ -277,8 +280,12 @@ pub(crate) fn client_window_plan(inputs: ClientWindowInputs) -> ClientWindowPlan
         saved_rect: if grid { None } else { inputs.saved_rect },
         // Com tamanho no plano a conta é "em janela" por definição (o XML
         // grava `Fullscreen=false` junto do `StartScreenSize`). Sem tamanho e
-        // sem `Some(false)`, a tela cheia é preferência do próprio jogador.
+        // sem `Some(false)`, a tela cheia é preferência do próprio jogador —
+        // mesmo com a grade (`an_alt_with_nothing_resolved_keeps_the_players_own_fullscreen`).
         leave_fullscreen: inputs.window_size.is_some() || inputs.fullscreen == Some(false),
+        // Maximizada não é modo de jogo: é como a janela foi fechada da última
+        // vez (quem joga maximizado pelo site). Com a grade, volta ao normal.
+        leave_maximized: grid,
     }
 }
 
@@ -455,6 +462,8 @@ pub(crate) fn spawn_client_window_enforcement(
         // A tela cheia herdada é tirada uma vez só (`leave_fullscreen`): se o
         // Roblox voltar para ela, a conferência seguinte a vê e para.
         let mut fullscreen_exit_tried = false;
+        // Maximizada com a grade: idem (`should_leave_maximized`).
+        let mut maximized_exit_tried = false;
         // Lido uma vez: a conferência segura a célula escolhida com os mesmos
         // flags com que ela foi posta.
         let grid_style = plan
@@ -482,6 +491,14 @@ pub(crate) fn spawn_client_window_enforcement(
                         fullscreen_exit_tried = true;
                         eprintln!("[window] PID {pid}: não foi possível sair da tela cheia");
                     }
+                }
+            }
+            if windows::should_leave_maximized(plan.leave_maximized, mode, maximized_exit_tried) {
+                maximized_exit_tried = true;
+                if windows::leave_maximized(hwnd) {
+                    // O tamanho de agora é o normal guardado, não o que o XML deu.
+                    first_look = false;
+                    eprintln!("[window] PID {pid}: saiu de maximizada para entrar na grade");
                 }
             }
             let outcome = match chosen {
@@ -2913,6 +2930,22 @@ mod client_window_plan_tests {
         assert!(plan.grid);
         assert_eq!(plan.size, None);
         assert!(!plan.is_noop());
+    }
+
+    /// Relato do Discord (25/10/2026), reproduzido: sem tamanho configurado, o
+    /// Roblox abre como foi fechado — quem joga maximizado pelo site tem
+    /// `StartMaximized=true` — e a grade desistia da janela maximizada (as
+    /// quatro ficavam uma por cima da outra no monitor principal).
+    #[test]
+    fn the_grid_takes_the_window_out_of_maximized() {
+        let plan = client_window_plan(ClientWindowInputs {
+            auto_arrange_grid: true,
+            ..inputs()
+        });
+        assert!(plan.leave_maximized);
+        // Sem grade e sem tamanho, maximizado é escolha do jogador.
+        let plan = client_window_plan(inputs());
+        assert!(!plan.leave_maximized);
     }
 
     /// A conta principal com tamanho próprio fica fora da grade: mantém o

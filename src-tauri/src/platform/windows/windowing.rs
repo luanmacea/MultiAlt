@@ -570,6 +570,24 @@ pub fn should_leave_fullscreen(requested: bool, mode: WindowMode, already_tried:
     requested && mode == WindowMode::Fullscreen && !already_tried
 }
 
+/// A grade vai pôr a janela numa célula, mas ela nasceu maximizada (o Roblox
+/// abre como foi fechado: quem joga maximizado pelo site tem
+/// `StartMaximized=true`). Sem isto a grade desistia dela (relato do Discord,
+/// reproduzido em 25/10/2026: as janelas ficavam maximizadas no monitor
+/// principal). Uma vez só: se maximizar de novo depois, o app não briga.
+pub fn should_leave_maximized(grid: bool, mode: WindowMode, already_tried: bool) -> bool {
+    grid && mode == WindowMode::Maximized && !already_tried
+}
+
+/// Tira a janela de maximizada sem ativá-la (volta ao tamanho normal dela).
+pub fn leave_maximized(hwnd: HWND) -> bool {
+    if hwnd.is_null() || unsafe { IsZoomed(hwnd) } == 0 {
+        return false;
+    }
+    unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+    (unsafe { IsZoomed(hwnd) }) == 0
+}
+
 /// O estilo da janela comum a partir do da tela cheia: sai o `WS_POPUP`, volta
 /// a moldura inteira (barra de título, borda, botões); o resto fica.
 fn windowed_style(style: u32) -> u32 {
@@ -2776,6 +2794,17 @@ mod win_client_window_tests {
         // Maximizada não é tela cheia herdada — o usuário (ou o Roblox dele) pôs.
         assert!(!should_leave_fullscreen(true, WindowMode::Maximized, false));
         assert!(!should_leave_fullscreen(true, WindowMode::Normal, false));
+    }
+
+    /// Com a grade, a janela maximizada volta ao normal — uma vez: se o Roblox
+    /// (ou a pessoa) maximizar de novo depois, o app não briga.
+    #[test]
+    fn leaving_maximized_only_for_the_grid_and_once() {
+        assert!(should_leave_maximized(true, WindowMode::Maximized, false));
+        assert!(!should_leave_maximized(true, WindowMode::Maximized, true));
+        assert!(!should_leave_maximized(false, WindowMode::Maximized, false));
+        assert!(!should_leave_maximized(true, WindowMode::Normal, false));
+        assert!(!should_leave_maximized(true, WindowMode::Fullscreen, false));
     }
 
     #[test]
