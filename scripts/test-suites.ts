@@ -671,6 +671,11 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [],
     front: ["scripts/scanVerdict.test.ts"],
   },
+  "build-test": {
+    description: "bun run build:test: executáveis de teste rápidos (perfil test-exe, sem LTO) de cada edição, com o nome da pasta de testes",
+    rust: [],
+    front: ["scripts/buildTestPlan.test.ts"],
+  },
   site: {
     description: "Site de divulgação: páginas /pt/ e /es/ geradas, hreflang, FAQ estruturado, sitemap",
     rust: [],

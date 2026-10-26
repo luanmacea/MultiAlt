@@ -128,3 +128,14 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.poly1305]
 opt-level = 3
+
+# Executavel de TESTE do dono (`bun run build:test`): o release sem a parte
+# lenta. LTO + codegen-units 1 deixam a otimizacao final num nucleo so (~4 min
+# por edicao, a cada build); aqui ela e dividida e reaproveita o anterior. O exe
+# sai maior e NAO vale para o scan de antivirus — para publicar e para o scan,
+# so o `release` (docs/development.md, "Build rapido de teste").
+[profile.test-exe]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
