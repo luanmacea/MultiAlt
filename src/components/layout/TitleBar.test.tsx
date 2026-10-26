@@ -5,8 +5,15 @@ import userEvent from "@testing-library/user-event";
 
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/window", async () => (await import("../../test-utils/tauriMocks")).tauriWindowMock());
+vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "2.3.0" }));
+// Sem o rótulo do build local de teste: o título mostra o que `getVersion` diz.
+vi.mock("../../buildInfo", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../buildInfo")>()),
+  TEST_BUILD_LABEL: "",
+}));
 
 import { TitleBar } from "./TitleBar";
+import { titleVersion } from "../../buildInfo";
 import { ModalWindowControls } from "./ModalWindowControls";
 import { resetTauriMocks, setInvokeHandler, windowMock } from "../../test-utils/tauriMocks";
 
@@ -24,6 +31,18 @@ describe("TitleBar", () => {
   it("shows the app name", () => {
     render(<TitleBar />);
     expect(screen.getByText("MultiAlt")).toBeInTheDocument();
+  });
+
+  // Pedido do dono (24/10/2026): a versão sempre no título.
+  it("shows the app version in the title", async () => {
+    render(<TitleBar />);
+    expect(await screen.findByTestId("titlebar-version")).toHaveTextContent("v2.3.0");
+  });
+
+  it("a local test build says it is a test build, not the stale package version", () => {
+    expect(titleVersion("2.0.0", "v2.3.0-beta + test 13c3b4f")).toBe("v2.3.0-beta + test 13c3b4f");
+    expect(titleVersion("2.3.0", "")).toBe("v2.3.0");
+    expect(titleVersion(null, "")).toBeNull();
   });
 
   it("keeps the old name as a subtitle so people still recognize the app", () => {

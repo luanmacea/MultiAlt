@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
+import { TEST_BUILD_LABEL, titleVersion } from "../../buildInfo";
 import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, Archive, FolderOpen, KeyRound, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
@@ -16,6 +18,16 @@ export function formatBytes(bytes: number): string {
   const mb = kb / 1024;
   if (mb < 1024) return `${mb.toFixed(1)} MB`;
   return `${(mb / 1024).toFixed(2)} GB`;
+}
+
+/**
+ * A versão que o backup grava (pedido do dono, 26/10/2026): a mesma do título
+ * da janela — "v2.4.0" na release, "v2.3.0-beta + test 41e0cba" no build de
+ * teste. Sem ela (`undefined`), o backend usa a do pacote.
+ */
+async function currentAppVersion(): Promise<string | undefined> {
+  const version = await getVersion().catch(() => null);
+  return titleVersion(version, TEST_BUILD_LABEL) ?? undefined;
 }
 
 /** "3h ago" / "just now" — `timeAgo` devolve só o intervalo cru. */
@@ -243,12 +255,13 @@ export function BackupsTab({ active }: { active: boolean }) {
   }, [active, refresh]);
 
   async function handleCreate() {
+    const appVersion = await currentAppVersion();
     // O rótulo é opcional: string vazia cria sem rótulo, cancelar aborta.
     const label = await prompt(t("Name this backup (optional)"), "");
     if (label === null) return;
     setCreating(true);
     try {
-      await invoke<BackupEntry>("create_backup", { label: label.trim() || null });
+      await invoke<BackupEntry>("create_backup", { label: label.trim() || null, appVersion });
       setError(null);
       await refresh();
     } catch (e) {
@@ -273,7 +286,10 @@ export function BackupsTab({ active }: { active: boolean }) {
     // restaurado. Volta na hidratação do fim, que junta o restaurado com o local.
     await pauseGameListsMirror();
     try {
-      const result = await invoke<RestoreReport>("restore_backup", { id: entry.id });
+      const result = await invoke<RestoreReport>("restore_backup", {
+        id: entry.id,
+        appVersion: await currentAppVersion(),
+      });
       setReport(result ?? null);
       setError(null);
       await refresh();
@@ -506,6 +522,12 @@ export function BackupsTab({ active }: { active: boolean }) {
                     <span>{formatBytes(entry.sizeBytes)}</span>
                     <span>•</span>
                     <span title={entry.files.join(", ")}>{t("{{n}} files", { n: entry.files.length })}</span>
+                    {entry.appVersion ? (
+                      <>
+                        <span>•</span>
+                        <span title={t("MultiAlt version that made this backup")}>{entry.appVersion}</span>
+                      </>
+                    ) : null}
                   </div>
                   <div className="mt-0.5 text-[11px] font-mono text-zinc-600 truncate">{entry.fileName}</div>
                 </div>

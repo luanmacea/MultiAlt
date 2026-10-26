@@ -38,8 +38,10 @@ type Entry = {
 };
 
 const INVENTORY: Entry[] = [
+  // Checks (os dois checklists juntos, 26/10/2026)
+  { label: "Launch does nothing?", tab: "checks" },
+  { label: "Login browser does nothing?", tab: "checks" },
   // Launch
-  { label: "Launch does nothing?", tab: "launch" },
   { label: "Multi Roblox", tab: "launch", save: ["General", "EnableMultiRbx", "true"] },
   { label: "Experimental: keep clients open across teleports", tab: "launch" },
   { label: "Auto Close Roblox for Multi Roblox", tab: "launch", save: ["General", "AutoCloseRobloxForMultiRbx", "true"] },
@@ -72,7 +74,7 @@ const INVENTORY: Entry[] = [
   { label: "Auto Cookie Refresh", tab: "accounts", save: ["General", "AutoCookieRefresh", "true"] },
   // Pedido do dono (12/10/2026): "Show Robux" (desligado) no lugar do "Hide Robux When Hidden".
   { label: "Show Robux", tab: "accounts", save: ["General", "ShowRobux", "true"] },
-  { label: "Persistent login profile", tab: "accounts", save: ["Login", "PersistentProfile", "false"] },
+  { label: "Keep browser data between uses", tab: "accounts", save: ["Login", "PersistentProfile", "true"] },
   { label: "Reduce automation signals", tab: "accounts", save: ["Login", "StealthMode", "false"] },
   { label: "Custom browser executable", tab: "accounts" },
   { label: "Bundled Browser", tab: "accounts" },
@@ -158,7 +160,7 @@ describe("Settings split (General and Misc became plain sections)", () => {
     const names = within(nav)
       .getAllByRole("button")
       .map((b) => b.textContent);
-    expect(names.slice(0, 8)).toEqual([
+    expect(names.slice(0, 9)).toEqual([
       "Launch",
       "Keep in game",
       "Notifications",
@@ -167,6 +169,7 @@ describe("Settings split (General and Misc became plain sections)", () => {
       "Updates",
       "App",
       "Backups",
+      "Checks",
     ]);
     expect(names).not.toContain("General");
     expect(names).not.toContain("Misc");

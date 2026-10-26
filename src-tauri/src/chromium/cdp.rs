@@ -28,7 +28,22 @@ fn chrome_args(profile: &Path, start_url: &str, debug: bool, stealth: bool) -> V
         format!("--user-data-dir={}", profile.to_string_lossy()),
         "--no-first-run".to_string(),
         "--no-default-browser-check".to_string(),
-        "--disable-features=Translate".to_string(),
+        // Pop-ups que não têm o que fazer aqui (pedido do dono, 26/10/2026),
+        // medidos com o Chrome for Testing 154: `--disable-infobars` tira a
+        // faixa "destinado apenas a testes automatizados" e `--disable-sync` o
+        // "Fazer login no Chromium?". Salvar senha e preenchimento automático
+        // saem pelas preferências do perfil (`prepare_profile`).
+        "--disable-infobars".to_string(),
+        "--disable-sync".to_string(),
+        "--hide-crash-restore-bubble".to_string(),
+        "--disable-search-engine-choice-screen".to_string(),
+        // Extensão que outro programa do PC instala em todo Chrome (o Google
+        // Drive põe o "Application Launcher For Drive"): cada perfil limpo a
+        // recebia de novo, com o aviso "added" e o "Action required" (teste
+        // real de 26/10/2026, abrindo a conta no navegador). O app não usa
+        // extensão nenhuma.
+        "--disable-extensions".to_string(),
+        "--disable-features=Translate,PasswordLeakDetection".to_string(),
     ];
     if stealth {
         args.push("--lang=en-US".to_string());
@@ -49,6 +64,7 @@ pub async fn spawn_chrome(
     stealth: bool,
 ) -> Result<(Child, Option<u16>), String> {
     let _ = std::fs::create_dir_all(profile);
+    prepare_profile(profile);
     let active_port_file = profile.join("DevToolsActivePort");
     if debug {
         let _ = std::fs::remove_file(&active_port_file);
@@ -64,16 +80,98 @@ pub async fn spawn_chrome(
         return Ok((child, None));
     }
 
-    for _ in 0..160 {
+    let mut child = child;
+    for _ in 0..ACTIVE_PORT_POLLS {
         if let Ok(contents) = std::fs::read_to_string(&active_port_file) {
             if let Some(port) = parse_active_port(&contents) {
                 return Ok((child, Some(port)));
             }
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // O navegador já saiu (arquivo faltando, perfil em uso): esperar o resto
+        // do prazo não muda nada.
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(ACTIVE_PORT_POLL_MS)).await;
     }
 
     Ok((child, None))
+}
+
+/// Preferências gravadas no perfil antes de cada abertura: sem oferta de salvar
+/// senha nem de preencher endereço/cartão, sem pedido de notificação, e saída
+/// "Normal" (sem o balão "Restaurar páginas?" depois de o app fechar a janela).
+/// Nenhuma delas fica nas "Secure Preferences" (com assinatura): mexer nessas
+/// faria o Chrome dizer que as configurações foram alteradas e resetá-las.
+const PROFILE_PREFERENCES: &[(&[&str], fn() -> Value)] = &[
+    (&["credentials_enable_service"], || json!(false)),
+    (&["profile", "password_manager_enabled"], || json!(false)),
+    (&["profile", "password_manager_leak_detection"], || json!(false)),
+    (&["autofill", "profile_enabled"], || json!(false)),
+    (&["autofill", "credit_card_enabled"], || json!(false)),
+    (&["profile", "default_content_setting_values", "notifications"], || json!(2)),
+    // A oferta de tradução (navegador em inglês no stealth, Roblox em
+    // português): o `--disable-features=Translate` já não a segura no
+    // Chrome 154 (teste real de 26/10/2026).
+    (&["translate", "enabled"], || json!(false)),
+    (&["profile", "exit_type"], || json!("Normal")),
+    (&["profile", "exited_cleanly"], || json!(true)),
+];
+
+/// Antes de abrir o navegador num perfil: apaga a sessão anterior (as abas
+/// voltavam a cada abertura — relato do dono, 26/10/2026, com o perfil de
+/// login persistente) e grava `PROFILE_PREFERENCES`. Cookie, cache e histórico
+/// ficam: são o perfil persistente (`Login.PersistentProfile`) funcionando.
+/// Preferências que não dão para ler ficam como estão.
+pub(crate) fn prepare_profile(profile: &Path) {
+    let default = profile.join("Default");
+    let _ = std::fs::remove_dir_all(default.join("Sessions"));
+    for legacy in ["Current Session", "Current Tabs", "Last Session", "Last Tabs"] {
+        let _ = std::fs::remove_file(default.join(legacy));
+    }
+    let path = default.join("Preferences");
+    let mut prefs = match std::fs::read_to_string(&path) {
+        Ok(raw) => match serde_json::from_str::<Value>(&raw) {
+            Ok(value) if value.is_object() => value,
+            _ => return,
+        },
+        Err(_) => json!({}),
+    };
+    for (keys, value) in PROFILE_PREFERENCES {
+        let mut node = &mut prefs;
+        for key in &keys[..keys.len() - 1] {
+            if !node.get(*key).is_some_and(Value::is_object) {
+                node[*key] = json!({});
+            }
+            node = &mut node[*key];
+        }
+        node[keys[keys.len() - 1]] = value();
+    }
+    if std::fs::create_dir_all(&default).is_ok() {
+        let _ = std::fs::write(&path, prefs.to_string());
+    }
+}
+
+/// Quantas vezes (a cada `ACTIVE_PORT_POLL_MS`) se espera o `DevToolsActivePort`
+/// aparecer: 30 s. Eram 8 s, pouco para a primeira abertura de um Chromium
+/// recém-extraído sob antivírus.
+const ACTIVE_PORT_POLLS: u32 = 600;
+const ACTIVE_PORT_POLL_MS: u64 = 50;
+
+/// Erro quando o navegador não chegou a abrir o endpoint de depuração no prazo.
+/// Em inglês: o frontend traduz (`chromiumErrorText`, src/utils/chromiumErrors.ts,
+/// que lê esta constante do fonte no teste). A janela que ficou aberta em
+/// about:blank é fechada por quem devolve este erro.
+pub const BROWSER_DID_NOT_OPEN: &str = "The browser did not open in time. Check your antivirus and firewall, then try Reinstall in Settings > Accounts.";
+
+/// O texto de erro de um `Page.navigate` que falhou (DNS, proxy, firewall), se
+/// houve: o comando responde com sucesso e põe o erro no resultado.
+fn navigation_error(result: &Value) -> Option<String> {
+    result
+        .get("errorText")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
 }
 
 /// First line of `DevToolsActivePort`, which holds the port the browser
@@ -163,6 +261,39 @@ return document.activeElement===el;}})()",
     )
 }
 
+/// Guarda a conta que a **resposta do login** do Roblox devolveu
+/// (`auth.roblox.com/v2/login` → `{"user":{"id","name"}}`) no `localStorage`
+/// do roblox.com, com a hora. É a prova de quem entrou quando as consultas de
+/// "de quem é esta sessão" recusam (conta moderada: relato de 26/10/2026, a
+/// Rapid_Raven878 logava e o app jogava a sessão fora).
+pub const LOGIN_USER_HOOK: &str = "(function(){\
+if(window.__ramLoginHook)return;window.__ramLoginHook=true;\
+function keep(t){try{var d=JSON.parse(t);var u=d&&d.user;if(u&&u.id){localStorage.setItem('__ramLoginUser',JSON.stringify({id:u.id,name:u.name||'',at:Date.now()}));}}catch(e){}}\
+var f=window.fetch;if(f){window.fetch=function(i){var url=(typeof i==='string')?i:((i&&i.url)||'');var p=f.apply(this,arguments);\
+if(/\\/v2\\/login/.test(url)){p.then(function(r){r.clone().text().then(keep).catch(function(){});}).catch(function(){});}return p;};}\
+var o=XMLHttpRequest.prototype.open,s=XMLHttpRequest.prototype.send;\
+XMLHttpRequest.prototype.open=function(m,u){this.__ramUrl=u;return o.apply(this,arguments);};\
+XMLHttpRequest.prototype.send=function(){var x=this;if(/\\/v2\\/login/.test(String(x.__ramUrl||''))){x.addEventListener('load',function(){keep(x.responseText);});}return s.apply(this,arguments);};\
+})()";
+
+/// Lê o que o [`LOGIN_USER_HOOK`] guardou.
+pub const READ_LOGIN_USER_SCRIPT: &str = "localStorage.getItem('__ramLoginUser')";
+
+/// A conta da resposta do login, se ela foi guardada **depois** de
+/// `since_ms` (o perfil persistente guarda o `localStorage` de logins
+/// anteriores — de outra conta).
+pub fn parse_login_user(stored: &Value, since_ms: i64) -> Option<(i64, String)> {
+    let text = stored.as_str()?;
+    let parsed: Value = serde_json::from_str(text).ok()?;
+    let id = parsed.get("id")?.as_i64().filter(|id| *id > 0)?;
+    let at = parsed.get("at")?.as_i64()?;
+    if at < since_ms {
+        return None;
+    }
+    let name = parsed.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+    Some((id, name))
+}
+
 fn login_fill_script(username: &str, password: &str) -> String {
     let user = serde_json::to_string(username).unwrap_or_default();
     let pass = serde_json::to_string(password).unwrap_or_default();
@@ -223,8 +354,15 @@ pub struct CdpClient {
 impl CdpClient {
     pub async fn connect(port: u16) -> Result<Self, String> {
         let mut ws_url = None;
+        // Cliente com prazo: o `reqwest::get` não tinha, e um proxy do sistema
+        // ou um firewall travava a conexão local para sempre.
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .map_err(|e| format!("Could not attach to the browser: {}", e))?;
         for _ in 0..40 {
-            if let Ok(resp) = reqwest::get(format!("http://127.0.0.1:{}/json", port)).await {
+            if let Ok(resp) = http.get(format!("http://127.0.0.1:{}/json", port)).send().await {
                 if let Ok(targets) = resp.json::<Value>().await {
                     ws_url = page_ws_url_from_targets(&targets);
                     if ws_url.is_some() {
@@ -236,8 +374,9 @@ impl CdpClient {
         }
 
         let ws_url = ws_url.ok_or("Could not attach to the browser")?;
-        let (socket, _) = connect_async(ws_url.as_str())
+        let (socket, _) = tokio::time::timeout(Duration::from_secs(10), connect_async(ws_url.as_str()))
             .await
+            .map_err(|_| "Could not attach to the browser: timed out".to_string())?
             .map_err(|e| format!("Could not attach to the browser: {}", e))?;
 
         let mut client = Self { socket, next_id: 0 };
@@ -317,7 +456,23 @@ impl CdpClient {
     }
 
     pub async fn navigate(&mut self, url: &str) -> Result<(), String> {
-        self.send("Page.navigate", json!({ "url": url })).await?;
+        let result = self.send("Page.navigate", json!({ "url": url })).await?;
+        match navigation_error(&result) {
+            Some(error) => Err(format!("The page did not load: {error}")),
+            None => Ok(()),
+        }
+    }
+
+    /// Liga o [`LOGIN_USER_HOOK`] nas páginas que abrirem daqui em diante e na
+    /// que está aberta.
+    pub async fn watch_login_response(&mut self) -> Result<(), String> {
+        let _ = self.send("Page.enable", json!({})).await;
+        self.send(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": LOGIN_USER_HOOK }),
+        )
+        .await?;
+        let _ = self.eval(LOGIN_USER_HOOK).await;
         Ok(())
     }
 
@@ -402,7 +557,168 @@ mod chromium_cdp_tests {
     // Message building and parsing only: nothing here starts a browser or
     // opens a socket.
 
+    // ── espera pela porta e falha de navegação ──────────────────────────────
+
+    /// Relato (23/10/2026): com o navegador demorando mais que 8 s para abrir
+    /// (antivírus examinando os 300 MB, disco lento), o app desistia e deixava
+    /// a janela aberta em about:blank. A espera agora tem folga.
+    #[test]
+    fn the_wait_for_the_debug_port_is_long_enough_for_a_slow_first_start() {
+        let waited_ms = ACTIVE_PORT_POLLS as u64 * ACTIVE_PORT_POLL_MS;
+        assert!(waited_ms >= 30_000, "{waited_ms} ms");
+    }
+
+    #[test]
+    fn the_browser_did_not_open_message_says_what_to_try() {
+        assert!(BROWSER_DID_NOT_OPEN.contains("antivirus"));
+        assert!(BROWSER_DID_NOT_OPEN.contains("Reinstall"));
+    }
+
+    #[test]
+    fn a_failed_navigation_is_reported_with_its_error_text() {
+        let failed = json!({ "frameId": "A1", "errorText": "net::ERR_NAME_NOT_RESOLVED" });
+        assert_eq!(
+            navigation_error(&failed),
+            Some("net::ERR_NAME_NOT_RESOLVED".to_string())
+        );
+        assert_eq!(navigation_error(&json!({ "frameId": "A1", "loaderId": "L1" })), None);
+        assert_eq!(navigation_error(&json!({ "errorText": "" })), None);
+        assert_eq!(navigation_error(&json!({})), None);
+    }
+
     // ── chrome_args ────────────────────────────────────────────────────────
+
+    // ── perfil sem abas antigas nem pop-ups (pedido do dono, 26/10/2026) ──────
+
+    #[test]
+    fn chrome_args_hide_the_testing_bar_the_sign_in_button_and_the_password_prompts() {
+        let args = chrome_args(Path::new("p"), "about:blank", true, true);
+        // Medido com o Chrome for Testing 154: `--disable-infobars` tira a faixa
+        // "destinado apenas a testes automatizados" (`--test-type` não tira) e
+        // `--disable-sync` tira o "Fazer login no Chromium?".
+        assert!(args.contains(&"--disable-infobars".to_string()));
+        assert!(args.contains(&"--disable-sync".to_string()));
+        assert!(args.contains(&"--hide-crash-restore-bubble".to_string()));
+        assert!(args.contains(&"--disable-extensions".to_string()));
+        let features = args.iter().find(|a| a.starts_with("--disable-features=")).expect("features");
+        assert!(features.contains("Translate") && features.contains("PasswordLeakDetection"), "{features}");
+        assert_eq!(args.last().unwrap(), "about:blank");
+    }
+
+    fn temp_profile(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ram-cdp-profile-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Default").join("Sessions")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn preparing_a_profile_drops_the_old_tabs_and_keeps_the_rest() {
+        let dir = temp_profile("tabs");
+        let default = dir.join("Default");
+        std::fs::write(default.join("Sessions").join("Tabs_1"), b"x").unwrap();
+        std::fs::write(default.join("Sessions").join("Session_1"), b"x").unwrap();
+        std::fs::write(default.join("Cookies"), b"keep").unwrap();
+        prepare_profile(&dir);
+        assert!(!default.join("Sessions").exists(), "the tabs of the last session would reopen");
+        assert_eq!(std::fs::read(default.join("Cookies")).unwrap(), b"keep");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preparing_a_profile_turns_off_saving_passwords_and_keeps_other_preferences() {
+        let dir = temp_profile("prefs");
+        let prefs_path = dir.join("Default").join("Preferences");
+        std::fs::write(&prefs_path, r#"{"intl":{"accept_languages":"en-US"},"profile":{"name":"x","exit_type":"Crashed"}}"#).unwrap();
+        prepare_profile(&dir);
+        let prefs: Value = serde_json::from_str(&std::fs::read_to_string(&prefs_path).unwrap()).unwrap();
+        assert_eq!(prefs["credentials_enable_service"], json!(false));
+        assert_eq!(prefs["profile"]["password_manager_enabled"], json!(false));
+        assert_eq!(prefs["profile"]["password_manager_leak_detection"], json!(false));
+        assert_eq!(prefs["autofill"]["profile_enabled"], json!(false));
+        assert_eq!(prefs["translate"]["enabled"], json!(false));
+        assert_eq!(prefs["profile"]["default_content_setting_values"]["notifications"], json!(2));
+        // Saída "Normal": sem o balão "Restaurar páginas?".
+        assert_eq!(prefs["profile"]["exit_type"], json!("Normal"));
+        // O que já estava lá fica.
+        assert_eq!(prefs["intl"]["accept_languages"], json!("en-US"));
+        assert_eq!(prefs["profile"]["name"], json!("x"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preparing_a_new_profile_creates_the_preferences_and_an_unreadable_one_is_left_alone() {
+        let fresh = std::env::temp_dir().join(format!("ram-cdp-profile-fresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&fresh);
+        prepare_profile(&fresh);
+        let prefs: Value =
+            serde_json::from_str(&std::fs::read_to_string(fresh.join("Default").join("Preferences")).unwrap()).unwrap();
+        assert_eq!(prefs["credentials_enable_service"], json!(false));
+        let _ = std::fs::remove_dir_all(&fresh);
+
+        let broken = temp_profile("broken");
+        let path = broken.join("Default").join("Preferences");
+        std::fs::write(&path, "not json").unwrap();
+        prepare_profile(&broken);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "not json", "a file the app cannot read is not overwritten");
+        let _ = std::fs::remove_dir_all(&broken);
+    }
+
+    /// Com o Chromium de verdade (`RAM_CHROME_BINARY`): abre uma página, fecha
+    /// pelo caminho normal (que grava a sessão no perfil) e abre de novo no mesmo
+    /// perfil — só a página pedida pode estar lá, não a da vez anterior.
+    #[tokio::test]
+    #[ignore]
+    async fn real_chromium_reopens_a_profile_without_the_old_tabs() {
+        let binary = std::path::PathBuf::from(std::env::var("RAM_CHROME_BINARY").expect("RAM_CHROME_BINARY"));
+        let profile = std::env::temp_dir().join(format!("ram-real-tabs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&profile);
+        let page_urls = |port: u16| async move {
+            let targets: Value = reqwest::get(format!("http://127.0.0.1:{port}/json"))
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            targets
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|t| t["type"] == "page")
+                .map(|t| t["url"].as_str().unwrap_or("").to_string())
+                .collect::<Vec<_>>()
+        };
+
+        let (mut first, port) = spawn_chrome(&binary, &profile, "https://example.com/", true, false).await.unwrap();
+        let port = port.expect("debug port");
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        let before = page_urls(port).await;
+        if std::env::var("RAM_CHROME_KILL").is_ok() {
+            // O caminho do login: a janela é fechada matando o processo.
+            let _ = first.kill();
+        } else {
+            let mut cdp = CdpClient::connect(port).await.unwrap();
+            let _ = cdp.close_browser().await;
+        }
+        for _ in 0..50 {
+            if matches!(first.try_wait(), Ok(Some(_))) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let saved_sessions = profile.join("Default").join("Sessions").exists();
+
+        let (mut second, port) = spawn_chrome(&binary, &profile, "about:blank", true, false).await.unwrap();
+        let port = port.expect("debug port");
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        let after = page_urls(port).await;
+        let _ = second.kill();
+        let _ = first.kill();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let _ = std::fs::remove_dir_all(&profile);
+        eprintln!("first run pages {before:?}, sessions saved: {saved_sessions}, second run pages {after:?}");
+        assert!(after.iter().all(|u| !u.contains("example.com")), "the old tab came back: {after:?}");
+    }
 
     #[test]
     fn chrome_args_always_pass_the_profile_and_the_start_url() {
@@ -411,7 +727,7 @@ mod chromium_cdp_tests {
         assert_eq!(args.last().unwrap(), "about:blank");
         assert!(args.contains(&"--no-first-run".to_string()));
         assert!(args.contains(&"--no-default-browser-check".to_string()));
-        assert!(args.contains(&"--disable-features=Translate".to_string()));
+        assert!(args.iter().any(|a| a.starts_with("--disable-features=") && a.contains("Translate")));
     }
 
     #[test]
@@ -713,6 +1029,26 @@ mod chromium_cdp_tests {
     }
 
     // ── login_fill_script (credential-injection safety) ────────────────────
+
+    #[test]
+    fn the_login_user_is_read_only_when_it_is_from_this_sign_in() {
+        let stored = json!(r#"{"id":11715660717,"name":"Rapid_Raven878","at":5000}"#);
+        assert_eq!(parse_login_user(&stored, 4000), Some((11715660717, "Rapid_Raven878".to_string())));
+        // Guardado num login anterior (perfil persistente): não vale.
+        assert_eq!(parse_login_user(&stored, 6000), None);
+        assert_eq!(parse_login_user(&Value::Null, 0), None);
+        assert_eq!(parse_login_user(&json!("not json"), 0), None);
+        assert_eq!(parse_login_user(&json!(r#"{"id":0,"at":9}"#), 0), None);
+    }
+
+    #[test]
+    fn the_login_hook_watches_the_login_request_and_keeps_only_the_user() {
+        assert!(LOGIN_USER_HOOK.contains("/v2\\/login") || LOGIN_USER_HOOK.contains("v2\\/login"));
+        assert!(LOGIN_USER_HOOK.contains("__ramLoginUser"));
+        assert!(LOGIN_USER_HOOK.contains("d.user"));
+        // Nada além de id, nome e hora: o corpo (que pode ter token) não é guardado.
+        assert!(!LOGIN_USER_HOOK.contains("setItem('__ramLoginUser',t"));
+    }
 
     #[test]
     fn login_fill_script_targets_the_roblox_login_form() {

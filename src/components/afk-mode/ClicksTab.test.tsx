@@ -519,6 +519,17 @@ describe("ClicksTab — dá para saber que está funcionando", () => {
     await userEvent.click(toggle);
     expect(store.updateSetting).toHaveBeenCalledWith("Afk", "BeepOnCycle", "true");
   });
+
+  /** Pedido do dono (26/10/2026): um bipe diferente 3 s antes, para se preparar. */
+  it("o bipe de aviso antes do ciclo nasce desligado, explica e grava a escolha", async () => {
+    const { store } = renderDialog();
+    const toggle = screen.getByRole("button", { name: "Beep 3 seconds before a cycle" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText(/let go of the mouse and keyboard/)).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "BeepBeforeCycle", "true");
+  });
 });
 
 /**
@@ -526,6 +537,35 @@ describe("ClicksTab — dá para saber que está funcionando", () => {
  * em vez de roubar o foco (`afk_fullscreen_gate`). Ligado por padrão — protege
  * quem está vendo algo — e a tela diz quando está esperando.
  */
+/**
+ * Pedido de usuários (24/10/2026): ver um filme enquanto o AFK roda, sem as
+ * janelas do Roblox pulando na tela (`Afk.HideWindows`, hidden_focus.rs).
+ */
+describe("ClicksTab — janelas fora de vista", () => {
+  it("nasce ligado, explica e grava a escolha no INI", async () => {
+    const { store } = renderDialog();
+    const toggle = screen.getByRole("button", { name: "Keep Roblox windows out of sight" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/does its turn without showing up/i)).toBeInTheDocument();
+    // Desde 26/10/2026 vale no clique e na gravação também.
+    expect(screen.queryByText(/Click mode still brings the window forward/i)).not.toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "HideWindows", "false");
+  });
+
+  it("lê a escolha desligada do INI", () => {
+    const settings = defaultSettings();
+    settings.Afk = { ...(settings.Afk ?? {}), HideWindows: "false" };
+    renderDialog({ settings });
+    expect(screen.getByRole("button", { name: "Keep Roblox windows out of sight" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+  });
+});
+
 describe("ClicksTab — espera a tela cheia sair", () => {
   it("nasce ligado, explica numa frase e grava a escolha no INI", async () => {
     const { store } = renderDialog();

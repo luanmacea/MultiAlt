@@ -759,51 +759,63 @@ pub fn uninstall_version(channel: &str, version_hash: &str) -> Result<bool, Stri
     Ok(true)
 }
 
+/// A pasta do Roblox para o launch, **sem nunca recusar**: a versão da conta,
+/// senão a padrão, senão a usada por último, senão a instalação normal — e, sem
+/// nenhuma, caminho vazio (o launch pelo protocolo baixa a build sozinho).
+/// Antes, uma versão configurada que sumiu do catálogo (desinstalada, pasta
+/// apagada) recusava o launch com erro; agora a próxima regra vale e o
+/// terceiro valor diz por quê, para o log do launch (pedido do dono, 23/10/2026:
+/// nada de erro que impede jogar quando dá para jogar).
+pub fn resolve_roblox_install_path_with_notice(
+    account_version: Option<&str>,
+    settings: &crate::data::settings::SettingsStore,
+    catalog: &crate::data::versions::VersionsCatalogStore,
+) -> (String, Option<String>, Option<String>) {
+    let mut notices: Vec<String> = Vec::new();
+    let usable = |version_id: &str| -> Result<crate::data::versions::VersionEntry, String> {
+        let entry = catalog
+            .find(version_id)
+            .ok_or_else(|| format!("Roblox version '{}' is not installed anymore", version_id))?;
+        if !std::path::Path::new(&entry.install_path).join("RobloxPlayerBeta.exe").exists() {
+            return Err(format!("Roblox version '{}' is missing its files", version_id));
+        }
+        Ok(entry)
+    };
+    let notice = |notices: &Vec<String>| {
+        (!notices.is_empty()).then(|| format!("{}; opened with the next available Roblox instead.", notices.join("; ")))
+    };
+
+    if let Some(version_id) = account_version.filter(|v| !v.trim().is_empty()) {
+        match usable(version_id) {
+            Ok(entry) => return (entry.install_path.clone(), Some(entry.version_id()), None),
+            Err(e) => notices.push(format!("{e} (set for this account)")),
+        }
+    }
+
+    let default = settings.get_string("Versions", "DefaultVersion");
+    if !default.trim().is_empty() {
+        match usable(&default) {
+            Ok(entry) => return (entry.install_path.clone(), Some(entry.version_id()), notice(&notices)),
+            Err(e) => notices.push(format!("{e} (the default version)")),
+        }
+    }
+
+    if let Some(entry) = most_recently_used_version(catalog) {
+        return (entry.install_path.clone(), Some(entry.version_id()), notice(&notices));
+    }
+
+    (get_roblox_path().unwrap_or_default(), None, notice(&notices))
+}
+
+/// `resolve_roblox_install_path_with_notice` sem o aviso. Nunca falha; o
+/// `Result` fica pelos chamadores antigos.
 pub fn resolve_roblox_install_path(
     account_version: Option<&str>,
     settings: &crate::data::settings::SettingsStore,
     catalog: &crate::data::versions::VersionsCatalogStore,
 ) -> Result<(String, Option<String>), String> {
-    if let Some(version_id) = account_version.filter(|v| !v.trim().is_empty()) {
-        let entry = catalog.find(version_id).ok_or_else(|| {
-            format!(
-                "Account is set to Roblox version '{}' but it is not in the installed catalog. Reinstall it from Settings > Versions or clear the per-account override.",
-                version_id
-            )
-        })?;
-        let path = std::path::Path::new(&entry.install_path);
-        if !path.join("RobloxPlayerBeta.exe").exists() {
-            return Err(format!(
-                "Account is set to Roblox version '{}' but RobloxPlayerBeta.exe is missing at {}. Reinstall it from Settings > Versions or clear the per-account override.",
-                version_id, entry.install_path
-            ));
-        }
-        return Ok((entry.install_path.clone(), Some(entry.version_id())));
-    }
-
-    let default = settings.get_string("Versions", "DefaultVersion");
-    if !default.trim().is_empty() {
-        let entry = catalog.find(&default).ok_or_else(|| {
-            format!(
-                "Default Roblox version '{}' is not in the installed catalog. Reinstall it from Settings > Versions or change the default.",
-                default
-            )
-        })?;
-        let path = std::path::Path::new(&entry.install_path);
-        if !path.join("RobloxPlayerBeta.exe").exists() {
-            return Err(format!(
-                "Default Roblox version '{}' is missing RobloxPlayerBeta.exe at {}. Reinstall it from Settings > Versions or change the default.",
-                default, entry.install_path
-            ));
-        }
-        return Ok((entry.install_path.clone(), Some(entry.version_id())));
-    }
-
-    if let Some(entry) = most_recently_used_version(catalog) {
-        return Ok((entry.install_path.clone(), Some(entry.version_id())));
-    }
-
-    get_roblox_path().map(|p| (p, None))
+    let (path, id, _) = resolve_roblox_install_path_with_notice(account_version, settings, catalog);
+    Ok((path, id))
 }
 
 fn most_recently_used_version(
@@ -823,6 +835,29 @@ fn most_recently_used_version(
 #[cfg(test)]
 mod win_versions_tests {
     use super::*;
+
+    // Pedido do dono (23/10/2026): uma versão configurada que sumiu do
+    // catálogo recusava o launch. Agora vale a próxima regra, com aviso.
+    #[test]
+    fn a_missing_configured_version_never_blocks_the_launch() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("ram-resolve-{nanos}"));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let settings = crate::data::settings::SettingsStore::new(dir.join("s.ini"));
+        let _ = settings.set("Versions", "DefaultVersion", "ghost-default");
+        let catalog = crate::data::versions::VersionsCatalogStore::new(dir.join("v.json"));
+
+        let (_, id, notice) = resolve_roblox_install_path_with_notice(Some("ghost-account"), &settings, &catalog);
+        assert_eq!(id, None);
+        let notice = notice.expect("the launch log says why");
+        assert!(notice.contains("ghost-account"), "{notice}");
+        assert!(notice.contains("ghost-default"), "{notice}");
+        assert!(resolve_roblox_install_path(Some("ghost-account"), &settings, &catalog).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use std::io::Write as _;
 
     // ── temp-dir helpers ───────────────────────────────────────────────────

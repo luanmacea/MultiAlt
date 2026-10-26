@@ -1092,6 +1092,31 @@ describe("launchMultiple", () => {
     expect(lastArgs("launch_multiple")).toMatchObject({ shuffleJob: true });
   });
 
+  /**
+   * Achado na bateria de testes de 25/10/2026: ligar "Shuffle Job ID" nas
+   * Settings só valia depois de reiniciar o app — as 4 contas caíram no mesmo
+   * servidor. A opção tem de valer no launch seguinte, nos dois sentidos.
+   */
+  it("liga e desliga o shuffleJob na hora em que a setting muda, sem reiniciar", async () => {
+    const { result } = await setup();
+
+    await act(async () => {
+      await result.current.updateSetting("General", "ShuffleJobId", "true");
+    });
+    await act(async () => {
+      await result.current.launchMultiple([1, 2]);
+    });
+    expect(lastArgs("launch_multiple")).toMatchObject({ shuffleJob: true });
+
+    await act(async () => {
+      await result.current.updateSetting("General", "ShuffleJobId", "false");
+    });
+    await act(async () => {
+      await result.current.launchMultiple([1, 2]);
+    });
+    expect(lastArgs("launch_multiple")).toMatchObject({ shuffleJob: false });
+  });
+
   it("manda shuffleJob desligado quando a opção está desmarcada", async () => {
     const { result } = await setup();
 
@@ -3662,6 +3687,22 @@ describe("away digest", () => {
     expect(result.current.awayUnread).toBe(2);
   });
 
+  /** A verificação do Roblox apareceu: aviso com o botão que traz a janela certa. */
+  it("avisa a verificação 'confirme que é humano' e traz a janela da conta", async () => {
+    accountsData = [account({ UserID: 1, Username: "ann" })];
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("roblox-client-health")).toBe(true));
+
+    act(() => emit("roblox-client-health", { userId: 1, challenge: true }));
+
+    const toast = result.current.toasts.find((t) => t.message.includes("confirm you're human"));
+    expect(toast?.message).toBe("ann: Roblox is asking to confirm you're human. Solve it in the game window.");
+    await act(async () => {
+      toast?.action?.run();
+    });
+    expect(lastArgs("focus_roblox_window")).toEqual({ userId: 1 });
+  });
+
   it("opening the Session page marks everything as seen", async () => {
     const { result } = await renderStore();
     act(() => emit("roblox-client-health", { userId: 1, notResponding: true }));
@@ -3745,7 +3786,11 @@ describe("checkAccounts", () => {
     expect(result.current.accountCheckReport).toBeNull();
   });
 
-  it("keeps the plain counts toast for a single account", async () => {
+  /**
+   * Pedido do dono (26/10/2026): com uma conta só, o "Conferir contas" dava só
+   * o toast de contagem — a janela de resultados é o padrão para toda ação.
+   */
+  it("opens the results window for a single account too", async () => {
     results.set("check_accounts", {
       total: 1,
       ok: 0,
@@ -3761,10 +3806,7 @@ describe("checkAccounts", () => {
       await result.current.checkAccounts([2]);
     });
 
-    expect(result.current.accountCheckReport).toBeNull();
-    expect(result.current.toasts).toMatchObject([
-      { message: "0 ok, 0 invalid, 1 banned, 0 couldn't check", tone: "warn" },
-    ]);
+    expect(result.current.accountCheckReport?.results).toEqual([{ userId: 2, outcome: "banned" }]);
   });
 
   it("does not open the report when the check itself failed", async () => {
@@ -3777,5 +3819,106 @@ describe("checkAccounts", () => {
 
     expect(result.current.accountCheckReport).toBeNull();
     expect(result.current.toasts).toMatchObject([{ tone: "error" }]);
+  });
+});
+
+/**
+ * Pedido do dono (25/10/2026): as ações do menu mostram o resultado conta a
+ * conta. O "Refresh cookies" engolia o erro de cada conta (sessão morta virava
+ * só "1 failed" num toast) e não oferecia logar de novo.
+ */
+describe("ações com janela de resultados", () => {
+  async function setupThree() {
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 }), account({ UserID: 3 })];
+    settingsData = { General: {} };
+    return renderStore();
+  }
+
+  function withBackend(handler: (cmd: string, args: Record<string, unknown>) => unknown) {
+    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      const answer = handler(cmd, args ?? {});
+      if (answer instanceof Error) throw answer.message;
+      if (answer !== undefined) return answer;
+      return defaultInvoke(cmd);
+    });
+  }
+
+  it("refreshCookies separa a sessão morta (precisa de login) do que deu certo", async () => {
+    const { result } = await setupThree();
+    withBackend((cmd, args) => {
+      if (cmd !== "refresh_cookie") return undefined;
+      return args.userId === 2 ? new Error("Roblox invalidated this session. Re-login required.") : true;
+    });
+
+    await act(async () => {
+      await result.current.refreshCookies([1, 2]);
+    });
+
+    const report = result.current.actionReport!;
+    expect(report.kind).toBe("refresh-cookies");
+    expect(report.running).toBe(false);
+    expect(report.rows).toEqual([
+      { userId: 1, outcome: "ok" },
+      expect.objectContaining({ userId: 2, outcome: "login" }),
+    ]);
+  }, 10_000);
+
+  it("reloginAccounts loga de novo uma por vez e guarda o motivo de quem falhou", async () => {
+    const { result } = await setupThree();
+    withBackend((cmd, args) => {
+      if (cmd !== "relogin_account") return undefined;
+      return args.userId === 3 ? new Error("You signed in as bob, not user3.") : { userId: 2, name: "user2" };
+    });
+
+    await act(async () => {
+      await result.current.reloginAccounts([2, 3]);
+    });
+
+    expect(invokeCalls("relogin_account").map((c) => (c[1] as { userId: number }).userId)).toEqual([2, 3]);
+    const report = result.current.actionReport!;
+    expect(report.kind).toBe("relogin");
+    expect(report.rows).toEqual([
+      expect.objectContaining({ userId: 2, outcome: "ok" }),
+      // Login na conta errada: nada muda e ela continua precisando de login.
+      { userId: 3, outcome: "login", detail: "You signed in as bob, not user3. Nothing was changed." },
+    ]);
+  });
+
+  it("moveToGroup com janela mostra a conta que não foi gravada (antes era engolido)", async () => {
+    const { result } = await setupThree();
+    withBackend((cmd, args) => {
+      if (cmd !== "update_account") return undefined;
+      return (args.account as { UserID: number }).UserID === 2 ? new Error("disk full") : true;
+    });
+
+    await act(async () => {
+      await result.current.moveToGroup([1, 2], "Farm", { report: true });
+    });
+
+    expect(result.current.actionReport?.rows).toEqual([
+      { userId: 1, outcome: "ok" },
+      { userId: 2, outcome: "failed", detail: "disk full" },
+    ]);
+  });
+});
+
+/**
+ * Pedido do dono (25/10/2026): a principal, jogada todo dia pelo site, aparecia
+ * "sem uso há 20+ dias". O backend marca o uso (cliente aberto pelo site ou
+ * presença "em jogo") e avisa com `account-used`; a linha anda na hora.
+ */
+describe("account-used", () => {
+  it("atualiza o 'usado há' só da conta avisada", async () => {
+    const old = new Date(Date.now() - 20 * 24 * 3600 * 1000).toISOString();
+    accountsData = [account({ UserID: 1, LastUse: old }), account({ UserID: 2, LastUse: old })];
+    settingsData = { General: {} };
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("account-used")).toBe(true));
+
+    act(() => emit("account-used", { userId: 1 }));
+
+    const byId = new Map(result.current.accounts.map((a) => [a.UserID, a.LastUse]));
+    expect(Date.now() - new Date(byId.get(1)!).getTime()).toBeLessThan(5000);
+    expect(byId.get(2)).toBe(old);
   });
 });

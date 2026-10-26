@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Copy, Loader2, ShieldCheck, SlidersHorizontal, UserPlus } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
+import { chromiumErrorText } from "../../utils/chromiumErrors";
 import { NumericInput } from "../ui/NumericInput";
 import type { SignupIdentity, SignupStatus } from "../../types";
 
@@ -153,7 +154,7 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
       const started = await invoke<SignupStatus>("start_signup_session", { count });
       setStatus(started);
     } catch (e) {
-      store.addToast(String(e));
+      store.addToast(chromiumErrorText(e, t));
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -269,7 +270,7 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border theme-border theme-soft px-2.5 py-2">
           <p className="min-w-0 flex-1 text-[12px] theme-muted">
             {t(
-              "Getting a lot of CAPTCHAs? Settings › Accounts › Login browser has Persistent login profile and Reduce automation signals, which make this browser look less automated."
+              "Getting a lot of CAPTCHAs? Settings › Accounts › Login browser has Keep browser data between uses and Reduce automation signals, which make this browser look less automated."
             )}
           </p>
           {onOpenLoginSettings && (

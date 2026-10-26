@@ -1,14 +1,16 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
+vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { AccountCheckResultsDialog } from "./AccountCheckResultsDialog";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
 import type { AccountCheckSummary } from "../../utils/accountCheck";
 import type { ModerationStatus } from "../../types";
+import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 
 const ACCOUNTS = [
   makeAccount({ UserID: 1, Username: "fine" }),
@@ -54,6 +56,19 @@ const rowIds = () =>
 afterEach(cleanup);
 
 describe("AccountCheckResultsDialog", () => {
+  /**
+   * Sessão inválida não se resolve com "Refresh cookies" (o Roblox matou o
+   * cookie): a janela oferece logar de novo nessas contas (25/10/2026).
+   */
+  it("oferece logar de novo nas contas de sessão inválida", async () => {
+    resetPromptMocks();
+    const { store, onClose } = renderDialog();
+    promptAnswers.confirm = true;
+    await userEvent.click(screen.getByRole("button", { name: "Sign in again (1)" }));
+    await waitFor(() => expect(store.reloginAccounts).toHaveBeenCalledWith([3]));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("lists every account, banned first, each with a labelled outcome pill", () => {
     renderDialog();
     expect(screen.getByRole("heading", { name: "Account check results" })).toBeInTheDocument();

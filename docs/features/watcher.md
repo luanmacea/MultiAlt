@@ -31,6 +31,7 @@ Varredura periódica dos clientes Roblox **lançados e rastreados pelo app** par
       - **Beta** (`ExitOnBeta`): título contém "roblox beta" (case-insensitive) → mata e emite `roblox-beta-detected {userId, title}`.
       - **Sem conexão** (`ExitIfNoConnection`): o log do cliente diz que caiu (ver [Quedas](#quedas-lidas-do-log-do-cliente)); sem log achado, o título contém "disconnected", "connection error", "lost connection" ou "no connection" → começa a contar; se persistir ≥ `NoConnectionTimeout` s → mata e emite `roblox-no-connection {userId, title, timeout}`. Título normal zera o contador.
       - **Posição** (`SaveWindowPositions`, após grace): se (x, y, w, h) mudou desde a última gravação, salva em `Window_Position_X/Y`, `Window_Width`, `Window_Height` da conta.
+      - **Só janela de verdade (23/10/2026):** uma janela minimizada reporta (-32000, -32000, ~160x28) e isso **não** é gravado (`window_rect_is_usable`, [launch.rs](../../src-tauri/src/commands/launch.rs)). Antes, "minimizar tudo" gravava esse retângulo como a posição da conta e o launch seguinte levava a janela para fora da tela, no tamanho mínimo do Roblox ("voltou ao tamanho pequeno padrão"). O dado já gravado por versões antigas é **ignorado** na leitura (`window_rect_from_fields`), então se conserta sozinho; coordenadas negativas de um monitor à esquerda/acima continuam válidas.
 4. Dorme entre 50 ms e 1 s até a próxima varredura.
 
 ```mermaid
@@ -152,6 +153,16 @@ testes `roblox_log_line_tests` — e o classificador o devolve como `JoinedAs`.
 - **Cliente do site nunca conta:** ele foi reconhecido justamente por essa
   linha, e a identificação manual é decisão da pessoa.
 - Não usa o `challengedByGcs` do log.
+
+## Verificação do Roblox ("confirme que é humano", 25/10/2026)
+
+Na bateria de testes, 3 de 4 contas pararam na tela **"Hold the button to confirm you're human"** (ou "Verifying you're not a bot") que o Roblox mostra dentro da janela do jogo ao entrar no servidor, e o app só dizia "Ainda fora de um jogo". Os logs desta máquina tinham 13 dessas telas desde 24/10.
+
+- **Sinal**: o navegador embutido do cliente registra cada etapa num `navigateToFeature` do log. `"feature":"challengeDisplayed"` = a tela está esperando a pessoa (`ClientLogEvent::ChallengeShown`); `"feature":"challengeCompleted"` = resolvida (`ChallengeCompleted`). As etapas de carregamento (`challengePageLoaded`, `challengeParsed`, `challengeInitialized`) não contam. Antes delas a entrada no servidor marca `challengedByGcs`. Calibrado com os logs reais (`client_log_real_probe`: 13 aparições, 1 resolvida).
+- **Fica marcada na conta (26/10/2026).** Pedido do dono: ao abrir o app, nada dizia quais contas tinham parado nessa tela na última vez. A conta guarda `HumanCheckAt` (RFC 3339, no `AccountData.json`; ausente sem marca) quando a verificação aparece, e só perde a marca quando ela é resolvida (`challengeCompleted`) ou a conta entra num jogo — cliente fechado com a tela aberta **mantém** a marca (`human_check_mark` em [client_health.rs](../../src-tauri/src/commands/client_health.rs), `AccountStore::set_human_check`). A linha da conta mostra o escudo (`humancheck` em [StatusBadge.tsx](../../src/components/accounts/StatusBadge.tsx)) e a legenda da barra de status ganha "human check" enquanto alguma conta estiver marcada. Evento `account-human-check`.
+- **Estado**: `ClientLogSession::challenge_pending`, que vale até a resolução, a entrada no jogo (`JoinedGame`) ou o cliente fechar. A visão leva `challenge` e o monitor avisa uma vez quando aparece e outra quando sai (`HealthNotice::Challenge`, evento `roblox-client-health` com `challenge`, linha no Console).
+- **Tela**: o estado `humanCheck` ("Verificação do Roblox", escudo âmbar) na Sessão e na linha da conta em jogo; na lista de contas é o selo `humancheck` (escudo rosa `#e11d48`, [StatusBadge.tsx](../../src/components/accounts/StatusBadge.tsx)). Ele pede atenção (vai para o topo da Sessão), mas uma queda continua tendo prioridade sobre ele. Quando a tela aparece, um toast avisa com o botão "Mostrar janela", que traz o cliente certo para frente. O app **nunca** resolve a verificação: ela é da pessoa.
+- **Observação do dono (print de 25/10)**: o cabeçalho da tela de verificação mostrava a conta principal dele, e não a do cliente. A página abre no navegador embutido do Roblox, que parece guardar a sessão do site. É comportamento do Roblox, e o app não mexe nisso.
 
 ## Nome da conta na janela
 

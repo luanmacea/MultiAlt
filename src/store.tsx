@@ -35,11 +35,12 @@ import type {
   LaunchPresetEvent,
   LaunchPresetView,
 } from "./types";
-import { playAfkBeep } from "./utils/afkBeep";
+import { playAfkBeep, playAfkWarningBeep } from "./utils/afkBeep";
 import type { TabId as SettingsTabId } from "./components/settings/tabs";
 import type { AfkMode } from "./afkClickPoint";
 import {
   orderGroupKeys,
+  parseAccountDate,
   parseGroupName,
   parseGroupOrder,
   serializeGroupOrder,
@@ -147,7 +148,17 @@ import {
   clientHealthEvent,
   type AwayEvent,
 } from "./utils/awayDigest";
-import { accountCheckSummaryText, type AccountCheckSummary } from "./utils/accountCheck";
+import { type AccountCheckSummary } from "./utils/accountCheck";
+import {
+  failureRow,
+  patchRow,
+  pendingRows,
+  reloginErrorText,
+  reloginGaveUp,
+  type ActionKind,
+  type ActionReport,
+  type ActionReportRow,
+} from "./utils/actionReport";
 import {
   type UpdaterReleaseChannel,
   type UpdaterFeatureChannel,
@@ -446,6 +457,11 @@ export interface LaunchTarget {
   followUserId?: number;
 }
 
+/** `report`: a ação abre a janela de resultados conta a conta (menus "Actions" e clique direito). */
+export interface ActionReportOptions {
+  report?: boolean;
+}
+
 export interface StoreValue {
   accounts: Account[];
   groups: ParsedGroup[];
@@ -456,7 +472,7 @@ export interface StoreValue {
    * (o formato do import): vai separado para o `add_account`, nunca no cookie.
    */
   addAccountByCookie: (cookie: string, password?: string) => Promise<void>;
-  removeAccounts: (userIds: number[]) => Promise<void>;
+  removeAccounts: (userIds: number[], options?: ActionReportOptions) => Promise<void>;
   /**
    * Devolve o lote removido de `batchId` (o "Undo" do toast). Só em memória.
    * Cada toast leva o id do seu lote: um Undo antigo não desfaz uma remoção mais
@@ -539,8 +555,8 @@ export interface StoreValue {
   checkModeration: (userId: number) => Promise<ModerationStatus | null>;
   /**
    * "Check accounts": sessão e moderação de cada conta, só leitura e com ritmo
-   * limitado (`check_accounts`). Com mais de uma conta termina abrindo a janela
-   * de resultados (`accountCheckReport`); com uma só, com o toast de resumo.
+   * limitado (`check_accounts`). Termina abrindo a janela de resultados
+   * (`accountCheckReport`), com uma conta ou com várias.
    */
   checkAccounts: (userIds: number[]) => Promise<AccountCheckSummary | null>;
   /** Progresso do "Check accounts" em andamento; `null` quando parado. */
@@ -578,11 +594,11 @@ export interface StoreValue {
   presetsRevision: number;
   /** Abre um preset pela fila normal. Devolve se começou. */
   launchPreset: (preset: LaunchPresetView) => Promise<LaunchAttempt>;
-  restartRobloxClients: (userIds: number[]) => Promise<void>;
+  restartRobloxClients: (userIds: number[], options?: ActionReportOptions) => Promise<void>;
   focusRobloxClient: (userId: number) => Promise<boolean>;
   /** Fecha os clientes das contas informadas; devolve quantos foram fechados. */
   closeRobloxClients: (userIds: number[]) => Promise<number>;
-  killAllRobloxProcesses: () => Promise<void>;
+  killAllRobloxProcesses: (options?: ActionReportOptions) => Promise<void>;
 
   /** Fila de launch do lote atual (Painel de Sessão). */
   launchQueue: LaunchQueuePayload | null;
@@ -635,7 +651,7 @@ export interface StoreValue {
    */
   detectRunningGamePlace: (userIds: number[]) => Promise<number | null>;
   stopBottingMode: (closeBotAccounts: boolean) => Promise<void>;
-  addBottingAccounts: (userIds: number[]) => Promise<void>;
+  addBottingAccounts: (userIds: number[], options?: ActionReportOptions) => Promise<void>;
   setBottingPlayerAccounts: (userIds: number[]) => Promise<void>;
   bottingAccountAction: (
     userId: number,
@@ -686,7 +702,29 @@ export interface StoreValue {
   stopGenerator: () => Promise<void>;
   refreshGeneratorStatus: () => Promise<void>;
   refreshCookie: (userId: number) => Promise<boolean>;
-  moveToGroup: (userIds: number[], group: string) => Promise<void>;
+  moveToGroup: (userIds: number[], group: string, options?: ActionReportOptions) => Promise<void>;
+  /**
+   * "Refresh cookies" das contas escolhidas, com a janela de resultados conta a
+   * conta. Sessão morta vira "precisa de login" (não tem como atualizar um
+   * cookie que o Roblox invalidou), e a janela oferece "Fazer login de novo".
+   */
+  refreshCookies: (userIds: number[]) => Promise<void>;
+  /**
+   * "Fazer login de novo": uma conta por vez, o navegador de login abre com
+   * usuário e senha preenchidos (quando salvos), a pessoa resolve o CAPTCHA e
+   * o cookie novo entra na mesma conta (`relogin_account`). Atualiza as linhas
+   * da janela de resultados aberta, ou abre uma.
+   */
+  reloginAccounts: (userIds: number[]) => Promise<void>;
+  /** Resultado conta a conta da última ação do menu; não nulo = janela aberta. */
+  actionReport: ActionReport | null;
+  setActionReport: (report: ActionReport | null) => void;
+  /** Abre a janela de resultados de uma ação com as contas "na fila". */
+  startActionReport: (kind: ActionKind, title: string, userIds: number[], extra?: Partial<ActionReport>) => void;
+  /** Troca a linha de uma conta na janela aberta. */
+  patchActionRow: (row: ActionReportRow) => void;
+  /** Marca a ação como terminada (com resumo e linhas finais, quando vierem). */
+  finishActionReport: (extra?: Partial<ActionReport>) => void;
   sortGroupAlphabetically: (groupKey: string) => void;
   /**
    * Renomeia o grupo `from` (ou junta-o a `to`, se já existir): contas e
@@ -824,6 +862,9 @@ export interface StoreValue {
   /** Checagem "o launch não faz nada" (ideia 16) — Settings e a faixa de erro. */
   diagnosticsOpen: boolean;
   setDiagnosticsOpen: (open: boolean) => void;
+  /** Checagem do navegador de login (`run_browser_diagnostics`). */
+  browserCheckOpen: boolean;
+  setBrowserCheckOpen: (open: boolean) => void;
   /** Adicionar conta por Quick Login (ideia 12) — menu Add e AddAccountDialog. */
   quickLoginOpen: boolean;
   setQuickLoginOpen: (open: boolean) => void;
@@ -918,7 +959,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       value: hide ? "true" : "false",
     }).catch(() => {});
   }, []);
-  const [shuffleJobId, setShuffleJobId] = useState(false);
   const [serverPreference, _setServerPreference] = useState<ServerPreference>("bestfit");
   const [serverRegionFilter, _setServerRegionFilter] = useState("");
 
@@ -956,6 +996,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chooseGameOpen, setChooseGameOpen] = useState(false);
   const [settings, setSettings] = useState<Record<string, Record<string, string>> | null>(null);
+  // Sai direto das settings: a opção ligada nas Settings vale já no launch
+  // seguinte (antes só era lida ao abrir o app).
+  const shuffleJobId = settings?.General?.ShuffleJobId === "true";
+  const setShuffleJobId = (shuffle: boolean) => {
+    void updateSetting("General", "ShuffleJobId", shuffle ? "true" : "false");
+  };
   const [platformCapabilities, setPlatformCapabilities] = useState<PlatformCapabilities | null>(null);
   const [theme, setThemeState] = useState<ThemeData | null>(null);
   const [avatarUrls, setAvatarUrls] = useState<Map<number, string>>(new Map());
@@ -963,6 +1009,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [moderationByUserId, setModerationByUserId] = useState<Map<number, ModerationStatus>>(new Map());
   const [accountCheckProgress, setAccountCheckProgress] = useState<{ done: number; total: number } | null>(null);
   const [accountCheckReport, setAccountCheckReport] = useState<StoreValue["accountCheckReport"]>(null);
+  const [actionReport, setActionReport] = useState<ActionReport | null>(null);
+  const startActionReport = useCallback(
+    (kind: ActionKind, title: string, userIds: number[], extra?: Partial<ActionReport>) => {
+      setActionReport({ kind, title, rows: pendingRows(userIds), running: true, at: Date.now(), ...extra });
+    },
+    []
+  );
+  const patchActionRow = useCallback((row: ActionReportRow) => {
+    setActionReport((prev) => (prev ? { ...prev, rows: patchRow(prev.rows, row) } : prev));
+  }, []);
+  const finishActionReport = useCallback((extra?: Partial<ActionReport>) => {
+    setActionReport((prev) => (prev ? { ...prev, ...extra, running: false } : prev));
+  }, []);
   const rememberModeration = useCallback((userId: number, status: ModerationStatus) => {
     setModerationByUserId((prev) => {
       const next = new Map(prev);
@@ -1097,6 +1156,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [browserCheckOpen, setBrowserCheckOpen] = useState(false);
   const [quickLoginOpen, setQuickLoginOpen] = useState(false);
   const [presetsDialog, setPresetsDialog] = useState<{ draft: LaunchPreset | null } | null>(null);
   const [presetsRevision, setPresetsRevision] = useState(0);
@@ -1604,11 +1664,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * `remove_account` por conta e a remoção só voltava restaurando um backup
    * inteiro.
    */
-  async function removeAccounts(userIds: number[]) {
+  async function removeAccounts(userIds: number[], options?: ActionReportOptions) {
+    if (options?.report) startActionReport("remove-accounts", tr("Remove accounts"), userIds);
     try {
       const result = await invoke<{ batchId: number; count: number }>("remove_accounts", {
         userIds,
       });
+      if (options?.report) {
+        finishActionReport({
+          rows: Array.from(new Set(userIds)).map((userId) => ({ userId, outcome: "ok" as const })),
+          undoBatchId: result?.batchId,
+        });
+      }
       setSelectedIds((prev) => {
         const next = new Set(prev);
         userIds.forEach((id) => next.delete(id));
@@ -1627,6 +1694,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
     } catch (e) {
       setError(String(e));
+      if (options?.report) {
+        finishActionReport({
+          rows: Array.from(new Set(userIds)).map((userId) => ({
+            userId,
+            outcome: "failed" as const,
+            detail: String(e),
+          })),
+        });
+      }
     }
   }
 
@@ -1685,14 +1761,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const summary = await invoke<AccountCheckSummary>("check_accounts", { userIds });
       // `Valid` pode ter mudado no backend (401 = inválida, 200 = válida de novo).
       await loadAccounts().catch(() => {});
-      if (userIds.length > 1) {
-        // Várias contas: o toast de contagens não diz QUAIS foram banidas. A
-        // janela de resultados lista conta por conta.
-        setAccountCheckReport({ results: summary.results, at: Date.now() });
-      } else {
-        const tone: ToastTone = summary.invalid > 0 || summary.banned > 0 ? "warn" : "success";
-        addToast(accountCheckSummaryText(summary, tr), tone);
-      }
+      // Sempre a janela de resultados, mesmo com uma conta só (pedido do dono,
+      // 26/10/2026): é o padrão das ações, e é nela que estão "Fazer login de
+      // novo" e o motivo de cada conta.
+      setAccountCheckReport({ results: summary.results, at: Date.now() });
       return summary;
     } catch (e) {
       addToast(tr("Check failed: {{error}}", { error: String(e) }), "error");
@@ -1708,17 +1780,91 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return ok;
   }
 
-  async function moveToGroup(userIds: number[], group: string) {
+  async function refreshCookies(userIds: number[]) {
+    const ids = Array.from(new Set(userIds));
+    if (ids.length === 0) return;
+    startActionReport("refresh-cookies", tr("Refresh cookies"), ids);
+    const loginDetail = tr("Roblox ended this session. Sign in again to use the account.");
+    for (const [index, userId] of ids.entries()) {
+      patchActionRow({ userId, outcome: "running" });
+      try {
+        await invoke<boolean>("refresh_cookie", { userId });
+        patchActionRow({ userId, outcome: "ok" });
+      } catch (e) {
+        patchActionRow(failureRow(userId, e, loginDetail));
+      }
+      // O mesmo ritmo de antes: cada refresh é uma escrita no Roblox.
+      if (index + 1 < ids.length) await new Promise((r) => setTimeout(r, 2000));
+    }
+    await loadAccounts().catch(() => {});
+    finishActionReport();
+  }
+
+  async function reloginAccounts(userIds: number[]) {
+    const ids = Array.from(new Set(userIds));
+    if (ids.length === 0) return;
+    // A janela aberta (do refresh, por exemplo) troca as linhas no lugar; sem
+    // janela, abre uma só do novo login.
+    setActionReport((prev) =>
+      prev
+        ? { ...prev, running: true }
+        : { kind: "relogin", title: tr("Sign in again"), rows: pendingRows(ids), running: true, at: Date.now() }
+    );
+    for (const userId of ids) {
+      const name = accountLabel(accounts.find((a) => a.UserID === userId), {
+        hideUsernames,
+        hiddenNameLetters,
+      });
+      patchActionRow({
+        userId,
+        outcome: "running",
+        detail: tr("Sign in to {{name}} in the browser window. You solve the CAPTCHA.", { name }),
+      });
+      try {
+        const result = await invoke<{ moderated?: boolean } | null>("relogin_account", { userId });
+        patchActionRow({
+          userId,
+          outcome: "ok",
+          // Conta moderada: a sessão foi gravada, mas o Roblox a restringe.
+          detail: result?.moderated
+            ? tr("Signed in, but Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved.")
+            : tr("Signed in again"),
+        });
+      } catch (e) {
+        // Não deu (janela fechada, tempo, outra conta): ela continua precisando
+        // de login, e o botão fica para tentar de novo.
+        patchActionRow({
+          userId,
+          outcome: reloginGaveUp(e) ? "failed" : "login",
+          detail: reloginErrorText(e, tr),
+        });
+      }
+    }
+    await loadAccounts().catch(() => {});
+    finishActionReport();
+  }
+
+  async function moveToGroup(userIds: number[], group: string, options?: ActionReportOptions) {
+    const groupName = parseGroupName(group).displayName;
+    if (options?.report) startActionReport("move-group", tr("Move to {{group}}", { group: groupName }), userIds);
     const updated = accounts.map((a) =>
       userIds.includes(a.UserID) ? { ...a, Group: group } : a
     );
     setAccounts(updated);
     for (const a of updated) {
       if (userIds.includes(a.UserID)) {
-        await invoke("update_account", { account: a }).catch(() => {});
+        // A falha de gravação era engolida: a conta aparecia no grupo novo e
+        // voltava ao reabrir o app.
+        try {
+          await invoke("update_account", { account: a });
+          if (options?.report) patchActionRow({ userId: a.UserID, outcome: "ok" });
+        } catch (e) {
+          if (options?.report) patchActionRow({ userId: a.UserID, outcome: "failed", detail: String(e) });
+        }
       }
     }
-    addToast(tr("Moved to {{group}}", { group: parseGroupName(group).displayName }));
+    if (options?.report) finishActionReport();
+    else addToast(tr("Moved to {{group}}", { group: groupName }));
   }
 
   async function renameGroup(from: string, to: string): Promise<boolean> {
@@ -2163,17 +2309,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function killAllRobloxProcesses() {
+  async function killAllRobloxProcesses(options?: ActionReportOptions) {
+    // Fecha todos os clientes, não só os das contas escolhidas: a janela lista
+    // as contas que estavam com cliente aberto.
+    const openIds = Array.from(launchedByProgram);
+    if (options?.report) startActionReport("close-all", tr("Close all Roblox clients"), openIds);
     try {
       const killed = await invoke<number>("cmd_kill_all_roblox");
       clearLaunchTimeout();
       setJoiningAccounts(new Set());
       setLaunchProgress(null);
-      addToast(killed > 0
+      const summary = killed > 0
         ? tr(killed === 1 ? "Closed {{count}} Roblox process" : "Closed {{count}} Roblox processes", { count: killed })
-        : tr("No open Roblox processes found"));
+        : tr("No open Roblox processes found");
+      if (options?.report) {
+        finishActionReport({
+          rows: openIds.map((userId) => ({ userId, outcome: "ok" as const, detail: tr("Client closed") })),
+          summary,
+        });
+      } else {
+        addToast(summary);
+      }
       setError(null);
     } catch (e) {
+      if (options?.report) finishActionReport({ summary: tr("Failed to close Roblox: {{error}}", { error: String(e) }) });
       setError(String(e));
       setActionStatusMessage(tr("Failed to close Roblox: {{error}}", { error: String(e) }), "error", 5000);
     }
@@ -2267,12 +2426,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return invoke<boolean>("dismiss_closed_client", { userId });
   }
 
-  async function restartRobloxClients(userIds: number[]) {
+  async function restartRobloxClients(userIds: number[], options?: ActionReportOptions) {
     const uniqueIds = Array.from(new Set(userIds));
     const launchedIds = uniqueIds.filter((userId) => launchedByProgram.has(userId));
     if (launchedIds.length === 0) {
       addToast(tr("No launched Roblox clients selected"));
       return;
+    }
+    const report = options?.report === true;
+    if (report) {
+      startActionReport("restart-clients", tr("Restart clients"), uniqueIds);
+      for (const userId of uniqueIds) {
+        if (!launchedByProgram.has(userId)) {
+          patchActionRow({ userId, outcome: "skipped", detail: tr("No client open by the app") });
+        }
+      }
     }
 
     let closeFailures = 0;
@@ -2280,13 +2448,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const closed = await invoke<boolean>("cmd_kill_roblox", { userId });
         if (!closed) closeFailures += 1;
-      } catch {
+        if (report) {
+          patchActionRow(
+            closed
+              ? { userId, outcome: "ok", detail: tr("Closed and sent to the launch queue (see Session)") }
+              : { userId, outcome: "failed", detail: tr("The client could not be closed") }
+          );
+        }
+      } catch (e) {
         closeFailures += 1;
+        if (report) patchActionRow({ userId, outcome: "failed", detail: String(e) });
       }
     }
+    if (report) finishActionReport();
 
     await new Promise((resolve) => setTimeout(resolve, 250));
-    if (closeFailures > 0) {
+    if (closeFailures > 0 && !report) {
       addToast(tr("Some clients could not be closed before restart"));
     }
 
@@ -2423,13 +2600,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function addBottingAccounts(userIds: number[]) {
+  async function addBottingAccounts(userIds: number[], options?: ActionReportOptions) {
     if (userIds.length === 0) return;
+    if (options?.report) startActionReport("add-auto-rejoin", tr("Add to Auto Rejoin"), userIds);
     try {
       const status = await invoke<BottingStatus>("add_botting_accounts", {
         userIds,
       });
       setBottingStatus(status);
+      if (options?.report) {
+        const inRun = new Set(status?.userIds ?? []);
+        finishActionReport({
+          rows: Array.from(new Set(userIds)).map((userId) =>
+            inRun.has(userId)
+              ? { userId, outcome: "ok" as const }
+              : { userId, outcome: "failed" as const, detail: tr("Auto Rejoin did not take this account") }
+          ),
+        });
+        return;
+      }
       addToast(
         tr(
           userIds.length === 1
@@ -2440,6 +2629,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       );
     } catch (e) {
       setError(String(e));
+      if (options?.report) {
+        finishActionReport({
+          rows: Array.from(new Set(userIds)).map((userId) => ({ userId, outcome: "failed" as const, detail: String(e) })),
+        });
+      }
       throw e;
     }
   }
@@ -2912,7 +3106,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         void i18n.changeLanguage(normalizeLanguage(s?.General?.Language));
         if (s?.General?.HideUsernames === "true") setHideUsernamesState(true);
-        if (s?.General?.ShuffleJobId === "true") setShuffleJobId(true);
         _setServerPreference(normalizeServerPreference(s?.General?.ServerPreference));
         _setServerRegionFilter((s?.General?.ServerRegionFilter || "").trim().toUpperCase());
         _setServerScanPages(normalizeServerScanPages(Number(s?.General?.ServerScanPages)));
@@ -3127,11 +3320,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ),
       // Queda lida do log do Roblox (commands/client_health.rs): vale com o
       // Watcher desligado também — só avisa, não fecha nada.
-      listen<{ userId: number; drop?: ClientDrop | null; notResponding?: boolean }>("roblox-client-health", (e) => {
-        const { userId, drop, notResponding } = e.payload;
+      listen<{ userId: number; drop?: ClientDrop | null; notResponding?: boolean; challenge?: boolean }>("roblox-client-health", (e) => {
+        const { userId, drop, notResponding, challenge } = e.payload;
         void refreshRunningRef.current();
         const awayEvent = clientHealthEvent(e.payload, Date.now());
         if (awayEvent) dispatchAway({ type: "add", event: awayEvent });
+        // A verificação "confirme que é humano" apareceu (bateria de
+        // 25/10/2026: 3 de 4 contas paradas nela, e o app só dizia "ainda fora
+        // de um jogo"). O botão traz a janela certa para frente.
+        if (challenge === true) {
+          const acct = accountsRef.current.find((a) => a.UserID === userId);
+          const name = accountLabel(acct, nameMaskingRef.current, userId);
+          addToast(
+            tr("{{name}}: Roblox is asking to confirm you're human. Solve it in the game window.", { name }),
+            "warn",
+            { action: { label: tr("Show window"), run: () => void focusRobloxClient(userId) } }
+          );
+          return;
+        }
         if (!drop && !notResponding) return;
         const status = clientHealthLabel({ pid: 0, logFound: true, drop: drop ?? null, notResponding }, tr);
         if (!status) return;
@@ -3167,6 +3373,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // Moderação lida pelo backend (painel, "conferir contas", antes do launch).
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
         if (e.payload?.status) rememberModeration(e.payload.userId, e.payload.status);
+      }),
+      // Conta jogada fora do app (pelo site, ou "em jogo" pela presença): o
+      // backend regrava o "usado há" e avisa — a linha anda sem recarregar.
+      // Launch que falhou com a sessão morta: o backend marcou `Valid=false`.
+      listen<{ userId: number }>("account-session-dead", (e) => {
+        const userId = e.payload?.userId;
+        if (typeof userId !== "number") return;
+        setAccounts((prev) => prev.map((a) => (a.UserID === userId ? { ...a, Valid: false } : a)));
+      }),
+      // Verificação "confirme que é humano" que ficou sem resolver (ou saiu).
+      listen<{ userId: number; at: string | null }>("account-human-check", (e) => {
+        const userId = e.payload?.userId;
+        if (typeof userId !== "number") return;
+        const at = e.payload?.at ?? null;
+        setAccounts((prev) => prev.map((a) => (a.UserID === userId ? { ...a, HumanCheckAt: at } : a)));
+      }),
+      listen<{ userId: number }>("account-used", (e) => {
+        const userId = e.payload?.userId;
+        if (typeof userId !== "number") return;
+        const now = new Date().toISOString();
+        setAccounts((prev) => prev.map((a) => (a.UserID === userId ? { ...a, LastUse: now } : a)));
       }),
       listen<{ done: number; total: number }>("account-check-progress", (e) => {
         const { done, total } = e.payload ?? { done: 0, total: 0 };
@@ -3294,6 +3521,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } catch {
           // Sem som é perda aceitável; nada a mostrar na tela.
         }
+      }),
+      // Aviso de 3 s antes do ciclo: o backend só emite com
+      // `Afk.BeepBeforeCycle` ligado.
+      listen("afk-cycle-soon", () => {
+        playAfkWarningBeep();
       }),
       listen("afk-stopped", () => {
         setAfkStatus((prev) => (prev ? { ...prev, active: false, accounts: [] } : prev));
@@ -3620,10 +3852,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const now = Date.now();
       for (const account of accounts) {
         if (account.Fields?.NoCookieRefresh === "true") continue;
-        const daysSinceUse = (now - new Date(account.LastUse).getTime()) / 86400000;
+        const daysSinceUse = (now - parseAccountDate(account.LastUse).getTime()) / 86400000;
         if (daysSinceUse < 20) continue;
         const daysSinceRefresh =
-          (now - new Date(account.LastAttemptedRefresh).getTime()) / 86400000;
+          (now - parseAccountDate(account.LastAttemptedRefresh).getTime()) / 86400000;
         if (daysSinceRefresh < 7) continue;
         await refreshCookie(account.UserID);
         await new Promise((r) => setTimeout(r, 5000));
@@ -3895,6 +4127,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     accountCheckProgress,
     accountCheckReport,
     setAccountCheckReport,
+    actionReport,
+    setActionReport,
+    startActionReport,
+    patchActionRow,
+    finishActionReport,
+    refreshCookies,
+    reloginAccounts,
     launchedByProgram,
     adoptedClients,
     unidentifiedClients,
@@ -4033,6 +4272,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setVersionsDialogOpen,
     diagnosticsOpen,
     setDiagnosticsOpen,
+    browserCheckOpen,
+    setBrowserCheckOpen,
     quickLoginOpen,
     setQuickLoginOpen,
     setSessionDialogOpen,

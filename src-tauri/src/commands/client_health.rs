@@ -60,6 +60,11 @@ pub enum ClientLogEvent {
     ServerAddress { address: String },
     /// `Server Prefix: ..._<AAAAMMDDTHHMMSSZ>_RCC_...`: quando o servidor subiu.
     ServerStarted { started_at_ms: i64 },
+    /// A tela "confirme que é humano" do Roblox apareceu na janela
+    /// (`"feature":"challengeDisplayed"` do navegador embutido do cliente).
+    ChallengeShown,
+    /// A pessoa resolveu a verificação (`"feature":"challengeCompleted"`).
+    ChallengeCompleted,
 }
 
 /// Texto depois de `marker`, se houver.
@@ -145,6 +150,12 @@ fn kick_message(line: &str) -> Option<Option<String>> {
 /// Classifica uma linha do log do cliente. Puro: nada aqui guarda a linha
 /// (ela pode trazer ticket, IP e Job ID).
 pub fn classify_log_line(line: &str) -> Option<ClientLogEvent> {
+    if line.contains("\"feature\":\"challengeDisplayed\"") {
+        return Some(ClientLogEvent::ChallengeShown);
+    }
+    if line.contains("\"feature\":\"challengeCompleted\"") {
+        return Some(ClientLogEvent::ChallengeCompleted);
+    }
     if let Some(user_id) = crate::roblox_log::game_join_user_id(line) {
         return Some(ClientLogEvent::JoinedAs { user_id });
     }
@@ -277,6 +288,8 @@ pub struct ClientLogSession {
     destination: Option<JoinedDestination>,
     /// A conta com que o cliente entrou no jogo, pelo log (a última vista).
     logged_user_id: Option<i64>,
+    /// A verificação "confirme que é humano" está na tela, esperando a pessoa.
+    challenge: bool,
 }
 
 impl ClientLogSession {
@@ -291,6 +304,8 @@ impl ClientLogSession {
                 self.left = false;
                 self.joined = true;
                 self.last_teleport_ms = None;
+                // Entrou: a verificação (se havia) passou.
+                self.challenge = false;
                 match (place_id, self.destination.as_mut()) {
                     (Some(place_id), _) => {
                         self.destination = Some(JoinedDestination {
@@ -319,6 +334,8 @@ impl ClientLogSession {
                 }
             }
             ClientLogEvent::JoinedAs { user_id } => self.logged_user_id = Some(*user_id),
+            ClientLogEvent::ChallengeShown => self.challenge = true,
+            ClientLogEvent::ChallengeCompleted => self.challenge = false,
             ClientLogEvent::TeleportStarted => self.last_teleport_ms = Some(now_ms),
             ClientLogEvent::LeftVoluntarily => self.left = true,
             ClientLogEvent::Disconnected { code, reason } => self.note_drop(ClientDrop {
@@ -392,6 +409,12 @@ impl ClientLogSession {
     /// sinal que a fila de launch espera antes da próxima conta (launch.rs).
     pub fn in_game(&self) -> bool {
         self.joined && !self.left && self.drop.is_none() && self.pending.is_none()
+    }
+
+    /// A tela "confirme que é humano" está esperando a pessoa (apareceu, e
+    /// ainda não foi resolvida nem a conta entrou no jogo).
+    pub fn challenge_pending(&self) -> bool {
+        self.challenge
     }
 
     /// A conta com que o cliente entrou no jogo, se o log já disse.
@@ -566,6 +589,8 @@ struct ClientHealthEntry {
     not_responding: bool,
     /// A conta que o log mostrou, quando é outra (ver `wrong_account`).
     wrong_account: Option<i64>,
+    /// A verificação pendente que já virou aviso (para avisar uma vez só).
+    challenge_reported: bool,
 }
 
 impl ClientHealthEntry {
@@ -584,6 +609,7 @@ impl ClientHealthEntry {
             hung: HungWatch::default(),
             not_responding: false,
             wrong_account: None,
+            challenge_reported: false,
         }
     }
 
@@ -612,6 +638,8 @@ pub struct ClientHealthView {
     /// O servidor em que está: região (pelo IP público) e desde quando está no
     /// ar. `None` enquanto o log não disse nada do servidor.
     pub server: Option<ClientServerView>,
+    /// A tela "confirme que é humano" do Roblox está esperando a pessoa.
+    pub challenge: bool,
     /// Onde entrou por último — só para a reconexão, não vai para a tela.
     #[serde(skip)]
     pub destination: Option<JoinedDestination>,
@@ -778,6 +806,11 @@ pub enum HealthNotice {
     NotResponding { user_id: i64, not_responding: bool },
     /// O cliente aberto para `user_id` entrou como `logged_user_id`.
     WrongAccount { user_id: i64, logged_user_id: i64 },
+    /// A verificação "confirme que é humano" apareceu (`pending`) ou saiu da
+    /// tela (resolvida, entrou no jogo ou o cliente fechou).
+    /// `resolved`: saiu porque a pessoa resolveu (ou a conta entrou no jogo),
+    /// não porque o cliente fechou com ela na tela.
+    Challenge { user_id: i64, pending: bool, resolved: bool },
 }
 
 #[derive(Debug, Default)]
@@ -880,6 +913,18 @@ impl ClientHealthMonitor {
                 });
             }
             entry.wrong_account = wrong;
+
+            // Verificação do Roblox na tela: avisa quando aparece e quando sai.
+            let still_on_screen = entry.session.challenge_pending();
+            let challenge = !entry.exit_seen && still_on_screen;
+            if challenge != entry.challenge_reported {
+                notices.push(HealthNotice::Challenge {
+                    user_id: client.user_id,
+                    pending: challenge,
+                    resolved: !still_on_screen,
+                });
+                entry.challenge_reported = challenge;
+            }
 
             let window = alive
                 .contains(&entry.pid)
@@ -993,6 +1038,7 @@ impl ClientHealthMonitor {
                         in_game: !entry.exit_seen && entry.session.in_game(),
                         wrong_account_user_id: entry.wrong_account,
                         server: server_view_of(entry.session.destination()),
+                        challenge: !entry.exit_seen && entry.session.challenge_pending(),
                         destination: entry.session.destination().cloned(),
                         exited: entry.exit_seen,
                     },
@@ -1274,6 +1320,33 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 wrong_account_console_line(*logged_user_id, queue_stopped),
             );
         }
+        HealthNotice::Challenge { user_id, pending, resolved } => {
+            // A conta guarda a marca para a próxima vez que o app abrir.
+            if let Some(mark) = human_check_mark(*pending, *resolved) {
+                let store = app.state::<AccountStore>();
+                if store.set_human_check(*user_id, mark).unwrap_or(false) {
+                    let at = store
+                        .get_all()
+                        .ok()
+                        .and_then(|all| all.into_iter().find(|a| a.user_id == *user_id))
+                        .and_then(|a| a.human_check_at);
+                    let _ = app.emit("account-human-check", serde_json::json!({ "userId": user_id, "at": at }));
+                }
+            }
+            let _ = app.emit(
+                "roblox-client-health",
+                serde_json::json!({
+                    "userId": user_id,
+                    "challenge": pending,
+                }),
+            );
+            let line = if *pending {
+                "O Roblox pediu uma verificação (confirme que é humano): resolva na janela do jogo"
+            } else {
+                "A verificação do Roblox saiu da tela"
+            };
+            emit_launch_log(app, *user_id, if *pending { "warn" } else { "info" }, "client", String::from(line));
+        }
         HealthNotice::Recovered { user_id } => {
             let _ = app.emit(
                 "roblox-client-health",
@@ -1284,6 +1357,20 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
             );
             emit_launch_log(app, *user_id, "info", "client", String::from("Entrou num jogo de novo"));
         }
+    }
+}
+
+/// O que fazer com a marca de verificação humana da conta a cada aviso:
+/// `Some(true)` marca (apareceu), `Some(false)` limpa (resolvida, ou entrou no
+/// jogo), `None` deixa como está (o cliente fechou com ela na tela — a próxima
+/// abertura vai pedir de novo).
+fn human_check_mark(pending: bool, resolved: bool) -> Option<bool> {
+    if pending {
+        Some(true)
+    } else if resolved {
+        Some(false)
+    } else {
+        None
     }
 }
 
@@ -1298,6 +1385,26 @@ mod client_log_classifier_tests {
 
     fn line(body: &str) -> String {
         format!("{PREFIX} {body}")
+    }
+
+    // ── verificação do Roblox ("confirme que é humano", 25/10/2026) ────────
+    //
+    // O navegador embutido do cliente registra cada etapa do desafio num
+    // `navigateToFeature`. Formato calibrado com os logs da máquina do dono;
+    // ids trocados por falsos.
+    fn challenge_line(feature: &str) -> String {
+        line(&format!(
+            "[FLog::Output] {{\"namespace\":\"Navigation\",\"functionName\":\"navigateToFeature\",\"params\":{{\"params\":{{\"feature\":\"{feature}\",\"data\":{{}}}}}},\"callbackID\":\"00000000-0000-0000-0000-000000000000\"}}"
+        ))
+    }
+
+    #[test]
+    fn the_human_check_on_screen_and_its_completion_are_recognized() {
+        assert_eq!(classify_log_line(&challenge_line("challengeDisplayed")), Some(ClientLogEvent::ChallengeShown));
+        assert_eq!(classify_log_line(&challenge_line("challengeCompleted")), Some(ClientLogEvent::ChallengeCompleted));
+        // As etapas de carregamento não mostram nada ainda.
+        assert_eq!(classify_log_line(&challenge_line("challengePageLoaded")), None);
+        assert_eq!(classify_log_line(&challenge_line("challengeInitialized")), None);
     }
 
     #[test]
@@ -1592,6 +1699,8 @@ mod client_log_classifier_tests {
                         ClientLogEvent::JoinedAs { .. } => "joined as".to_string(),
                         ClientLogEvent::ServerAddress { .. } => "server address".to_string(),
                         ClientLogEvent::ServerStarted { .. } => "server started".to_string(),
+                        ClientLogEvent::ChallengeShown => "human check shown".to_string(),
+                        ClientLogEvent::ChallengeCompleted => "human check completed".to_string(),
                     };
                     *counts.entry(key).or_default() += 1;
                     session.apply(&event, 0);
@@ -1639,6 +1748,23 @@ mod client_log_session_tests {
             code: 277,
             reason: DropReason::ConnectionLost,
         }
+    }
+
+    /// A verificação aparece e fica pendente até ser resolvida ou a conta
+    /// entrar no jogo.
+    #[test]
+    fn a_human_check_is_pending_until_solved_or_the_account_joins() {
+        let mut s = ClientLogSession::default();
+        assert!(!s.challenge_pending());
+        s.apply(&ClientLogEvent::ChallengeShown, T0);
+        assert!(s.challenge_pending());
+        assert!(!s.in_game());
+        s.apply(&ClientLogEvent::ChallengeCompleted, T0 + 5_000);
+        assert!(!s.challenge_pending());
+
+        s.apply(&ClientLogEvent::ChallengeShown, T0 + 10_000);
+        s.apply(&joined(), T0 + 20_000);
+        assert!(!s.challenge_pending(), "entrou no jogo: a verificação passou");
     }
 
     #[test]
@@ -1939,6 +2065,67 @@ mod client_health_monitor_tests {
     const JOIN: &str = "x [FLog::Output] ! Joining game 'a' place 1 at 10.0.0.1\n";
     const LOST: &str = "x [FLog::Network] Disconnection Notification. Reason: 277\n";
     const LEAVE: &str = "x [FLog::SingleSurfaceApp] leaveUGCGameInternal\n";
+
+    const CHALLENGE: &str = "x [FLog::Output] {\"feature\":\"challengeDisplayed\"}\n";
+    const CHALLENGE_DONE: &str = "x [FLog::Output] {\"feature\":\"challengeCompleted\"}\n";
+
+    /// Bateria de 25/10/2026: 3 de 4 contas pararam na tela "confirme que é
+    /// humano" e o app só dizia "ainda fora de um jogo". Agora avisa uma vez
+    /// quando ela aparece e outra quando some, e a Sessão mostra.
+    #[test]
+    fn a_human_check_becomes_a_notice_and_shows_in_the_view() {
+        let os = FakeOs::with_client(10, CHALLENGE);
+        let mut monitor = ClientHealthMonitor::new();
+        let notices = monitor.tick(&os, &[ours(1, 10)], T0);
+        assert_eq!(notices, vec![HealthNotice::Challenge { user_id: 1, pending: true, resolved: false }]);
+        assert!(monitor.views()[&1].challenge);
+
+        // Nada novo no log: não repete o aviso.
+        assert!(monitor.tick(&os, &[ours(1, 10)], T0 + 2_000).is_empty());
+
+        os.append(10, CHALLENGE_DONE);
+        let notices = monitor.tick(&os, &[ours(1, 10)], T0 + 4_000);
+        assert_eq!(notices, vec![HealthNotice::Challenge { user_id: 1, pending: false, resolved: true }]);
+        assert!(!monitor.views()[&1].challenge);
+    }
+
+    #[test]
+    fn a_closed_client_is_no_longer_waiting_for_a_human_check() {
+        let os = FakeOs::with_client(10, CHALLENGE);
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[ours(1, 10)], T0);
+        os.alive.borrow_mut().clear();
+        let notices = monitor.tick(&os, &[ours(1, 10)], T0 + 2_000);
+        // Fechou sem resolver: a marca da conta fica (`human_check_mark`).
+        assert!(
+            notices.contains(&HealthNotice::Challenge { user_id: 1, pending: false, resolved: false }),
+            "{notices:?}"
+        );
+        assert!(!monitor.views()[&1].challenge);
+    }
+
+    /// Pedido do dono (26/10/2026): ao abrir o app, nada dizia quais contas
+    /// tinham parado na verificação "confirme que é humano" na última vez. A
+    /// conta guarda a marca até a verificação ser resolvida ou ela entrar num jogo.
+    #[test]
+    fn the_account_keeps_the_human_check_mark_until_it_is_solved() {
+        assert_eq!(human_check_mark(true, false), Some(true));
+        assert_eq!(human_check_mark(false, true), Some(false));
+        // Cliente fechado com a verificação na tela: continua marcada.
+        assert_eq!(human_check_mark(false, false), None);
+    }
+
+    #[test]
+    fn joining_a_game_after_a_human_check_clears_the_mark() {
+        let os = FakeOs::with_client(10, CHALLENGE);
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[ours(1, 10)], T0);
+        os.append(10, "x [FLog::Output] ! Joining game 'abc' place 123 at 1.2.3.4
+");
+        let notices = monitor.tick(&os, &[ours(1, 10)], T0 + 2_000);
+        let resolved = notices.iter().any(|n| matches!(n, HealthNotice::Challenge { user_id: 1, resolved: true, .. }));
+        assert!(resolved, "{notices:?}");
+    }
 
     fn ours(user_id: i64, pid: u32) -> TrackedClient {
         TrackedClient {
@@ -2518,6 +2705,7 @@ mod client_server_region_tests {
             in_game: true,
             wrong_account_user_id: None,
             server: server_view_of(Some(&destination)),
+            challenge: false,
             destination: Some(destination),
             exited: false,
         }

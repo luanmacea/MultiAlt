@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -20,7 +20,7 @@ pub(super) fn manual_binary_path(settings: &SettingsStore) -> String {
     settings.get_string(MANUAL_BINARY_PATH_KEY.0, MANUAL_BINARY_PATH_KEY.1)
 }
 
-const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
+pub(super) const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
 const ROBLOX_HOME_URL: &str = "https://www.roblox.com/home";
 const ROBLOX_COMMUNITIES_URL: &str = "https://www.roblox.com/communities";
 
@@ -95,6 +95,10 @@ fn kill_untracked(mut child: std::process::Child) {
 pub struct ImportedAccount {
     pub user_id: i64,
     pub name: String,
+    /// O login deu certo, mas o Roblox está restringindo a conta (banida,
+    /// advertida ou em análise).
+    #[serde(default)]
+    pub moderated: bool,
 }
 
 #[tauri::command]
@@ -146,6 +150,10 @@ pub async fn open_account_browser(
     // Duas instâncias no mesmo perfil brigam pelo lock do Chromium: a janela
     // antiga desta conta tem que sair antes de plantarmos o cookie de novo.
     chromium.kill(user_id);
+    let private = !keeps_browser_data(&settings);
+    if private {
+        let _ = wipe_profile_dir(&profile);
+    }
 
     // Fase 1 — browser de setup. É o único momento em que a porta de debug
     // existe: ele fica em `about:blank`, sem nenhuma página do Roblox aberta,
@@ -188,7 +196,11 @@ pub async fn open_account_browser(
     // valendo sem precisarmos injetar nada.
     let start_url = account_browser_start_url(group_id);
     let (child, _) = spawn_chrome(&binary, &profile, &start_url, false, stealth).await?;
+    let pid = child.id();
     chromium.track(user_id, child);
+    if private {
+        wipe_profile_when_closed(app.clone(), user_id, pid, profile);
+    }
     Ok(())
 }
 
@@ -257,6 +269,8 @@ pub(crate) struct AccountPageBrowser {
     child: std::process::Child,
     cdp: CdpClient,
     window_id: Option<i64>,
+    /// Navegador anônimo: o perfil que some ao fechar.
+    wipe_on_close: Option<PathBuf>,
 }
 
 impl AccountPageBrowser {
@@ -287,6 +301,10 @@ impl AccountPageBrowser {
         // Mesmo perfil do "Open in browser": a janela antiga dessa conta sai
         // antes (dois Chromium no mesmo perfil brigam pelo lock).
         app.state::<ChromiumManager>().kill(user_id);
+        let private = !keeps_browser_data(&settings);
+        if private {
+            let _ = wipe_profile_dir(&profile);
+        }
 
         let (child, port) = spawn_chrome(&binary, &profile, "about:blank", true, stealth).await?;
         let Some(port) = port else {
@@ -300,7 +318,12 @@ impl AccountPageBrowser {
                 return Err(e);
             }
         };
-        let mut browser = Self { child, cdp, window_id: None };
+        let mut browser = Self {
+            child,
+            cdp,
+            window_id: None,
+            wipe_on_close: private.then(|| profile.clone()),
+        };
         if let Ok(window) = browser.cdp.send("Browser.getWindowForTarget", serde_json::json!({})).await {
             browser.window_id = window.get("windowId").and_then(|v| v.as_i64());
         }
@@ -371,6 +394,10 @@ impl AccountPageBrowser {
             let _ = self.child.kill();
         }
         let _ = self.child.wait();
+        if let Some(profile) = self.wipe_on_close.take() {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let _ = wipe_profile_dir(&profile);
+        }
     }
 }
 
@@ -388,6 +415,65 @@ async fn plant_account_cookie(
     cdp.set_roblosecurity(token, ".roblox.com", expires).await?;
     cdp.set_roblosecurity(token, "www.roblox.com", expires).await?;
     Ok(())
+}
+
+/// `Login.PersistentProfile`: o navegador guarda dados entre um uso e outro?
+/// Desligado (o padrão desde 26/10/2026), todo uso — login, criação de contas,
+/// abrir a conta no navegador e as páginas automáticas — começa num perfil
+/// limpo, e o perfil some quando a janela fecha.
+pub(crate) fn keeps_browser_data(settings: &SettingsStore) -> bool {
+    settings.get_bool("Login", "PersistentProfile")
+}
+
+/// O passo do vigia da janela anônima de uma conta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrivateWatch {
+    Wait,
+    Wipe,
+    /// Outra janela da conta tomou o lugar: o perfil é dela agora.
+    Stop,
+}
+
+fn private_watch_step(tracked_pid: Option<u32>, watched_pid: u32, alive: bool) -> PrivateWatch {
+    match tracked_pid {
+        Some(pid) if pid != watched_pid => PrivateWatch::Stop,
+        Some(_) if alive => PrivateWatch::Wait,
+        _ => PrivateWatch::Wipe,
+    }
+}
+
+/// Apaga o perfil anônimo da conta quando a janela dela fecha.
+fn wipe_profile_when_closed(app: AppHandle, user_id: i64, pid: u32, profile: PathBuf) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let manager = app.state::<ChromiumManager>();
+            match private_watch_step(manager.pid_of(user_id), pid, manager.is_alive(user_id)) {
+                PrivateWatch::Wait => continue,
+                PrivateWatch::Stop => return,
+                PrivateWatch::Wipe => {
+                    // O Chromium ainda solta os arquivos uns instantes depois de sair.
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let _ = wipe_profile_dir(&profile);
+                    return;
+                }
+            }
+        }
+    });
+}
+
+/// Com o navegador anônimo, ao abrir o app: apaga os perfis que sobraram de
+/// antes (de quando ele era persistente, ou de uma janela que o app não viu
+/// fechar). Só pastas — o resto da pasta dos perfis fica.
+pub(crate) fn wipe_private_profiles(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.path().is_dir() {
+            let _ = wipe_profile_dir(&entry.path());
+        }
+    }
 }
 
 pub(super) fn wipe_profile_dir(profile: &Path) -> Result<(), String> {
@@ -442,7 +528,11 @@ pub async fn open_login_browser(
     let (child, port) = spawn_chrome(&binary, &profile, start_url, true, stealth).await?;
     chromium.track(LOGIN_KEY, child);
 
-    let port = port.ok_or("Could not start the login browser")?;
+    let Some(port) = port else {
+        // A janela que abriu mas não respondeu ficava aberta em about:blank.
+        chromium.close_login_session();
+        return Err(super::cdp::BROWSER_DID_NOT_OPEN.to_string());
+    };
 
     let mut cdp = match CdpClient::connect(port).await {
         Ok(cdp) => cdp,
@@ -507,26 +597,39 @@ pub async fn close_login_browser(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn import_userpass(
-    app: AppHandle,
-    state: State<'_, AccountStore>,
-    chromium: State<'_, ChromiumManager>,
-    settings: State<'_, SettingsStore>,
-    username: String,
-    password: String,
-) -> Result<ImportedAccount, String> {
-    if username.trim().is_empty() || password.is_empty() {
-        return Err("Enter a username and password".into());
-    }
+/// O valor do campo de senha do login, se houver.
+const READ_LOGIN_PASSWORD_SCRIPT: &str =
+    "(function(){var el=document.querySelector('#login-password');return el?el.value:null;})()";
 
-    let (binary, _) = resolve_browser_binary(&app, Some(&manual_binary_path(&settings))).await?;
+/// O que o navegador de login devolve quando a sessão aparece.
+pub struct BrowserSignIn {
+    pub cookie: String,
+    /// A última senha vista no campo (a que entrou).
+    pub typed_password: Option<String>,
+    /// A conta que a resposta do login do Roblox devolveu (`LOGIN_USER_HOOK`).
+    pub login_user: Option<(i64, String)>,
+}
+
+/// Abre o navegador de login, preenche usuário e senha quando vierem
+/// (`credentials`) e espera a pessoa terminar (o CAPTCHA é com ela). Devolve o
+/// `.ROBLOSECURITY` capturado e a última senha vista no campo (a que entrou —
+/// a pessoa pode ter digitado a certa por cima da preenchida); a janela fecha
+/// no instante em que o cookie aparece.
+/// Usado pelo "usuário:senha" (conta nova) e pelo "Fazer login de novo" (conta
+/// que já existe e perdeu a sessão).
+async fn sign_in_in_browser(
+    app: &AppHandle,
+    chromium: &ChromiumManager,
+    settings: &SettingsStore,
+    credentials: Option<(&str, &str)>,
+) -> Result<BrowserSignIn, String> {
+    let (binary, _) = resolve_browser_binary(app, Some(&manual_binary_path(settings))).await?;
     chromium.close_login_session();
 
     let persistent = settings.get_bool("Login", "PersistentProfile");
     let stealth = settings.get_bool("Login", "StealthMode");
 
-    let profile = ChromiumManager::login_profile(&app)?;
+    let profile = ChromiumManager::login_profile(app)?;
     if !persistent {
         wipe_profile_dir(&profile)?;
     }
@@ -535,7 +638,11 @@ pub async fn import_userpass(
     let (child, port) = spawn_chrome(&binary, &profile, start_url, true, stealth).await?;
     chromium.track(LOGIN_KEY, child);
 
-    let port = port.ok_or("Could not start the login browser")?;
+    let Some(port) = port else {
+        // A janela que abriu mas não respondeu ficava aberta em about:blank.
+        chromium.close_login_session();
+        return Err(super::cdp::BROWSER_DID_NOT_OPEN.to_string());
+    };
     let mut cdp = match CdpClient::connect(port).await {
         Ok(cdp) => cdp,
         Err(e) => {
@@ -549,6 +656,10 @@ pub async fn import_userpass(
         }
     };
 
+    // A resposta do login diz quem entrou (antes de ir para a página de login).
+    let watch_since_ms = chrono::Utc::now().timestamp_millis() - 1_000;
+    let _ = cdp.watch_login_response().await;
+
     if let Err(e) = setup_login_session(&mut cdp, stealth, persistent, start_url).await {
         chromium.close_login_session();
         if !persistent {
@@ -559,18 +670,38 @@ pub async fn import_userpass(
         return Err(e);
     }
 
-    if cdp.wait_for_selector("#login-username", 40).await {
-        let _ = cdp.fill_login(&username, &password).await;
+    if let Some((username, password)) = credentials {
+        if cdp.wait_for_selector("#login-username", 40).await {
+            let _ = cdp.fill_login(username, password).await;
+        }
     }
 
     let mut captured = None;
+    let mut typed_password: Option<String> = None;
+    let mut login_user: Option<(i64, String)> = None;
     for _ in 0..480 {
         if !chromium.is_alive(LOGIN_KEY) {
             return Err("Login window was closed before sign-in completed".into());
         }
         if let Ok(Some(cookie)) = cdp.get_roblosecurity().await {
+            // A resposta do login chega junto com o cookie; o gancho grava
+            // logo depois — espera um pouco por ela antes de fechar.
+            for _ in 0..8 {
+                if let Ok(stored) = cdp.eval(super::cdp::READ_LOGIN_USER_SCRIPT).await {
+                    login_user = super::cdp::parse_login_user(&stored, watch_since_ms);
+                }
+                if login_user.is_some() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
             captured = Some(cookie);
             break;
+        }
+        if let Ok(serde_json::Value::String(value)) = cdp.eval(READ_LOGIN_PASSWORD_SCRIPT).await {
+            if !value.is_empty() {
+                typed_password = Some(value);
+            }
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -580,9 +711,29 @@ pub async fn import_userpass(
         let _ = wipe_profile_dir(&profile);
     }
 
-    let cookie = captured.ok_or("Timed out waiting for sign-in")?;
+    let cookie = captured.ok_or_else(|| "Timed out waiting for sign-in".to_string())?;
+    Ok(BrowserSignIn { cookie, typed_password, login_user })
+}
+
+#[tauri::command]
+pub async fn import_userpass(
+    app: AppHandle,
+    state: State<'_, AccountStore>,
+    chromium: State<'_, ChromiumManager>,
+    settings: State<'_, SettingsStore>,
+    username: String,
+    password: String,
+) -> Result<ImportedAccount, String> {
+    if username.trim().is_empty() || password.is_empty() {
+        return Err("Enter a username and password".into());
+    }
+
+    let BrowserSignIn { cookie, typed_password: typed, .. } =
+        sign_in_in_browser(&app, &chromium, &settings, Some((&username, &password))).await?;
     let info = crate::api::auth::validate_cookie(&cookie).await?;
 
+    // A senha que entrou de fato (a pessoa pode ter corrigido no navegador).
+    let password = typed.filter(|t| !t.is_empty()).unwrap_or(password);
     let mut account = Account::new(cookie, info.name.clone(), info.user_id);
     account.password = password;
     state.add(account)?;
@@ -590,12 +741,164 @@ pub async fn import_userpass(
     Ok(ImportedAccount {
         user_id: info.user_id,
         name: info.name,
+        moderated: false,
+    })
+}
+
+/// O login novo tem de ser da **mesma** conta: com a conta errada (outro
+/// usuário digitado, ou o perfil do navegador já logado em outra) o cookie
+/// não é gravado.
+fn relogin_identity_check(expected_id: i64, expected_name: &str, got_id: i64, got_name: &str) -> Result<(), String> {
+    if got_id == expected_id {
+        Ok(())
+    } else {
+        Err(format!(
+            "You signed in as {got_name}, not {expected_name}. Nothing was changed — sign in to {expected_name} instead."
+        ))
+    }
+}
+
+/// "Fazer login de novo": a sessão da conta morreu (o "Atualizar cookies" não
+/// tem como reviver um cookie que o Roblox invalidou). Abre o navegador de login
+/// com usuário e senha preenchidos quando a conta tem senha salva, a pessoa
+/// resolve o CAPTCHA, e o cookie novo entra **na mesma conta** — grupo, campos
+/// e senha ficam. Ver docs/features/accounts.md.
+#[tauri::command]
+pub async fn relogin_account(
+    app: AppHandle,
+    state: State<'_, AccountStore>,
+    chromium: State<'_, ChromiumManager>,
+    settings: State<'_, SettingsStore>,
+    user_id: i64,
+) -> Result<ImportedAccount, String> {
+    let account = state
+        .get_all()?
+        .into_iter()
+        .find(|a| a.user_id == user_id)
+        .ok_or_else(|| "This account is no longer in the list.".to_string())?;
+    let credentials = (!account.username.trim().is_empty() && !account.password.is_empty())
+        .then(|| (account.username.as_str(), account.password.as_str()));
+
+    // Rastro no Console de cada etapa (relato do dono, 26/10/2026: a janela
+    // fechou "como se tivesse dado certo" e a conta voltou a pedir login, sem
+    // motivo nenhum à vista). Nunca leva a senha nem o cookie.
+    let log = |level: &str, message: String| crate::emit_launch_log(&app, user_id, level, "relogin", message);
+    log(
+        "info",
+        if credentials.is_some() {
+            "Fazer login de novo: navegador aberto com usuário e senha preenchidos".to_string()
+        } else {
+            "Fazer login de novo: navegador aberto (sem senha salva para preencher)".to_string()
+        },
+    );
+    let BrowserSignIn { cookie, typed_password: typed, login_user } = match sign_in_in_browser(&app, &chromium, &settings, credentials).await {
+        Ok(found) => found,
+        Err(e) => {
+            log("warn", format!("O login não terminou: {e}"));
+            return Err(e);
+        }
+    };
+    log("info", "Sessão capturada no navegador; conferindo de quem é".to_string());
+    // Conta moderada (relato de 26/10/2026): o login dá certo, mas as consultas
+    // de "de quem é" recusam. A moderação diz o ID da conta punida — com ele a
+    // sessão é conferida e gravada, em vez de jogada fora.
+    let (session_user_id, session_name, moderated) = match crate::api::auth::validate_cookie(&cookie).await {
+        Ok(info) => (info.user_id, info.name, false),
+        Err(e) if crate::api::auth::is_moderated_account_error(&e) => {
+            // Quem entrou, pela resposta do próprio login (a moderação não
+            // traz o ID — conferido com a conta real em 26/10/2026).
+            match login_user.clone() {
+                Some((id, name)) => (id, name, true),
+                None => match crate::api::roblox::punished_user_id(&cookie, &crate::api::http_client::client()).await {
+                    Ok(Some(id)) => (id, account.username.clone(), true),
+                    _ => {
+                        log(
+                            "warn",
+                            format!("O Roblox está restringindo a conta e não deu para saber de quem é a sessão; nada foi gravado: {e}"),
+                        );
+                        return Err(e);
+                    }
+                },
+            }
+        }
+        Err(e) => {
+            log("warn", format!("O Roblox não aceitou a sessão capturada: {e}"));
+            return Err(e);
+        }
+    };
+    if let Err(e) = relogin_identity_check(user_id, &account.username, session_user_id, &session_name) {
+        log(
+            "warn",
+            format!("A sessão capturada é de {} (ID {}), não desta conta; nada foi gravado", session_name, session_user_id),
+        );
+        return Err(e);
+    }
+    let password_changed = typed.as_deref().is_some_and(|t| !t.is_empty() && t != account.password);
+    // O login deu certo: a senha do campo é a que funciona (quem trocou a
+    // senha pelo app antes da v2.2.0 digita a certa aqui e o app aprende).
+    if !state.relogin(user_id, &cookie, typed.as_deref())? {
+        return Err("This account is no longer in the list.".to_string());
+    }
+    log(
+        if moderated { "warn" } else { "info" },
+        match (password_changed, moderated) {
+            (_, true) => "Login feito: sessão nova gravada, mas o Roblox está restringindo a conta (banida, advertida ou em análise). Veja em roblox.com/not-approved".to_string(),
+            (true, false) => "Login feito: sessão nova gravada e a senha guardada atualizada (a anterior ficou no histórico)".to_string(),
+            (false, false) => "Login feito: sessão nova gravada".to_string(),
+        },
+    );
+
+    Ok(ImportedAccount {
+        user_id: session_user_id,
+        name: session_name,
+        moderated,
     })
 }
 
 #[cfg(test)]
 mod chromium_commands_tests {
     use super::*;
+
+    // ── navegador anônimo (Login.PersistentProfile desligado) ────────────────
+
+    #[test]
+    fn a_closed_private_window_gets_its_profile_wiped_and_a_replaced_one_does_not() {
+        // A janela ainda aberta: espera.
+        assert_eq!(private_watch_step(Some(42), 42, true), PrivateWatch::Wait);
+        // Fechou (é a mesma janela que o vigia segue): apaga.
+        assert_eq!(private_watch_step(Some(42), 42, false), PrivateWatch::Wipe);
+        // Trocada por outra janela da mesma conta (ou o app a fechou para abrir
+        // de novo): quem abriu a nova já começou do zero; apagar agora levaria
+        // o cookie que ela acabou de plantar.
+        assert_eq!(private_watch_step(Some(7), 42, true), PrivateWatch::Stop);
+        assert_eq!(private_watch_step(Some(7), 42, false), PrivateWatch::Stop);
+        // Não rastreada mais (fechada pelo app): apaga.
+        assert_eq!(private_watch_step(None, 42, false), PrivateWatch::Wipe);
+    }
+
+    #[test]
+    fn starting_private_wipes_every_profile_left_from_before() {
+        let root = temp_dir("private-root");
+        for name in ["_login", "11715660717", "75444209"] {
+            std::fs::create_dir_all(root.join(name).join("Default")).unwrap();
+            std::fs::write(root.join(name).join("Default").join("Cookies"), b"x").unwrap();
+        }
+        std::fs::write(root.join("note.txt"), b"keep").unwrap();
+        wipe_private_profiles(&root);
+        assert!(!root.join("_login").exists());
+        assert!(!root.join("11715660717").exists());
+        assert!(!root.join("75444209").exists());
+        assert!(root.join("note.txt").exists(), "only profile folders go");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// "Fazer login de novo" só grava o cookie se o login foi na mesma conta.
+    #[test]
+    fn relogin_only_accepts_the_same_account() {
+        assert!(relogin_identity_check(7, "ann", 7, "ann").is_ok());
+        let err = relogin_identity_check(7, "ann", 8, "bob").unwrap_err();
+        assert!(err.contains("bob") && err.contains("ann"), "{err}");
+    }
 
     #[test]
     fn the_profile_url_only_takes_the_numeric_id() {

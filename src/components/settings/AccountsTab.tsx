@@ -102,10 +102,12 @@ export function AccountsTab({ s }: { s: UseSettingsReturn }) {
       <Divider />
       <SectionLabel>Login browser</SectionLabel>
       <Toggle
-        checked={s.get("Login", "PersistentProfile", "true") !== "false"}
+        // Anônimo por padrão desde 26/10/2026, para todo uso do navegador
+        // (chromium/commands.rs, `keeps_browser_data`).
+        checked={s.getBool("Login", "PersistentProfile")}
         onChange={(v) => s.setBool("Login", "PersistentProfile", v)}
-        label="Persistent login profile"
-        description="Reuse the login browser profile so the device builds trust over time, which cuts down on login captchas. Only the Roblox sign-in cookie is cleared before each login"
+        label="Keep browser data between uses"
+        description="Off by default: every login, account creation and account opened in the browser starts in a clean profile, and nothing is kept once the window closes. On, the browser keeps its profile so Roblox trusts this device more and asks for fewer captchas, but every account goes through the same profile."
       />
       <Toggle
         checked={s.get("Login", "StealthMode", "true") !== "false"}

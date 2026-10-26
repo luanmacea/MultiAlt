@@ -316,7 +316,12 @@ async fn start_watcher(
                     }
 
                     if cfg.save_window_positions && startup_grace_elapsed {
-                        if let Some(position) = windows::get_window_position(hwnd) {
+                        // Janela minimizada reporta (-32000, -32000, ~160x28): não
+                        // é a posição da conta, e gravá-la estragava o launch
+                        // seguinte (`window_rect_is_usable`).
+                        if let Some(position) = windows::get_window_position(hwnd)
+                            .filter(|p| window_rect_is_usable(p.0, p.1, p.2, p.3))
+                        {
                             let changed_since_last_tick = last_saved_positions
                                 .get(&inst.user_id)
                                 .map(|saved| *saved != position)
@@ -799,6 +804,7 @@ mod watcher_tests {
             in_game: !dropped,
             wrong_account_user_id: None,
             server: None,
+            challenge: false,
             destination: None,
             exited: false,
         }

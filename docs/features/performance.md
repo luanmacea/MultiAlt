@@ -178,6 +178,7 @@ on launch**. Valem na grade automática do launch e no botão **Arrange in grid*
 | Optimization | `FollowFocus` | `false` | Liga a otimização que segue o foco. |
 | Optimization | `MuteBackgroundClients` | `false` | Fundo mudo (só com a feature `live-audio`, que vai nas duas edições). |
 | General | `GridAllowSmallWindows` | `false` | Célula da grade menor que o mínimo do Roblox. |
+| General | `GridAutoFit` | `false` | Célula da grade no maior tamanho em que todas as janelas cabem (implica a de cima). Ver [ui-layout.md](ui-layout.md). |
 | General | `GridBorderless` | `false` | Janelas da grade sem moldura. |
 | General | `RestoreRobloxSettingsOnExit` | `false` | Devolve o que o launch mudou nos arquivos do Roblox quando nenhum Roblox estiver aberto (ver acima). O nome da chave ficou do tempo em que só devolvia ao fechar o app. |
 | Optimization | `{Normal,BottingPlayer,BottingBot}EnableProcessPolicy` e demais | ver [settings.md](settings.md#optimization) | Política de fundo (se ligada) e o estado devolvido ao desligar. |
@@ -198,7 +199,11 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   e `cmd_apply_fps_unlock` ([launch.rs](../../src-tauri/src/commands/launch.rs)),
   e devolvido pelo laço `start_settings_restore_loop` e, na saída, por
   `restore_roblox_settings_on_exit` (os dois em [lib.rs](../../src-tauri/src/lib.rs)).
-- **Anota em volta da escrita:** com a opção ligada, o launch lê os dois
+- **Anota em volta da escrita, sempre:** com a opção ligada **ou desligada**
+  (desligada, a anotação só espera — nada é devolvido nem esquecido). Até
+  26/10/2026 só anotava com ela ligada: quem ligava depois de jogar pelo app
+  tinha como "original" os valores do app (janela 520x420 no monitor da grade),
+  e o jogo pelo site continuava pequeno. O launch lê os dois
   arquivos antes (`snapshot_roblox_settings`) e, depois de gravar, anota **por
   propriedade** o que mudou (`RestoreJournal::record`): o valor de antes da
   **primeira** mudança e o que o app escreveu por último. No XML contam só as
@@ -211,11 +216,14 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   (`0-GlobalBasicSettings_13.xml`, `1-ClientAppSettings.json`…). Fica lá depois
   da devolução, para recuperar à mão; um ciclo novo começa limpando as cópias
   do anterior.
-- **Com o app aberto** (`start_settings_restore_loop`, a cada 5 s;
+- **Com o app aberto** (`start_settings_restore_loop`, a cada 1 s;
   `restore_watch_due`): devolve quando há algo anotado e **nenhum**
-  `RobloxPlayerBeta.exe` roda, passados 60 s da última escrita do launch (o
-  patch é o último passo antes do spawn, e o processo leva uns segundos para
-  aparecer). Até 13/10/2026 só havia a devolução ao fechar o app: quem fechava o
+  `RobloxPlayerBeta.exe` roda, **depois** que um Roblox apareceu desde a última
+  escrita do launch (o cliente dele já leu os arquivos) — ou, se nenhum
+  apareceu, passados 60 s dela (o patch é o último passo antes do spawn, e o
+  processo leva uns segundos para aparecer). Até 26/10/2026 eram sempre 60 s, a
+  cada 5 s: quem fechava o jogo do app e abria pelo site logo depois (9 s, no
+  teste real) pegava a janela 520x420. Até 13/10/2026 só havia a devolução ao fechar o app: quem fechava o
   jogo e abria pelo site com o MultiAlt aberto ficava com a otimização. O mesmo
   laço devolve, ao abrir o app, o que ficou de uma execução anterior.
 - **Ao fechar** (`ExitRequested`/`Exit`, decidido uma vez só —
@@ -237,8 +245,10 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   valor de antes, e volta junto (`RESTORE_ONLY_XML_PROPS`; achado no teste real
   de 14/10/2026 — o jogo aberto pelo site abria no monitor da grade). Arquivo
   que o app criou e ficou vazio é apagado.
-- **Desligar a opção** esquece a anotação no próximo fechar, sem mexer nos
-  arquivos. Ligada depois, só conta o que mudar dali em diante.
+- **Desligar a opção** não devolve nem esquece nada: a anotação fica, e ligar
+  de novo devolve os valores de antes do app (até 26/10/2026 desligar
+  esquecia, e ligar depois contava só o que mudasse dali em diante — com os
+  valores do app já no arquivo).
 - **Convive com o registro das exceções** (`ClientOverrideLedger.json`, o que
   impede a exceção de uma conta de vazar para a próxima): depois da devolução,
   os valores anotados lá não batem mais com o arquivo e ele os descarta sozinho.
@@ -248,7 +258,8 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   do usuário ficam, arquivo criado pelo app apagado, cópia antes da primeira
   mudança, valor regravado no formato do Roblox, janela regravada, a decisão do
   laço com o app aberto — tudo em pastas temporárias) e `settings_on_exit_tests`
-  (devolve só sem Roblox nenhum, nem o do site; desligada, esquece).
+  (devolve só sem Roblox nenhum, nem o do site; desligada, a anotação fica) e
+  `settings_record_tests` (o launch anota com a opção desligada também).
   Interruptor em `settingsTabs.test.tsx`.
 
 ## Testes

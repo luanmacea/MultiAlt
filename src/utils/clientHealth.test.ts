@@ -42,6 +42,16 @@ function drop(partial: Partial<ClientDrop>): { pid: number; logFound: boolean; d
 }
 
 describe("clientHealthLabel", () => {
+  /** Bateria de 25/10/2026: a tela "confirme que é humano" parava a conta sem aviso. */
+  it("names the Roblox human check, and a drop still wins over it", () => {
+    expect(clientHealthLabel({ pid: 1, logFound: true, drop: null, challenge: true }, t)).toEqual({
+      label: "Roblox human check",
+      detail: "Roblox is asking to confirm you're human. Solve it in the game window.",
+      tone: "challenge",
+    });
+    expect(clientHealthLabel({ ...drop({ reason: "connectionLost" }), challenge: true }, t)?.tone).toBe("drop");
+  });
+
   it("is empty when nothing dropped", () => {
     expect(clientHealthLabel(null, t)).toBeNull();
     expect(clientHealthLabel({ pid: 1, logFound: true, drop: null }, t)).toBeNull();

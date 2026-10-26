@@ -121,6 +121,78 @@ export function diagnosticText(check: DiagnosticCheck, t: T): DiagnosticText {
         title: t("Multi Roblox is ready"),
         detail: t("A Roblox window is already open; the next account opens next to it without closing it."),
       };
+    // Navegador de login (`run_browser_diagnostics`, chromium/diagnose.rs).
+    case "browserBinary.downloaded":
+      return { title: t("MultiAlt's own browser is installed"), detail: "" };
+    case "browserBinary.manual":
+      return { title: t("Using the browser you picked in Settings"), detail: "" };
+    case "browserBinary.manualInvalid":
+      return {
+        title: t("The custom browser path doesn't point to a browser file"),
+        detail: t("Fix or clear Custom browser executable in Settings > Accounts. Logins and account creation stop until then."),
+      };
+    case "browserBinary.damaged":
+      return {
+        title: t("MultiAlt's browser is missing files"),
+        detail: t("Usually an antivirus removed part of it. Use Reinstall in Settings > Accounts > Bundled Browser."),
+      };
+    case "browserBinary.systemFallback":
+      return {
+        title: t("Using the Chrome, Edge or Brave installed on this PC"),
+        detail: t(
+          "MultiAlt's own browser isn't downloaded, so logins open the browser installed on this PC. If it does nothing, download MultiAlt's copy with Download in Settings > Accounts > Bundled Browser, or reinstall that browser."
+        ),
+      };
+    case "browserBinary.notDownloaded":
+      return {
+        title: t("MultiAlt's browser isn't downloaded yet"),
+        detail: t("It downloads on the first browser login. You can download it now in Settings > Accounts > Bundled Browser."),
+      };
+    case "browserFolder.writable":
+      return { title: t("The browser can save its profile"), detail: "" };
+    case "browserFolder.notWritable":
+      return {
+        title: t("The browser can't write its profile folder"),
+        detail: t("Check that MultiAlt's data folder isn't read-only or blocked by an antivirus, then restart MultiAlt."),
+      };
+    case "browserFolder.unknown":
+      return { title: t("Couldn't find the browser profile folder"), detail: t("Restart the PC and open MultiAlt again.") };
+    case "browserLoginOpen.open":
+      return {
+        title: t("A login window is open right now"),
+        detail: t("If it looks stuck, close it and try the login again."),
+      };
+    case "browserStart.opened":
+      return {
+        title: t("The browser opens and answers MultiAlt"),
+        detail: count > 10 ? t("It took {{count}} seconds; an antivirus scanning it can make logins slow.", { count }) : "",
+      };
+    case "browserStart.spawnFailed":
+      return {
+        title: t("Windows did not let the browser start"),
+        detail: t(
+          "An antivirus may be blocking it. Allow MultiAlt and its browser in the antivirus, or use Reinstall in Settings > Accounts > Bundled Browser."
+        ),
+      };
+    case "browserStart.didNotOpen":
+      return {
+        title: t("The browser never answered MultiAlt"),
+        detail: t(
+          "This is the browser-does-nothing case. Use Reinstall in Settings > Accounts > Bundled Browser; if logins use your own Chrome or Edge, reinstall that browser. Check the antivirus too."
+        ),
+      };
+    case "browserStart.skipped":
+      return {
+        title: t("There is no browser to test"),
+        detail: t("Download MultiAlt's browser in Settings > Accounts > Bundled Browser and check again."),
+      };
+    case "browserRoblox.reachable":
+      return { title: t("The Roblox login page loads in the browser"), detail: "" };
+    case "browserRoblox.unreachable":
+      return {
+        title: t("The Roblox login page didn't load in the browser"),
+        detail: t("Check the internet, a VPN or proxy, and whether a firewall blocks the browser."),
+      };
     default:
       return { title: `${check.id}: ${check.reason}`, detail: "" };
   }

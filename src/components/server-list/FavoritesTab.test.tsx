@@ -88,6 +88,41 @@ describe("FavoritesTab", () => {
     expect(onSelectGame).toHaveBeenCalledWith(606849621);
   });
 
+  /**
+   * Pedido do dono (26/10/2026): a gaveta larga embaixo da grade, com o botão
+   * encostado à esquerda, incomodava. O favorito aberto mostra um balão logo
+   * abaixo do próprio card, na largura dele, com o "Entrar" ocupando a largura
+   * — como o balão de amigo do Roblox.
+   */
+  it("opens a popover under the card itself, with the join button across it", async () => {
+    saveFavorites([favorite()]);
+    renderFavorites();
+    await userEvent.click(screen.getByText("Jailbreak"));
+
+    const popover = screen.getByTestId("favorite-popover-606849621");
+    const cell = screen.getByTestId("favorite-cell-606849621");
+    expect(cell).toContainElement(popover);
+    expect(popover.className).toMatch(/\babsolute\b/);
+    expect(popover.className).toMatch(/\bleft-0\b/);
+    expect(popover.className).toMatch(/\bright-0\b/);
+    const join = screen.getByRole("button", { name: "Join Game" });
+    expect(join.className).toMatch(/\bw-full\b/);
+    expect(join.className).toMatch(/\bjustify-center\b/);
+  });
+
+  it("closes the popover with Escape and with a click outside", async () => {
+    saveFavorites([favorite()]);
+    renderFavorites();
+    await userEvent.click(screen.getByText("Jailbreak"));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Join Game" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Jailbreak"));
+    expect(screen.getByRole("button", { name: "Join Game" })).toBeInTheDocument();
+    await userEvent.click(document.body);
+    expect(screen.queryByRole("button", { name: "Join Game" })).not.toBeInTheDocument();
+  });
+
   it("joins a VIP server with its link", async () => {
     saveFavorites([
       favorite({ vipServers: [{ id: "v1", name: "My VIP", link: "https://vip.link/abc" }] }),

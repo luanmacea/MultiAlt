@@ -14,7 +14,14 @@ import type { ClientHealth, CurrentSession } from "../types";
  *   num grupo à parte.
  */
 
-export type RunningStatus = "reconnecting" | "notResponding" | "dropped" | "playing" | "waiting" | "unknown";
+export type RunningStatus =
+  | "reconnecting"
+  | "notResponding"
+  | "dropped"
+  | "humanCheck"
+  | "playing"
+  | "waiting"
+  | "unknown";
 
 /** O estado de uma conta com cliente aberto, do mais urgente ao mais calmo. */
 export function runningStatus(
@@ -25,13 +32,15 @@ export function runningStatus(
   if (reconnecting) return "reconnecting";
   if (health?.notResponding) return "notResponding";
   if (health?.drop) return "dropped";
+  // A verificação do Roblox espera a pessoa: sem ela, a conta não entra.
+  if (health?.challenge) return "humanCheck";
   if (session) return "playing";
   if (health?.logFound && !health.inGame) return "waiting";
   return "unknown";
 }
 
 export function needsAttention(status: RunningStatus): boolean {
-  return status === "reconnecting" || status === "notResponding" || status === "dropped";
+  return status === "reconnecting" || status === "notResponding" || status === "dropped" || status === "humanCheck";
 }
 
 export interface ServerGroup {

@@ -43,6 +43,27 @@ describe("DiagnosticsDialog", () => {
     }
   });
 
+  /**
+   * Checagem do navegador de login (26/10/2026): o relato do navegador que "não
+   * fazia nada" ao criar contas era o Chrome do PC sendo usado.
+   */
+  it("checks the login browser with its own command and texts", async () => {
+    setInvokeMap({
+      run_browser_diagnostics: [
+        { id: "browserBinary", status: "warn", reason: "systemFallback" },
+        { id: "browserStart", status: "problem", reason: "didNotOpen" },
+      ],
+    });
+    render(<DiagnosticsDialog kind="browser" open onClose={() => {}} />);
+    expect(await screen.findByRole("dialog", { name: "Login browser check" })).toBeInTheDocument();
+    expect(await screen.findByText("Using the Chrome, Edge or Brave installed on this PC")).toBeInTheDocument();
+    expect(screen.getByText("The browser never answered MultiAlt")).toBeInTheDocument();
+    expect(screen.getByText("Found a problem that stops the login browser.")).toBeInTheDocument();
+    for (const call of invokeMock.mock.calls) {
+      expect(call[0]).toBe("run_browser_diagnostics");
+    }
+  });
+
   it("says when nothing is wrong", async () => {
     setInvokeMap({ run_launch_diagnostics: [{ id: "internet", status: "ok", reason: "reachable" }] });
     render(<DiagnosticsDialog open onClose={() => {}} />);

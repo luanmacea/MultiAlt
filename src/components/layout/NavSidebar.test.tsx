@@ -132,9 +132,10 @@ describe("NavSidebar — items", () => {
 
   /**
    * Pedido do dono (08/10/2026): "What's new" desce para a última linha, ao
-   * lado do botão de recolher; "Send feedback" fica logo acima.
+   * lado do botão de recolher. Desde 26/10/2026 o Discord fica logo acima (no
+   * lugar do "Send feedback", que saiu).
    */
-  it("puts What's new on the last row next to the collapse button, under Send feedback", async () => {
+  it("puts What's new on the last row next to the collapse button, under Discord", async () => {
     renderNav({ activePage: "changelog" });
     const whatsNew = item("What's new");
     expect(whatsNew).toHaveAttribute("aria-current", "page");
@@ -142,8 +143,8 @@ describe("NavSidebar — items", () => {
     expect(within(row).getByRole("button", { name: /^What's new/ })).toBe(whatsNew);
     expect(within(row).getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
     expect(row).toHaveClass("flex", "items-center");
-    const feedback = screen.getByRole("button", { name: "Send feedback" });
-    expect(feedback.compareDocumentPosition(whatsNew) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const discord = screen.getByRole("button", { name: "Discord" });
+    expect(discord.compareDocumentPosition(whatsNew) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(item("Settings").compareDocumentPosition(whatsNew) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // Recolhida, os dois empilham no centro.
@@ -154,15 +155,17 @@ describe("NavSidebar — items", () => {
   });
 
   /**
-   * O app ganhou um servidor no Discord (12/10/2026): o botão fica logo acima
-   * do "Send feedback" e abre o convite no navegador. O endereço mora no
-   * backend (`open_discord_invite`), numa constante — a tela só pede.
+   * O app ganhou um servidor no Discord (12/10/2026): o botão abre o convite no
+   * navegador. O endereço mora no backend (`open_discord_invite`), numa
+   * constante — a tela só pede. Pedido do dono (26/10/2026): o "Send feedback"
+   * saiu e o Discord ficou no lugar dele, logo abaixo da estrela do GitHub.
    */
-  it("has a Discord button right above Send feedback that opens the invite", async () => {
+  it("has a Discord button below Star on GitHub, where Send feedback was, that opens the invite", async () => {
     renderNav();
     const discord = screen.getByRole("button", { name: "Discord" });
-    const feedback = screen.getByRole("button", { name: "Send feedback" });
-    expect(discord.compareDocumentPosition(feedback) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const star = screen.getByRole("button", { name: "Star on GitHub" });
+    expect(star.compareDocumentPosition(discord) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Send feedback" })).not.toBeInTheDocument();
     await userEvent.click(discord);
     expect(invokeMock).toHaveBeenCalledWith("open_discord_invite");
   });
@@ -287,12 +290,7 @@ describe("NavSidebar — collapse", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Scripts");
   });
 
-  it("opens the feedback dialog from the footer", async () => {
-    renderNav();
-    expect(screen.queryByRole("dialog", { name: "Send feedback" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Send feedback" }));
-    expect(screen.getByRole("dialog", { name: "Send feedback" })).toBeInTheDocument();
-  });});
+});
 
 /**
  * Estrela no GitHub (pedido do dono, 15/10/2026): botão fixo no rodapé e um

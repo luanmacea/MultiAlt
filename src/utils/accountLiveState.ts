@@ -25,6 +25,7 @@ export type AccountLiveKind =
   | "reconnecting"
   | "dropped"
   | "notResponding"
+  | "humanCheck"
   | "closed"
   | "waiting"
   | "none";
