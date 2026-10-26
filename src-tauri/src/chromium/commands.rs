@@ -519,6 +519,15 @@ pub async fn close_login_browser(
 const READ_LOGIN_PASSWORD_SCRIPT: &str =
     "(function(){var el=document.querySelector('#login-password');return el?el.value:null;})()";
 
+/// O que o navegador de login devolve quando a sessão aparece.
+pub struct BrowserSignIn {
+    pub cookie: String,
+    /// A última senha vista no campo (a que entrou).
+    pub typed_password: Option<String>,
+    /// A conta que a resposta do login do Roblox devolveu (`LOGIN_USER_HOOK`).
+    pub login_user: Option<(i64, String)>,
+}
+
 /// Abre o navegador de login, preenche usuário e senha quando vierem
 /// (`credentials`) e espera a pessoa terminar (o CAPTCHA é com ela). Devolve o
 /// `.ROBLOSECURITY` capturado e a última senha vista no campo (a que entrou —
@@ -531,7 +540,7 @@ async fn sign_in_in_browser(
     chromium: &ChromiumManager,
     settings: &SettingsStore,
     credentials: Option<(&str, &str)>,
-) -> Result<(String, Option<String>), String> {
+) -> Result<BrowserSignIn, String> {
     let (binary, _) = resolve_browser_binary(app, Some(&manual_binary_path(settings))).await?;
     chromium.close_login_session();
 
@@ -565,6 +574,10 @@ async fn sign_in_in_browser(
         }
     };
 
+    // A resposta do login diz quem entrou (antes de ir para a página de login).
+    let watch_since_ms = chrono::Utc::now().timestamp_millis() - 1_000;
+    let _ = cdp.watch_login_response().await;
+
     if let Err(e) = setup_login_session(&mut cdp, stealth, persistent, start_url).await {
         chromium.close_login_session();
         if !persistent {
@@ -583,11 +596,23 @@ async fn sign_in_in_browser(
 
     let mut captured = None;
     let mut typed_password: Option<String> = None;
+    let mut login_user: Option<(i64, String)> = None;
     for _ in 0..480 {
         if !chromium.is_alive(LOGIN_KEY) {
             return Err("Login window was closed before sign-in completed".into());
         }
         if let Ok(Some(cookie)) = cdp.get_roblosecurity().await {
+            // A resposta do login chega junto com o cookie; o gancho grava
+            // logo depois — espera um pouco por ela antes de fechar.
+            for _ in 0..8 {
+                if let Ok(stored) = cdp.eval(super::cdp::READ_LOGIN_USER_SCRIPT).await {
+                    login_user = super::cdp::parse_login_user(&stored, watch_since_ms);
+                }
+                if login_user.is_some() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
             captured = Some(cookie);
             break;
         }
@@ -605,7 +630,7 @@ async fn sign_in_in_browser(
     }
 
     let cookie = captured.ok_or_else(|| "Timed out waiting for sign-in".to_string())?;
-    Ok((cookie, typed_password))
+    Ok(BrowserSignIn { cookie, typed_password, login_user })
 }
 
 #[tauri::command]
@@ -621,7 +646,8 @@ pub async fn import_userpass(
         return Err("Enter a username and password".into());
     }
 
-    let (cookie, typed) = sign_in_in_browser(&app, &chromium, &settings, Some((&username, &password))).await?;
+    let BrowserSignIn { cookie, typed_password: typed, .. } =
+        sign_in_in_browser(&app, &chromium, &settings, Some((&username, &password))).await?;
     let info = crate::api::auth::validate_cookie(&cookie).await?;
 
     // A senha que entrou de fato (a pessoa pode ter corrigido no navegador).
@@ -683,7 +709,7 @@ pub async fn relogin_account(
             "Fazer login de novo: navegador aberto (sem senha salva para preencher)".to_string()
         },
     );
-    let (cookie, typed) = match sign_in_in_browser(&app, &chromium, &settings, credentials).await {
+    let BrowserSignIn { cookie, typed_password: typed, login_user } = match sign_in_in_browser(&app, &chromium, &settings, credentials).await {
         Ok(found) => found,
         Err(e) => {
             log("warn", format!("O login não terminou: {e}"));
@@ -697,16 +723,20 @@ pub async fn relogin_account(
     let (session_user_id, session_name, moderated) = match crate::api::auth::validate_cookie(&cookie).await {
         Ok(info) => (info.user_id, info.name, false),
         Err(e) if crate::api::auth::is_moderated_account_error(&e) => {
-            match crate::api::roblox::punished_user_id(&cookie, &crate::api::http_client::client()).await {
-                Ok(Some(id)) => (id, account.username.clone(), true),
-                Ok(None) => {
-                    log("warn", format!("O Roblox está restringindo a conta e não diz de quem é a sessão; nada foi gravado: {e}"));
-                    return Err(e);
-                }
-                Err(moderation_error) => {
-                    log("warn", format!("O Roblox está restringindo a conta e a consulta da moderação falhou ({moderation_error}); nada foi gravado"));
-                    return Err(e);
-                }
+            // Quem entrou, pela resposta do próprio login (a moderação não
+            // traz o ID — conferido com a conta real em 26/10/2026).
+            match login_user.clone() {
+                Some((id, name)) => (id, name, true),
+                None => match crate::api::roblox::punished_user_id(&cookie, &crate::api::http_client::client()).await {
+                    Ok(Some(id)) => (id, account.username.clone(), true),
+                    _ => {
+                        log(
+                            "warn",
+                            format!("O Roblox está restringindo a conta e não deu para saber de quem é a sessão; nada foi gravado: {e}"),
+                        );
+                        return Err(e);
+                    }
+                },
             }
         }
         Err(e) => {
