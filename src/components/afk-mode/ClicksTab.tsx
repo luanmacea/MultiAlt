@@ -237,6 +237,16 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
       <ToggleRow label="Beep when a cycle finishes" checked={ctl.beepOnCycle} onChange={ctl.setBeepOnCycle} />
       <div>
         <ToggleRow
+          label="Beep 3 seconds before a cycle"
+          checked={ctl.beepBeforeCycle}
+          onChange={ctl.setBeepBeforeCycle}
+        />
+        <div className="text-[11px] theme-muted leading-4">
+          {t("A different, rising beep, so you can let go of the mouse and keyboard before the focus moves.")}
+        </div>
+      </div>
+      <div>
+        <ToggleRow
           label="Keep Roblox windows out of sight"
           checked={ctl.hideWindows}
           onChange={ctl.setHideWindows}

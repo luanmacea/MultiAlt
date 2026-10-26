@@ -48,6 +48,20 @@ export function resetAfkBeepContextForTests(): void {
 }
 
 /**
+ * Bipe de aviso, 3 s antes do ciclo (`Afk.BeepBeforeCycle`): dois tons
+ * subindo, diferente do bipe único do fim do ciclo, para dar para saber qual
+ * é sem olhar. Devolve `true` quando o primeiro tom saiu.
+ */
+export function playAfkWarningBeep(volume = 0.08): boolean {
+  const first = playAfkBeep(volume, 110, 523);
+  if (!first) return false;
+  setTimeout(() => {
+    playAfkBeep(volume, 160, 784);
+  }, 150);
+  return true;
+}
+
+/**
  * Toca o bipe. Nunca lança: som é conforto, não função — janela sem Web Audio (ou
  * com áudio bloqueado) segue sem som e sem erro na tela.
  *

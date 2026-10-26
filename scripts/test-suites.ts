@@ -227,6 +227,7 @@ export const SUITES: Record<string, TestSuite> = {
     description: "AFK mode: teclas permitidas, modo clique, agendamento por conta e parada do ciclo",
     rust: [
       "afk_command_tests",
+      "afk_warning_tests",
       "afk_input_safety_tests",
       "hidden_focus_tests",
       "win_input_tests",

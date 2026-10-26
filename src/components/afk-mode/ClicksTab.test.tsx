@@ -519,6 +519,17 @@ describe("ClicksTab — dá para saber que está funcionando", () => {
     await userEvent.click(toggle);
     expect(store.updateSetting).toHaveBeenCalledWith("Afk", "BeepOnCycle", "true");
   });
+
+  /** Pedido do dono (26/10/2026): um bipe diferente 3 s antes, para se preparar. */
+  it("o bipe de aviso antes do ciclo nasce desligado, explica e grava a escolha", async () => {
+    const { store } = renderDialog();
+    const toggle = screen.getByRole("button", { name: "Beep 3 seconds before a cycle" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText(/let go of the mouse and keyboard/)).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "BeepBeforeCycle", "true");
+  });
 });
 
 /**

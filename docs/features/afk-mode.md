@@ -115,6 +115,14 @@ Pedido de usuários no Discord: ver um filme enquanto o AFK roda, sem as 6 janel
 
 **Validado com o Roblox de verdade (24/10/2026)**, conta de teste Stone_Wolf888 no 99 Noites, build `9850ef8`, tecla W: (1) janela **coberta** pelo MultiAlt, 10 envios — o personagem andou (cenário comparado antes/depois) e, na gravação da tela a 30 qps, a área da janela do Roblox não mudou em nenhum quadro durante os envios; no fim, a janela não estava transparente nem minimizada; (2) janela **minimizada**, 5 envios — o personagem andou de novo, nenhum quadro mostrou o Roblox, e no fim ela continuava minimizada e sem transparência. Não coberto: um piscar mais curto que um quadro (33 ms) e a barra de tarefas sobre um vídeo em **tela cheia** (o teste foi com janela maximizada).
 
+## Bipe de aviso antes do ciclo (`Afk.BeepBeforeCycle`, 26/10/2026)
+
+Pedido do dono: um bipe **diferente** 3 s antes de a automação rodar, para dar tempo de soltar o mouse e o teclado antes de o foco sair. Desligado por padrão; "Beep 3 seconds before a cycle" no cartão do AFK, logo abaixo do bipe do fim do ciclo. Vale em todo modo (tecla, clique, gravação); o "Click now"/"Send now" manual não avisa.
+
+- **Backend decide** ([afk.rs](../../src-tauri/src/commands/afk.rs), `afk_warning_step`): a cada tique, com a próxima conta vencendo em até `AFK_WARNING_LEAD_MS` (3 s), emite `afk-cycle-soon`; o ciclo só sai 3 s depois do aviso — com o tique de 1 s o aviso pode tocar com menos tempo pela frente, e o ciclo espera o resto (até ~1 s depois do vencimento). Aviso mais velho que 30 s (`AFK_WARNING_STALE_MS`: a tela cheia segurou o ciclo) não vale, e toca de novo antes do envio. Com a tela cheia segurando, não avisa.
+- **A tela toca** (`playAfkWarningBeep`, [afkBeep.ts](../../src/utils/afkBeep.ts)): dois tons subindo (523 → 784 Hz), para não confundir com o bipe único de 880 Hz do fim do ciclo.
+- Testes: `afk_warning_tests`, `afkBeep.test.ts`, `ClicksTab.test.tsx`.
+
 ## Tela cheia na frente (ideia 25)
 
 Com um vídeo ou outro jogo em **tela cheia** na frente, o ciclo **espera** em

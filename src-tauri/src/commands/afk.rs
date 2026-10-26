@@ -703,6 +703,36 @@ fn afk_hide_windows(raw: &str, action_is_key: bool) -> bool {
     action_is_key && raw.trim() != "false"
 }
 
+/// Quanto antes do ciclo o bipe de aviso toca (`Afk.BeepBeforeCycle`).
+const AFK_WARNING_LEAD_MS: i64 = 3_000;
+/// Aviso mais velho que isto não vale mais: o ciclo ficou segurado (tela cheia
+/// na frente) e avisa de novo antes de enviar.
+const AFK_WARNING_STALE_MS: i64 = 30_000;
+
+/// `Afk.BeepBeforeCycle`: desligada por padrão; só `"true"` liga.
+fn afk_beep_before_cycle_enabled(raw: &str) -> bool {
+    raw.trim() == "true"
+}
+
+/// O bipe de aviso a cada tique do laço: `(avisar agora, pode enviar)`.
+/// `next_due_ms`: quando vence a próxima conta; `warned_at_ms`: quando o aviso
+/// deste ciclo tocou. O ciclo só sai `AFK_WARNING_LEAD_MS` depois do aviso —
+/// com o tique de 1 s o aviso pode tocar com menos de 3 s pela frente, e o
+/// ciclo espera o resto.
+fn afk_warning_step(enabled: bool, next_due_ms: Option<i64>, now_ms: i64, warned_at_ms: Option<i64>) -> (bool, bool) {
+    if !enabled {
+        return (false, true);
+    }
+    let Some(due) = next_due_ms else {
+        return (false, true);
+    };
+    match warned_at_ms.filter(|at| now_ms.saturating_sub(*at) <= AFK_WARNING_STALE_MS) {
+        Some(at) => (false, now_ms.saturating_sub(at) >= AFK_WARNING_LEAD_MS),
+        None if now_ms >= due.saturating_sub(AFK_WARNING_LEAD_MS) => (true, false),
+        None => (false, true),
+    }
+}
+
 /// `Afk.WaitForFullscreen`: ligada por padrão (protege quem está vendo algo em
 /// tela cheia); só `"false"` desliga.
 fn afk_wait_for_fullscreen_enabled(raw: &str) -> bool {
@@ -1325,6 +1355,8 @@ fn afk_cycle_action(app: &tauri::AppHandle, config: &AfkConfig, targets: &[i64])
 
 #[cfg(target_os = "windows")]
 async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
+    // Quando o bipe de aviso do próximo ciclo tocou (`Afk.BeepBeforeCycle`).
+    let mut warned_at: Option<i64> = None;
     loop {
         if session.stop_flag.load(Ordering::Relaxed) {
             break;
@@ -1365,6 +1397,21 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
                 .unwrap_or(now);
             afk_fullscreen_gate(enabled, in_front, due_since, now, AFK_FULLSCREEN_MAX_WAIT_MS)
         };
+        // Bipe de aviso 3 s antes (a tela toca o som no `afk-cycle-soon`).
+        let warning_enabled = afk_beep_before_cycle_enabled(
+            &app.state::<SettingsStore>().get_string("Afk", "BeepBeforeCycle"),
+        );
+        let next_due = session.accounts.lock().ok().and_then(|map| {
+            map.values()
+                .map(|entry| afk_next_send_at_ms(entry.last_send_at_ms, interval_ms))
+                .min()
+        });
+        let now = now_ms();
+        let (warn_now, may_send) = afk_warning_step(warning_enabled, next_due, now, warned_at);
+        if warn_now && gate == AfkGate::Send {
+            warned_at = Some(now);
+            let _ = app.emit("afk-cycle-soon", serde_json::json!({ "inMs": AFK_WARNING_LEAD_MS }));
+        }
         let waiting = gate == AfkGate::Wait;
         if session.waiting_fullscreen.swap(waiting, Ordering::Relaxed) != waiting {
             if waiting {
@@ -1378,7 +1425,8 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
             emit_afk_status(&app);
         }
 
-        if !targets.is_empty() && !waiting {
+        if !targets.is_empty() && !waiting && may_send {
+            warned_at = None;
             let action = afk_cycle_action(&app, &config, &targets);
             let hide = afk_hide_windows(
                 &app.state::<SettingsStore>().get_string("Afk", "HideWindows"),
@@ -1678,6 +1726,60 @@ fn get_afk_mode_status() -> Result<AfkStatusPayload, String> {
 #[tauri::command]
 fn get_afk_keys() -> Result<Vec<String>, String> {
     Ok(afk_key_names())
+}
+
+#[cfg(test)]
+mod afk_warning_tests {
+    use super::*;
+
+    // Bipe de aviso 3 s antes do ciclo (`Afk.BeepBeforeCycle`, pedido do dono em
+    // 26/10/2026): dá tempo de soltar o mouse e o teclado antes de o foco sair.
+
+    const DUE: i64 = 100_000;
+
+    #[test]
+    fn off_it_never_warns_nor_holds_the_cycle() {
+        assert_eq!(afk_warning_step(false, Some(DUE), DUE, None), (false, true));
+    }
+
+    #[test]
+    fn it_warns_three_seconds_before_the_cycle() {
+        assert_eq!(afk_warning_step(true, Some(DUE), DUE - 5_000, None), (false, true));
+        assert_eq!(afk_warning_step(true, Some(DUE), DUE - AFK_WARNING_LEAD_MS, None), (true, false));
+    }
+
+    #[test]
+    fn the_cycle_waits_until_three_seconds_after_the_warning() {
+        // O tique de 1 s pode avisar com menos de 3 s pela frente: o ciclo espera.
+        let warned = DUE - 2_000;
+        assert_eq!(afk_warning_step(true, Some(DUE), DUE, Some(warned)), (false, false));
+        assert_eq!(afk_warning_step(true, Some(DUE), warned + AFK_WARNING_LEAD_MS, Some(warned)), (false, true));
+    }
+
+    #[test]
+    fn a_cycle_that_was_due_before_the_warning_is_warned_first() {
+        // Ligar a opção com a conta já na hora (ou voltar da espera da tela cheia).
+        assert_eq!(afk_warning_step(true, Some(DUE), DUE + 60_000, None), (true, false));
+    }
+
+    #[test]
+    fn an_old_warning_does_not_count_for_a_late_cycle() {
+        // A tela cheia segurou o ciclo por minutos: avisa de novo antes de enviar.
+        let warned = DUE - 3_000;
+        assert_eq!(afk_warning_step(true, Some(DUE), warned + AFK_WARNING_STALE_MS + 1, Some(warned)), (true, false));
+    }
+
+    #[test]
+    fn no_account_means_nothing_to_warn() {
+        assert_eq!(afk_warning_step(true, None, DUE, None), (false, true));
+    }
+
+    #[test]
+    fn the_warning_setting_is_off_unless_turned_on() {
+        assert!(!afk_beep_before_cycle_enabled(""));
+        assert!(!afk_beep_before_cycle_enabled("false"));
+        assert!(afk_beep_before_cycle_enabled("true"));
+    }
 }
 
 #[cfg(test)]
