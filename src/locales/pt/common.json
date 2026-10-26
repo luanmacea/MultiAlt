@@ -2844,5 +2844,6 @@
   "You signed in as {{got}}, not {{expected}}. Nothing was changed.": "Você entrou como {{got}}, não como {{expected}}. Nada foi alterado.",
   "{{name}}: Roblox is asking to confirm you're human. Solve it in the game window.": "{{name}}: o Roblox está pedindo para confirmar que você é humano. Resolva na janela do jogo.",
   "Roblox human check": "Verificação do Roblox",
-  "Roblox is asking to confirm you're human. Solve it in the game window.": "O Roblox está pedindo para confirmar que você é humano. Resolva na janela do jogo."
+  "Roblox is asking to confirm you're human. Solve it in the game window.": "O Roblox está pedindo para confirmar que você é humano. Resolva na janela do jogo.",
+  "The sign-in did not finish. The Console has the details.": "O login não terminou. O Console tem os detalhes."
 }

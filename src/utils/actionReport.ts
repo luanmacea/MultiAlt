@@ -165,7 +165,8 @@ export function reloginErrorText(error: unknown, t: (key: string, vars?: Record<
       expected: wrong[2],
     });
   }
-  return message;
+  // Nunca uma linha de falha sem motivo: o rastro completo está no Console.
+  return message || t("The sign-in did not finish. The Console has the details.");
 }
 
 /** A conta saiu da lista no meio: aí não há o que tentar de novo. */

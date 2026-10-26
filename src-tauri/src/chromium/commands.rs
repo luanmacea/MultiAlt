@@ -666,14 +666,54 @@ pub async fn relogin_account(
     let credentials = (!account.username.trim().is_empty() && !account.password.is_empty())
         .then(|| (account.username.as_str(), account.password.as_str()));
 
-    let (cookie, typed) = sign_in_in_browser(&app, &chromium, &settings, credentials).await?;
-    let info = crate::api::auth::validate_cookie(&cookie).await?;
-    relogin_identity_check(user_id, &account.username, info.user_id, &info.name)?;
+    // Rastro no Console de cada etapa (relato do dono, 26/10/2026: a janela
+    // fechou "como se tivesse dado certo" e a conta voltou a pedir login, sem
+    // motivo nenhum à vista). Nunca leva a senha nem o cookie.
+    let log = |level: &str, message: String| crate::emit_launch_log(&app, user_id, level, "relogin", message);
+    log(
+        "info",
+        if credentials.is_some() {
+            "Fazer login de novo: navegador aberto com usuário e senha preenchidos".to_string()
+        } else {
+            "Fazer login de novo: navegador aberto (sem senha salva para preencher)".to_string()
+        },
+    );
+    let (cookie, typed) = match sign_in_in_browser(&app, &chromium, &settings, credentials).await {
+        Ok(found) => found,
+        Err(e) => {
+            log("warn", format!("O login não terminou: {e}"));
+            return Err(e);
+        }
+    };
+    log("info", "Sessão capturada no navegador; conferindo de quem é".to_string());
+    let info = match crate::api::auth::validate_cookie(&cookie).await {
+        Ok(info) => info,
+        Err(e) => {
+            log("warn", format!("O Roblox não aceitou a sessão capturada: {e}"));
+            return Err(e);
+        }
+    };
+    if let Err(e) = relogin_identity_check(user_id, &account.username, info.user_id, &info.name) {
+        log(
+            "warn",
+            format!("A sessão capturada é de {} (ID {}), não desta conta; nada foi gravado", info.name, info.user_id),
+        );
+        return Err(e);
+    }
+    let password_changed = typed.as_deref().is_some_and(|t| !t.is_empty() && t != account.password);
     // O login deu certo: a senha do campo é a que funciona (quem trocou a
     // senha pelo app antes da v2.2.0 digita a certa aqui e o app aprende).
     if !state.relogin(user_id, &cookie, typed.as_deref())? {
         return Err("This account is no longer in the list.".to_string());
     }
+    log(
+        "info",
+        if password_changed {
+            "Login feito: sessão nova gravada e a senha guardada atualizada (a anterior ficou no histórico)".to_string()
+        } else {
+            "Login feito: sessão nova gravada".to_string()
+        },
+    );
 
     Ok(ImportedAccount {
         user_id: info.user_id,
