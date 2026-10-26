@@ -149,6 +149,14 @@ import {
 } from "./utils/awayDigest";
 import { accountCheckSummaryText, type AccountCheckSummary } from "./utils/accountCheck";
 import {
+  failureRow,
+  patchRow,
+  pendingRows,
+  type ActionKind,
+  type ActionReport,
+  type ActionReportRow,
+} from "./utils/actionReport";
+import {
   type UpdaterReleaseChannel,
   type UpdaterFeatureChannel,
   normalizeUpdaterReleaseChannel,
@@ -446,6 +454,11 @@ export interface LaunchTarget {
   followUserId?: number;
 }
 
+/** `report`: a ação abre a janela de resultados conta a conta (menus "Actions" e clique direito). */
+export interface ActionReportOptions {
+  report?: boolean;
+}
+
 export interface StoreValue {
   accounts: Account[];
   groups: ParsedGroup[];
@@ -456,7 +469,7 @@ export interface StoreValue {
    * (o formato do import): vai separado para o `add_account`, nunca no cookie.
    */
   addAccountByCookie: (cookie: string, password?: string) => Promise<void>;
-  removeAccounts: (userIds: number[]) => Promise<void>;
+  removeAccounts: (userIds: number[], options?: ActionReportOptions) => Promise<void>;
   /**
    * Devolve o lote removido de `batchId` (o "Undo" do toast). Só em memória.
    * Cada toast leva o id do seu lote: um Undo antigo não desfaz uma remoção mais
@@ -578,11 +591,11 @@ export interface StoreValue {
   presetsRevision: number;
   /** Abre um preset pela fila normal. Devolve se começou. */
   launchPreset: (preset: LaunchPresetView) => Promise<LaunchAttempt>;
-  restartRobloxClients: (userIds: number[]) => Promise<void>;
+  restartRobloxClients: (userIds: number[], options?: ActionReportOptions) => Promise<void>;
   focusRobloxClient: (userId: number) => Promise<boolean>;
   /** Fecha os clientes das contas informadas; devolve quantos foram fechados. */
   closeRobloxClients: (userIds: number[]) => Promise<number>;
-  killAllRobloxProcesses: () => Promise<void>;
+  killAllRobloxProcesses: (options?: ActionReportOptions) => Promise<void>;
 
   /** Fila de launch do lote atual (Painel de Sessão). */
   launchQueue: LaunchQueuePayload | null;
@@ -635,7 +648,7 @@ export interface StoreValue {
    */
   detectRunningGamePlace: (userIds: number[]) => Promise<number | null>;
   stopBottingMode: (closeBotAccounts: boolean) => Promise<void>;
-  addBottingAccounts: (userIds: number[]) => Promise<void>;
+  addBottingAccounts: (userIds: number[], options?: ActionReportOptions) => Promise<void>;
   setBottingPlayerAccounts: (userIds: number[]) => Promise<void>;
   bottingAccountAction: (
     userId: number,
@@ -686,7 +699,29 @@ export interface StoreValue {
   stopGenerator: () => Promise<void>;
   refreshGeneratorStatus: () => Promise<void>;
   refreshCookie: (userId: number) => Promise<boolean>;
-  moveToGroup: (userIds: number[], group: string) => Promise<void>;
+  moveToGroup: (userIds: number[], group: string, options?: ActionReportOptions) => Promise<void>;
+  /**
+   * "Refresh cookies" das contas escolhidas, com a janela de resultados conta a
+   * conta. Sessão morta vira "precisa de login" (não tem como atualizar um
+   * cookie que o Roblox invalidou), e a janela oferece "Fazer login de novo".
+   */
+  refreshCookies: (userIds: number[]) => Promise<void>;
+  /**
+   * "Fazer login de novo": uma conta por vez, o navegador de login abre com
+   * usuário e senha preenchidos (quando salvos), a pessoa resolve o CAPTCHA e
+   * o cookie novo entra na mesma conta (`relogin_account`). Atualiza as linhas
+   * da janela de resultados aberta, ou abre uma.
+   */
+  reloginAccounts: (userIds: number[]) => Promise<void>;
+  /** Resultado conta a conta da última ação do menu; não nulo = janela aberta. */
+  actionReport: ActionReport | null;
+  setActionReport: (report: ActionReport | null) => void;
+  /** Abre a janela de resultados de uma ação com as contas "na fila". */
+  startActionReport: (kind: ActionKind, title: string, userIds: number[], extra?: Partial<ActionReport>) => void;
+  /** Troca a linha de uma conta na janela aberta. */
+  patchActionRow: (row: ActionReportRow) => void;
+  /** Marca a ação como terminada (com resumo e linhas finais, quando vierem). */
+  finishActionReport: (extra?: Partial<ActionReport>) => void;
   sortGroupAlphabetically: (groupKey: string) => void;
   /**
    * Renomeia o grupo `from` (ou junta-o a `to`, se já existir): contas e
@@ -968,6 +1003,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [moderationByUserId, setModerationByUserId] = useState<Map<number, ModerationStatus>>(new Map());
   const [accountCheckProgress, setAccountCheckProgress] = useState<{ done: number; total: number } | null>(null);
   const [accountCheckReport, setAccountCheckReport] = useState<StoreValue["accountCheckReport"]>(null);
+  const [actionReport, setActionReport] = useState<ActionReport | null>(null);
+  const startActionReport = useCallback(
+    (kind: ActionKind, title: string, userIds: number[], extra?: Partial<ActionReport>) => {
+      setActionReport({ kind, title, rows: pendingRows(userIds), running: true, at: Date.now(), ...extra });
+    },
+    []
+  );
+  const patchActionRow = useCallback((row: ActionReportRow) => {
+    setActionReport((prev) => (prev ? { ...prev, rows: patchRow(prev.rows, row) } : prev));
+  }, []);
+  const finishActionReport = useCallback((extra?: Partial<ActionReport>) => {
+    setActionReport((prev) => (prev ? { ...prev, ...extra, running: false } : prev));
+  }, []);
   const rememberModeration = useCallback((userId: number, status: ModerationStatus) => {
     setModerationByUserId((prev) => {
       const next = new Map(prev);
@@ -1609,11 +1657,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * `remove_account` por conta e a remoção só voltava restaurando um backup
    * inteiro.
    */
-  async function removeAccounts(userIds: number[]) {
+  async function removeAccounts(userIds: number[], options?: ActionReportOptions) {
+    if (options?.report) startActionReport("remove-accounts", tr("Remove accounts"), userIds);
     try {
       const result = await invoke<{ batchId: number; count: number }>("remove_accounts", {
         userIds,
       });
+      if (options?.report) {
+        finishActionReport({
+          rows: Array.from(new Set(userIds)).map((userId) => ({ userId, outcome: "ok" as const })),
+          undoBatchId: result?.batchId,
+        });
+      }
       setSelectedIds((prev) => {
         const next = new Set(prev);
         userIds.forEach((id) => next.delete(id));
@@ -1632,6 +1687,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
     } catch (e) {
       setError(String(e));
+      if (options?.report) {
+        finishActionReport({
+          rows: Array.from(new Set(userIds)).map((userId) => ({
+            userId,
+            outcome: "failed" as const,
+            detail: String(e),
+          })),
+        });
+      }
     }
   }
 
@@ -1713,17 +1777,78 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return ok;
   }
 
-  async function moveToGroup(userIds: number[], group: string) {
+  async function refreshCookies(userIds: number[]) {
+    const ids = Array.from(new Set(userIds));
+    if (ids.length === 0) return;
+    startActionReport("refresh-cookies", tr("Refresh cookies"), ids);
+    const loginDetail = tr("Roblox ended this session. Sign in again to use the account.");
+    for (const [index, userId] of ids.entries()) {
+      patchActionRow({ userId, outcome: "running" });
+      try {
+        await invoke<boolean>("refresh_cookie", { userId });
+        patchActionRow({ userId, outcome: "ok" });
+      } catch (e) {
+        patchActionRow(failureRow(userId, e, loginDetail));
+      }
+      // O mesmo ritmo de antes: cada refresh é uma escrita no Roblox.
+      if (index + 1 < ids.length) await new Promise((r) => setTimeout(r, 2000));
+    }
+    await loadAccounts().catch(() => {});
+    finishActionReport();
+  }
+
+  async function reloginAccounts(userIds: number[]) {
+    const ids = Array.from(new Set(userIds));
+    if (ids.length === 0) return;
+    // A janela aberta (do refresh, por exemplo) troca as linhas no lugar; sem
+    // janela, abre uma só do novo login.
+    setActionReport((prev) =>
+      prev
+        ? { ...prev, running: true }
+        : { kind: "relogin", title: tr("Sign in again"), rows: pendingRows(ids), running: true, at: Date.now() }
+    );
+    for (const userId of ids) {
+      const name = accountLabel(accounts.find((a) => a.UserID === userId), {
+        hideUsernames,
+        hiddenNameLetters,
+      });
+      patchActionRow({
+        userId,
+        outcome: "running",
+        detail: tr("Sign in to {{name}} in the browser window. You solve the CAPTCHA.", { name }),
+      });
+      try {
+        await invoke("relogin_account", { userId });
+        patchActionRow({ userId, outcome: "ok", detail: tr("Signed in again") });
+      } catch (e) {
+        patchActionRow({ userId, outcome: "failed", detail: String(e) });
+      }
+    }
+    await loadAccounts().catch(() => {});
+    finishActionReport();
+  }
+
+  async function moveToGroup(userIds: number[], group: string, options?: ActionReportOptions) {
+    const groupName = parseGroupName(group).displayName;
+    if (options?.report) startActionReport("move-group", tr("Move to {{group}}", { group: groupName }), userIds);
     const updated = accounts.map((a) =>
       userIds.includes(a.UserID) ? { ...a, Group: group } : a
     );
     setAccounts(updated);
     for (const a of updated) {
       if (userIds.includes(a.UserID)) {
-        await invoke("update_account", { account: a }).catch(() => {});
+        // A falha de gravação era engolida: a conta aparecia no grupo novo e
+        // voltava ao reabrir o app.
+        try {
+          await invoke("update_account", { account: a });
+          if (options?.report) patchActionRow({ userId: a.UserID, outcome: "ok" });
+        } catch (e) {
+          if (options?.report) patchActionRow({ userId: a.UserID, outcome: "failed", detail: String(e) });
+        }
       }
     }
-    addToast(tr("Moved to {{group}}", { group: parseGroupName(group).displayName }));
+    if (options?.report) finishActionReport();
+    else addToast(tr("Moved to {{group}}", { group: groupName }));
   }
 
   async function renameGroup(from: string, to: string): Promise<boolean> {
@@ -2168,17 +2293,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function killAllRobloxProcesses() {
+  async function killAllRobloxProcesses(options?: ActionReportOptions) {
+    // Fecha todos os clientes, não só os das contas escolhidas: a janela lista
+    // as contas que estavam com cliente aberto.
+    const openIds = Array.from(launchedByProgram);
+    if (options?.report) startActionReport("close-all", tr("Close all Roblox clients"), openIds);
     try {
       const killed = await invoke<number>("cmd_kill_all_roblox");
       clearLaunchTimeout();
       setJoiningAccounts(new Set());
       setLaunchProgress(null);
-      addToast(killed > 0
+      const summary = killed > 0
         ? tr(killed === 1 ? "Closed {{count}} Roblox process" : "Closed {{count}} Roblox processes", { count: killed })
-        : tr("No open Roblox processes found"));
+        : tr("No open Roblox processes found");
+      if (options?.report) {
+        finishActionReport({
+          rows: openIds.map((userId) => ({ userId, outcome: "ok" as const, detail: tr("Client closed") })),
+          summary,
+        });
+      } else {
+        addToast(summary);
+      }
       setError(null);
     } catch (e) {
+      if (options?.report) finishActionReport({ summary: tr("Failed to close Roblox: {{error}}", { error: String(e) }) });
       setError(String(e));
       setActionStatusMessage(tr("Failed to close Roblox: {{error}}", { error: String(e) }), "error", 5000);
     }
@@ -2272,12 +2410,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return invoke<boolean>("dismiss_closed_client", { userId });
   }
 
-  async function restartRobloxClients(userIds: number[]) {
+  async function restartRobloxClients(userIds: number[], options?: ActionReportOptions) {
     const uniqueIds = Array.from(new Set(userIds));
     const launchedIds = uniqueIds.filter((userId) => launchedByProgram.has(userId));
     if (launchedIds.length === 0) {
       addToast(tr("No launched Roblox clients selected"));
       return;
+    }
+    const report = options?.report === true;
+    if (report) {
+      startActionReport("restart-clients", tr("Restart clients"), uniqueIds);
+      for (const userId of uniqueIds) {
+        if (!launchedByProgram.has(userId)) {
+          patchActionRow({ userId, outcome: "skipped", detail: tr("No client open by the app") });
+        }
+      }
     }
 
     let closeFailures = 0;
@@ -2285,13 +2432,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const closed = await invoke<boolean>("cmd_kill_roblox", { userId });
         if (!closed) closeFailures += 1;
-      } catch {
+        if (report) {
+          patchActionRow(
+            closed
+              ? { userId, outcome: "ok", detail: tr("Closed and sent to the launch queue (see Session)") }
+              : { userId, outcome: "failed", detail: tr("The client could not be closed") }
+          );
+        }
+      } catch (e) {
         closeFailures += 1;
+        if (report) patchActionRow({ userId, outcome: "failed", detail: String(e) });
       }
     }
+    if (report) finishActionReport();
 
     await new Promise((resolve) => setTimeout(resolve, 250));
-    if (closeFailures > 0) {
+    if (closeFailures > 0 && !report) {
       addToast(tr("Some clients could not be closed before restart"));
     }
 
@@ -2428,13 +2584,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function addBottingAccounts(userIds: number[]) {
+  async function addBottingAccounts(userIds: number[], options?: ActionReportOptions) {
     if (userIds.length === 0) return;
+    if (options?.report) startActionReport("add-auto-rejoin", tr("Add to Auto Rejoin"), userIds);
     try {
       const status = await invoke<BottingStatus>("add_botting_accounts", {
         userIds,
       });
       setBottingStatus(status);
+      if (options?.report) {
+        const inRun = new Set(status?.userIds ?? []);
+        finishActionReport({
+          rows: Array.from(new Set(userIds)).map((userId) =>
+            inRun.has(userId)
+              ? { userId, outcome: "ok" as const }
+              : { userId, outcome: "failed" as const, detail: tr("Auto Rejoin did not take this account") }
+          ),
+        });
+        return;
+      }
       addToast(
         tr(
           userIds.length === 1
@@ -2445,6 +2613,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       );
     } catch (e) {
       setError(String(e));
+      if (options?.report) {
+        finishActionReport({
+          rows: Array.from(new Set(userIds)).map((userId) => ({ userId, outcome: "failed" as const, detail: String(e) })),
+        });
+      }
       throw e;
     }
   }
@@ -3899,6 +4072,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     accountCheckProgress,
     accountCheckReport,
     setAccountCheckReport,
+    actionReport,
+    setActionReport,
+    startActionReport,
+    patchActionRow,
+    finishActionReport,
+    refreshCookies,
+    reloginAccounts,
     launchedByProgram,
     adoptedClients,
     unidentifiedClients,

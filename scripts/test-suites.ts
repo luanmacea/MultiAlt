@@ -173,6 +173,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/utils/accountCheck.test.ts",
       // Janela de resultados do Check Accounts em lote: quais contas, filtro, selecionar banidas.
       "src/components/dialogs/AccountCheckResultsDialog.test.tsx",
+      // Resultado conta a conta das outras ações do menu Ações, e o "Fazer login de novo".
+      "src/components/dialogs/ActionResultsDialog.test.tsx",
       "src/components/layout/StatusBar.test.tsx",
     ],
   },

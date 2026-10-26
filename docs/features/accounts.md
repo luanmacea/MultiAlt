@@ -148,6 +148,20 @@ Desde 15/10/2026, o menu **Ações** (barra inferior, com contas selecionadas) t
 - **A senha nova fica guardada** na conta depois da troca (`persist_password_update` no `change_password`). Antes ficava a antiga, e a troca seguinte usava ela como "senha atual" e falhava.
 - **Aviso na tela:** usar a mesma senha em todas é menos seguro; está dito no diálogo. Lógica pura e testada em `bulkCredentials.test.ts`; o diálogo em `BulkCredentialsDialog.test.tsx` (suíte `accounts`).
 
+### Janela de resultados das ações (menu Ações e clique direito, 25/10/2026)
+
+Pedido do dono: toda ação do menu **Ações** mostra o resultado conta a conta, como o "Conferir contas" ([ActionResultsDialog.tsx](../../src/components/dialogs/ActionResultsDialog.tsx), lógica pura em [actionReport.ts](../../src/utils/actionReport.ts), estado `actionReport` no store). Antes só o "Conferir contas" fazia isso; as outras davam um toast de contagem — e o **"Atualizar cookies" engolia o erro de cada conta** (`.catch(() => false)`): com 13 sessões inválidas, a pessoa via "Atualizando..." por ~26 s e um toast que sumia, sem saber o que tinha acontecido.
+
+- Mesmo desenho do "Conferir contas": números no topo que filtram, uma linha por conta com o motivo, "Selecionar as que falharam".
+- Resultados: `login` (sessão morta), `failed` (com o motivo), `running`/`pending` (ainda rodando), `skipped`, `already`, `ok` — o texto do `ok` diz o que a ação fez (Atualizado, Movida, Adicionada...).
+- **Sessão morta vira "Precisa de login"** (`needsLogin`: os mesmos sinais de `is_auth_session_error` mais as mensagens prontas do backend). Um cookie que o Roblox invalidou não tem como ser "atualizado" — o caminho é logar de novo.
+- Cada ação: **Atualizar cookies** (`store.refreshCookies`, uma por vez com 2 s entre elas, como antes); **Copiar cookies** (copiada / sem cookie salvo, e quando a área de transferência se limpa); **Fazer amizades** e **Seguir** (ao vivo, a partir de `friend-link-state` / `follow-user-state`, e o retrato final do backend); **Mover para grupo** (a falha de gravação de cada conta, que antes era engolida e a conta "voltava" ao reabrir); **Reiniciar clientes** (a seleção inteira; quem não tem cliente aberto pelo app aparece como pulada); **Adicionar ao Auto Rejoin** (inclusive as que já estavam); **Fechar todos os clientes** (as contas que estavam abertas e o total de processos); **Remover** (o toast de Desfazer continua).
+- No **clique direito** a janela abre com **mais de uma** conta (a regra do "Conferir contas"); com uma, fica o toast curto. **Arrastar** conta para grupo nunca abre janela.
+
+### Fazer login de novo (`relogin_account`)
+
+Para conta com sessão morta, na janela de resultados e na do "Conferir contas" (botão "Fazer login de novo (N)", depois de uma confirmação que explica o que vai acontecer). Uma conta por vez: o navegador de login abre ([chromium/commands.rs](../../src-tauri/src/chromium/commands.rs), `sign_in_in_browser`, o mesmo do "usuário:senha") com **usuário e senha preenchidos quando a conta tem senha salva**, a pessoa resolve o CAPTCHA, e o cookie novo entra **na mesma conta** (`AccountStore::relogin`: troca o cookie e marca válida, sem tocar em grupo, campos e senha). Login feito em **outra** conta (perfil do navegador já logado em outra, usuário errado digitado) é recusado sem gravar nada (`relogin_identity_check`). O app nunca resolve o CAPTCHA.
+
 ## Regras de negócio
 
 - **`UserID` é a identidade**: `add` com um `UserID` existente **atualiza** `SecurityToken`, `Username`, `Valid`, `LastUse` (e `Password` só se a nova não for vazia); alias, grupo, campos e descrição são preservados.

@@ -511,26 +511,24 @@ pub async fn close_login_browser(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn import_userpass(
-    app: AppHandle,
-    state: State<'_, AccountStore>,
-    chromium: State<'_, ChromiumManager>,
-    settings: State<'_, SettingsStore>,
-    username: String,
-    password: String,
-) -> Result<ImportedAccount, String> {
-    if username.trim().is_empty() || password.is_empty() {
-        return Err("Enter a username and password".into());
-    }
-
-    let (binary, _) = resolve_browser_binary(&app, Some(&manual_binary_path(&settings))).await?;
+/// Abre o navegador de login, preenche usuário e senha quando vierem
+/// (`credentials`) e espera a pessoa terminar (o CAPTCHA é com ela). Devolve o
+/// `.ROBLOSECURITY` capturado; a janela fecha no instante em que ele aparece.
+/// Usado pelo "usuário:senha" (conta nova) e pelo "Fazer login de novo" (conta
+/// que já existe e perdeu a sessão).
+async fn sign_in_in_browser(
+    app: &AppHandle,
+    chromium: &ChromiumManager,
+    settings: &SettingsStore,
+    credentials: Option<(&str, &str)>,
+) -> Result<String, String> {
+    let (binary, _) = resolve_browser_binary(app, Some(&manual_binary_path(settings))).await?;
     chromium.close_login_session();
 
     let persistent = settings.get_bool("Login", "PersistentProfile");
     let stealth = settings.get_bool("Login", "StealthMode");
 
-    let profile = ChromiumManager::login_profile(&app)?;
+    let profile = ChromiumManager::login_profile(app)?;
     if !persistent {
         wipe_profile_dir(&profile)?;
     }
@@ -567,8 +565,10 @@ pub async fn import_userpass(
         return Err(e);
     }
 
-    if cdp.wait_for_selector("#login-username", 40).await {
-        let _ = cdp.fill_login(&username, &password).await;
+    if let Some((username, password)) = credentials {
+        if cdp.wait_for_selector("#login-username", 40).await {
+            let _ = cdp.fill_login(username, password).await;
+        }
     }
 
     let mut captured = None;
@@ -588,7 +588,23 @@ pub async fn import_userpass(
         let _ = wipe_profile_dir(&profile);
     }
 
-    let cookie = captured.ok_or("Timed out waiting for sign-in")?;
+    captured.ok_or_else(|| "Timed out waiting for sign-in".to_string())
+}
+
+#[tauri::command]
+pub async fn import_userpass(
+    app: AppHandle,
+    state: State<'_, AccountStore>,
+    chromium: State<'_, ChromiumManager>,
+    settings: State<'_, SettingsStore>,
+    username: String,
+    password: String,
+) -> Result<ImportedAccount, String> {
+    if username.trim().is_empty() || password.is_empty() {
+        return Err("Enter a username and password".into());
+    }
+
+    let cookie = sign_in_in_browser(&app, &chromium, &settings, Some((&username, &password))).await?;
     let info = crate::api::auth::validate_cookie(&cookie).await?;
 
     let mut account = Account::new(cookie, info.name.clone(), info.user_id);
@@ -601,9 +617,64 @@ pub async fn import_userpass(
     })
 }
 
+/// O login novo tem de ser da **mesma** conta: com a conta errada (outro
+/// usuário digitado, ou o perfil do navegador já logado em outra) o cookie
+/// não é gravado.
+fn relogin_identity_check(expected_id: i64, expected_name: &str, got_id: i64, got_name: &str) -> Result<(), String> {
+    if got_id == expected_id {
+        Ok(())
+    } else {
+        Err(format!(
+            "You signed in as {got_name}, not {expected_name}. Nothing was changed — sign in to {expected_name} instead."
+        ))
+    }
+}
+
+/// "Fazer login de novo": a sessão da conta morreu (o "Atualizar cookies" não
+/// tem como reviver um cookie que o Roblox invalidou). Abre o navegador de login
+/// com usuário e senha preenchidos quando a conta tem senha salva, a pessoa
+/// resolve o CAPTCHA, e o cookie novo entra **na mesma conta** — grupo, campos
+/// e senha ficam. Ver docs/features/accounts.md.
+#[tauri::command]
+pub async fn relogin_account(
+    app: AppHandle,
+    state: State<'_, AccountStore>,
+    chromium: State<'_, ChromiumManager>,
+    settings: State<'_, SettingsStore>,
+    user_id: i64,
+) -> Result<ImportedAccount, String> {
+    let account = state
+        .get_all()?
+        .into_iter()
+        .find(|a| a.user_id == user_id)
+        .ok_or_else(|| "This account is no longer in the list.".to_string())?;
+    let credentials = (!account.username.trim().is_empty() && !account.password.is_empty())
+        .then(|| (account.username.as_str(), account.password.as_str()));
+
+    let cookie = sign_in_in_browser(&app, &chromium, &settings, credentials).await?;
+    let info = crate::api::auth::validate_cookie(&cookie).await?;
+    relogin_identity_check(user_id, &account.username, info.user_id, &info.name)?;
+    if !state.relogin(user_id, &cookie)? {
+        return Err("This account is no longer in the list.".to_string());
+    }
+
+    Ok(ImportedAccount {
+        user_id: info.user_id,
+        name: info.name,
+    })
+}
+
 #[cfg(test)]
 mod chromium_commands_tests {
     use super::*;
+
+    /// "Fazer login de novo" só grava o cookie se o login foi na mesma conta.
+    #[test]
+    fn relogin_only_accepts_the_same_account() {
+        assert!(relogin_identity_check(7, "ann", 7, "ann").is_ok());
+        let err = relogin_identity_check(7, "ann", 8, "bob").unwrap_err();
+        assert!(err.contains("bob") && err.contains("ann"), "{err}");
+    }
 
     #[test]
     fn the_profile_url_only_takes_the_numeric_id() {

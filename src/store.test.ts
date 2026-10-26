@@ -3804,3 +3804,82 @@ describe("checkAccounts", () => {
     expect(result.current.toasts).toMatchObject([{ tone: "error" }]);
   });
 });
+
+/**
+ * Pedido do dono (25/10/2026): as ações do menu mostram o resultado conta a
+ * conta. O "Refresh cookies" engolia o erro de cada conta (sessão morta virava
+ * só "1 failed" num toast) e não oferecia logar de novo.
+ */
+describe("ações com janela de resultados", () => {
+  async function setupThree() {
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 }), account({ UserID: 3 })];
+    settingsData = { General: {} };
+    return renderStore();
+  }
+
+  function withBackend(handler: (cmd: string, args: Record<string, unknown>) => unknown) {
+    invokeMock.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      const answer = handler(cmd, args ?? {});
+      if (answer instanceof Error) throw answer.message;
+      if (answer !== undefined) return answer;
+      return defaultInvoke(cmd);
+    });
+  }
+
+  it("refreshCookies separa a sessão morta (precisa de login) do que deu certo", async () => {
+    const { result } = await setupThree();
+    withBackend((cmd, args) => {
+      if (cmd !== "refresh_cookie") return undefined;
+      return args.userId === 2 ? new Error("Roblox invalidated this session. Re-login required.") : true;
+    });
+
+    await act(async () => {
+      await result.current.refreshCookies([1, 2]);
+    });
+
+    const report = result.current.actionReport!;
+    expect(report.kind).toBe("refresh-cookies");
+    expect(report.running).toBe(false);
+    expect(report.rows).toEqual([
+      { userId: 1, outcome: "ok" },
+      expect.objectContaining({ userId: 2, outcome: "login" }),
+    ]);
+  }, 10_000);
+
+  it("reloginAccounts loga de novo uma por vez e guarda o motivo de quem falhou", async () => {
+    const { result } = await setupThree();
+    withBackend((cmd, args) => {
+      if (cmd !== "relogin_account") return undefined;
+      return args.userId === 3 ? new Error("You signed in as bob, not user3.") : { userId: 2, name: "user2" };
+    });
+
+    await act(async () => {
+      await result.current.reloginAccounts([2, 3]);
+    });
+
+    expect(invokeCalls("relogin_account").map((c) => (c[1] as { userId: number }).userId)).toEqual([2, 3]);
+    const report = result.current.actionReport!;
+    expect(report.kind).toBe("relogin");
+    expect(report.rows).toEqual([
+      expect.objectContaining({ userId: 2, outcome: "ok" }),
+      { userId: 3, outcome: "failed", detail: "You signed in as bob, not user3." },
+    ]);
+  });
+
+  it("moveToGroup com janela mostra a conta que não foi gravada (antes era engolido)", async () => {
+    const { result } = await setupThree();
+    withBackend((cmd, args) => {
+      if (cmd !== "update_account") return undefined;
+      return (args.account as { UserID: number }).UserID === 2 ? new Error("disk full") : true;
+    });
+
+    await act(async () => {
+      await result.current.moveToGroup([1, 2], "Farm", { report: true });
+    });
+
+    expect(result.current.actionReport?.rows).toEqual([
+      { userId: 1, outcome: "ok" },
+      { userId: 2, outcome: "failed", detail: "disk full" },
+    ]);
+  });
+});

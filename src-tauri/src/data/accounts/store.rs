@@ -1431,6 +1431,21 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// Novo login da conta cuja sessão morreu ("Fazer login de novo"): troca o
+    /// cookie pelo do login e marca a sessão válida, sem tocar no resto (grupo,
+    /// campos, senha). Quem chama garante que o cookie é **desta** conta. Devolve
+    /// `false` quando a conta não existe.
+    pub fn relogin(&self, user_id: i64, new_token: &str) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        account.security_token = new_token.to_string();
+        account.valid = true;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     /// Grava o `valid` da conta (o ponto vermelho de sessão inválida). Só
     /// regrava o arquivo quando o valor muda — conferir 50 contas boas não pode
     /// virar 50 gravações. Devolve `true` quando mudou.
@@ -1953,6 +1968,39 @@ mod account_store_tests {
         let reloaded = AccountStore::new(store.file_path.clone());
         reloaded.load().unwrap();
         assert_eq!(reloaded.get_all().unwrap()[0].last_use, after);
+    }
+
+    /// "Fazer login de novo" (25/10/2026): o cookie morto e trocado pelo do login
+    /// novo **na mesma conta** — grupo, campos e senha ficam — e a sessao volta a
+    /// valida (o ponto vermelho some).
+    #[test]
+    fn relogin_swaps_the_cookie_keeps_the_rest_and_marks_the_session_valid() {
+        let store = store("relogin");
+        let mut old = account(7, "ann");
+        old.security_token = "DEAD-COOKIE".to_string();
+        old.valid = false;
+        old.group = "Farm".to_string();
+        old.password = "secret".to_string();
+        store.add(old).unwrap();
+
+        assert!(store.relogin(7, "NEW-COOKIE").unwrap());
+
+        let after = store.get_all().unwrap().remove(0);
+        assert_eq!(after.security_token, "NEW-COOKIE");
+        assert!(after.valid);
+        assert_eq!(after.group, "Farm");
+        assert_eq!(after.password, "secret");
+        let reloaded = AccountStore::new(store.file_path.clone());
+        reloaded.load().unwrap();
+        assert_eq!(reloaded.get_all().unwrap()[0].security_token, "NEW-COOKIE");
+    }
+
+    #[test]
+    fn relogin_of_a_missing_account_changes_nothing() {
+        let store = store("relogin-missing");
+        store.add(account(7, "ann")).unwrap();
+        assert!(!store.relogin(999, "NEW-COOKIE").unwrap());
+        assert_ne!(store.get_all().unwrap()[0].security_token, "NEW-COOKIE");
     }
 
     #[test]

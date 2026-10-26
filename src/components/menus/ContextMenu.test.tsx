@@ -154,7 +154,7 @@ describe("ContextMenu — account actions", () => {
     promptAnswers.confirm = true;
     const store = renderMenu({}, [A, B]);
     await userEvent.click(item(/Remove Account/));
-    await waitFor(() => expect(store.removeAccounts).toHaveBeenCalledWith([1, 2]));
+    await waitFor(() => expect(store.removeAccounts).toHaveBeenCalledWith([1, 2], { report: true }));
   });
 
   it("keeps the accounts when the removal is declined", async () => {
@@ -354,14 +354,14 @@ describe("ContextMenu — group, botting and client entries", () => {
   it("lists the existing groups and moves the selection", async () => {
     const store = renderMenu();
     await userEvent.click(item("Farm"));
-    expect(store.moveToGroup).toHaveBeenCalledWith([1], "Farm");
+    expect(store.moveToGroup).toHaveBeenCalledWith([1], "Farm", { report: false });
   });
 
   it("creates a new group from the prompt", async () => {
     promptAnswers.prompt = " Bots ";
     const store = renderMenu();
     await userEvent.click(item("New Group..."));
-    await waitFor(() => expect(store.moveToGroup).toHaveBeenCalledWith([1], "Bots"));
+    await waitFor(() => expect(store.moveToGroup).toHaveBeenCalledWith([1], "Bots", { report: false }));
   });
 
   it("renames the account's group from the prompt, starting from the current name", async () => {
@@ -428,7 +428,7 @@ describe("ContextMenu — group, botting and client entries", () => {
       [A, B]
     );
     await userEvent.click(item("Add 1 account to Auto Rejoin"));
-    await waitFor(() => expect(store.addBottingAccounts).toHaveBeenCalledWith([2]));
+    await waitFor(() => expect(store.addBottingAccounts).toHaveBeenCalledWith([2], { report: false }));
   });
 
   it("says when every selected account is already botting", async () => {
@@ -455,7 +455,7 @@ describe("ContextMenu — group, botting and client entries", () => {
     cleanup();
     const store2 = renderMenu({ launchedByProgram: new Set([1, 2]) }, [A, B]);
     await userEvent.click(item("Restart clients (2)"));
-    await waitFor(() => expect(store2.restartRobloxClients).toHaveBeenCalledWith([1, 2]));
+    await waitFor(() => expect(store2.restartRobloxClients).toHaveBeenCalledWith([1, 2], { report: true }));
   });
 
   it("warns when no Roblox window can be focused", async () => {

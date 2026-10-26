@@ -158,8 +158,11 @@ describe("BottomActionBar — actions", () => {
     );
     expect(writeText).not.toHaveBeenCalled();
     await waitFor(() =>
-      expect(store.addToast).toHaveBeenCalledWith(
-        "Copied 2 cookies. Cleared from the clipboard in 30 s."
+      expect(store.setActionReport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "copy-cookies",
+          summary: "Copied 2 cookies. Cleared from the clipboard in 30 s.",
+        })
       )
     );
   });
@@ -174,7 +177,11 @@ describe("BottomActionBar — actions", () => {
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
-    await waitFor(() => expect(store.addToast).toHaveBeenCalledWith("Copied 2 cookies"));
+    await waitFor(() =>
+      expect(store.setActionReport).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "copy-cookies", summary: "Copied 2 cookies" })
+      )
+    );
   });
 
   /** Erro do Windows (área de transferência ocupada) não cai no caminho sem proteção. */
@@ -262,7 +269,7 @@ describe("BottomActionBar — actions", () => {
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Move to Group/ }));
     await userEvent.click(screen.getByRole("button", { name: "Farm" }));
-    expect(store.moveToGroup).toHaveBeenCalledWith([1, 2], "Farm");
+    expect(store.moveToGroup).toHaveBeenCalledWith([1, 2], "Farm", { report: true });
   });
 
   it("asks for a name before creating a new group", async () => {
@@ -271,7 +278,7 @@ describe("BottomActionBar — actions", () => {
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Move to Group/ }));
     await userEvent.click(screen.getByRole("button", { name: /New Group/ }));
-    await waitFor(() => expect(store.moveToGroup).toHaveBeenCalledWith([1, 2], "Bots"));
+    await waitFor(() => expect(store.moveToGroup).toHaveBeenCalledWith([1, 2], "Bots", { report: true }));
   });
 
   it("does not create a group when the prompt is cancelled", async () => {
@@ -297,7 +304,7 @@ describe("BottomActionBar — actions", () => {
     const store2 = renderBar();
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Remove \(2\)/ }));
-    await waitFor(() => expect(store2.removeAccounts).toHaveBeenCalledWith([1, 2]));
+    await waitFor(() => expect(store2.removeAccounts).toHaveBeenCalledWith([1, 2], { report: true }));
   });
 
   it("closes every Roblox process", async () => {
@@ -324,14 +331,24 @@ describe("BottomActionBar — actions", () => {
     });
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Add to Auto Rejoin \(1\)/ }));
-    await waitFor(() => expect(store.addBottingAccounts).toHaveBeenCalledWith([2]));
+    await waitFor(() => expect(store.addBottingAccounts).toHaveBeenCalledWith([2], { report: true }));
   });
 
   it("restarts only the clients this app launched", async () => {
     const store = renderBar([A, B], { launchedByProgram: new Set([2]) });
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Restart Launched \(1\)/ }));
-    await waitFor(() => expect(store.restartRobloxClients).toHaveBeenCalledWith([2]));
+    // A seleção inteira vai: a que não tem cliente aberto pelo app aparece como "pulada".
+    await waitFor(() => expect(store.restartRobloxClients).toHaveBeenCalledWith([1, 2], { report: true }));
+  });
+
+  /** Relato do dono (25/10/2026): "Refresh cookies" não mostrava o resultado de cada conta. */
+  it("refreshes the cookies through the store, which opens the results window", async () => {
+    const store = renderBar([A, B]);
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Refresh Cookies \(2\)/ }));
+    await waitFor(() => expect(store.refreshCookies).toHaveBeenCalledWith([1, 2]));
+    expect(store.addToast).not.toHaveBeenCalledWith(expect.stringMatching(/^Refreshed:/));
   });
 });
 
@@ -490,7 +507,7 @@ describe("BottomActionBar — friend linking", () => {
    */
   it("mostra no botão quantas contas o Make Friends já processou", async () => {
     let release: (value: unknown) => void = () => {};
-    setInvokeHandler(() => new Promise((resolve) => { release = resolve; }));
+    setInvokeHandler((cmd) => (cmd === "make_selected_friends" ? new Promise((resolve) => { release = resolve; }) : null));
     renderBar([A, B], {
       friendLinkState: {
         active: true,
@@ -514,7 +531,7 @@ describe("BottomActionBar — friend linking", () => {
 
   it("sem operação ativa, o botão não finge progresso", async () => {
     let release: (value: unknown) => void = () => {};
-    setInvokeHandler(() => new Promise((resolve) => { release = resolve; }));
+    setInvokeHandler((cmd) => (cmd === "make_selected_friends" ? new Promise((resolve) => { release = resolve; }) : null));
     renderBar([A, B], {
       friendLinkState: {
         active: false,
@@ -586,7 +603,9 @@ describe("BottomActionBar — follow a user", () => {
     expect(confirmMock.mock.calls[0][0]).toContain("Star (@starplayer)");
     expect(confirmMock.mock.calls[0][0]).toContain("9999");
     await waitFor(() =>
-      expect(store.addToast).toHaveBeenCalledWith(expect.stringContaining("2 followed"))
+      expect(store.finishActionReport).toHaveBeenCalledWith(
+        expect.objectContaining({ summary: expect.stringContaining("2 followed") })
+      )
     );
   });
 

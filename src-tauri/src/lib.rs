@@ -769,6 +769,7 @@ pub fn run() {
             chromium::commands::close_login_browser,
             chromium::commands::open_account_browser,
             chromium::commands::import_userpass,
+            chromium::commands::relogin_account,
             chromium::signup_session::start_signup_session,
             chromium::signup_session::stop_signup_session,
             chromium::signup_session::get_signup_status,
