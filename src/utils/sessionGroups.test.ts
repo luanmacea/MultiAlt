@@ -19,6 +19,13 @@ describe("runningStatus", () => {
     expect(runningStatus(undefined, health({ drop: DROP }), false)).toBe("dropped");
   });
 
+  /** A verificação do Roblox espera a pessoa: pede atenção, mas a queda vem antes. */
+  it("puts a pending human check after a drop and before playing, as needing attention", () => {
+    expect(runningStatus(undefined, health({ challenge: true }), false)).toBe("humanCheck");
+    expect(runningStatus(undefined, health({ drop: DROP, challenge: true }), false)).toBe("dropped");
+    expect(runningStatus(session(1, 1, "a"), health({ challenge: true }), false)).toBe("humanCheck");
+  });
+
   it("is playing with a session, waiting when the log says it has no game yet, else unknown", () => {
     expect(runningStatus(session(1, 1, "a"), health(), false)).toBe("playing");
     expect(runningStatus(undefined, health({ inGame: false }), false)).toBe("waiting");

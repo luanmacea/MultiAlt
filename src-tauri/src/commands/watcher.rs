@@ -804,6 +804,7 @@ mod watcher_tests {
             in_game: !dropped,
             wrong_account_user_id: None,
             server: None,
+            challenge: false,
             destination: None,
             exited: false,
         }

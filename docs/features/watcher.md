@@ -154,6 +154,15 @@ testes `roblox_log_line_tests` — e o classificador o devolve como `JoinedAs`.
   linha, e a identificação manual é decisão da pessoa.
 - Não usa o `challengedByGcs` do log.
 
+## Verificação do Roblox ("confirme que é humano", 25/10/2026)
+
+Na bateria de testes, 3 de 4 contas pararam na tela **"Hold the button to confirm you're human"** (ou "Verifying you're not a bot") que o Roblox mostra dentro da janela do jogo ao entrar no servidor, e o app só dizia "Ainda fora de um jogo". Os logs desta máquina tinham 13 dessas telas desde 24/10.
+
+- **Sinal**: o navegador embutido do cliente registra cada etapa num `navigateToFeature` do log. `"feature":"challengeDisplayed"` = a tela está esperando a pessoa (`ClientLogEvent::ChallengeShown`); `"feature":"challengeCompleted"` = resolvida (`ChallengeCompleted`). As etapas de carregamento (`challengePageLoaded`, `challengeParsed`, `challengeInitialized`) não contam. Antes delas a entrada no servidor marca `challengedByGcs`. Calibrado com os logs reais (`client_log_real_probe`: 13 aparições, 1 resolvida).
+- **Estado**: `ClientLogSession::challenge_pending`, que vale até a resolução, a entrada no jogo (`JoinedGame`) ou o cliente fechar. A visão leva `challenge` e o monitor avisa uma vez quando aparece e outra quando sai (`HealthNotice::Challenge`, evento `roblox-client-health` com `challenge`, linha no Console).
+- **Tela**: o estado `humanCheck` ("Verificação do Roblox", escudo âmbar) na Sessão e na linha da conta. Ele pede atenção (vai para o topo da Sessão), mas uma queda continua tendo prioridade sobre ele. Quando a tela aparece, um toast avisa com o botão "Mostrar janela", que traz o cliente certo para frente. O app **nunca** resolve a verificação: ela é da pessoa.
+- **Observação do dono (print de 25/10)**: o cabeçalho da tela de verificação mostrava a conta principal dele, e não a do cliente. A página abre no navegador embutido do Roblox, que parece guardar a sessão do site. É comportamento do Roblox, e o app não mexe nisso.
+
 ## Nome da conta na janela
 
 Também no monitor de [client_health.rs](../../src-tauri/src/commands/client_health.rs),

@@ -12,14 +12,24 @@ export interface ClientHealthLabel {
   label: string;
   /** Detalhe para o tooltip (código do Roblox), quando houver. */
   detail: string;
-  /** `drop`: caiu (vermelho); `hung`: janela travada (âmbar). */
-  tone: "drop" | "hung";
+  /**
+   * `drop`: caiu (vermelho); `hung`: janela travada (âmbar); `challenge`: a
+   * verificação "confirme que é humano" do Roblox espera a pessoa (âmbar).
+   */
+  tone: "drop" | "hung" | "challenge";
 }
 
 /** `null` quando não há nada a avisar (cliente em jogo, ou sem informação). */
 export function clientHealthLabel(health: ClientHealth | null | undefined, t: Translate): ClientHealthLabel | null {
   const label = dropLabel(health, t);
   if (label) return { ...label, tone: "drop" };
+  if (health?.challenge) {
+    return {
+      label: t("Roblox human check"),
+      detail: t("Roblox is asking to confirm you're human. Solve it in the game window."),
+      tone: "challenge",
+    };
+  }
   // Queda vence: uma conta caída com a janela travada mostra o motivo.
   if (health?.notResponding) {
     return {

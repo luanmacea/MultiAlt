@@ -3687,6 +3687,22 @@ describe("away digest", () => {
     expect(result.current.awayUnread).toBe(2);
   });
 
+  /** A verificação do Roblox apareceu: aviso com o botão que traz a janela certa. */
+  it("avisa a verificação 'confirme que é humano' e traz a janela da conta", async () => {
+    accountsData = [account({ UserID: 1, Username: "ann" })];
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("roblox-client-health")).toBe(true));
+
+    act(() => emit("roblox-client-health", { userId: 1, challenge: true }));
+
+    const toast = result.current.toasts.find((t) => t.message.includes("confirm you're human"));
+    expect(toast?.message).toBe("ann: Roblox is asking to confirm you're human. Solve it in the game window.");
+    await act(async () => {
+      toast?.action?.run();
+    });
+    expect(lastArgs("focus_roblox_window")).toEqual({ userId: 1 });
+  });
+
   it("opening the Session page marks everything as seen", async () => {
     const { result } = await renderStore();
     act(() => emit("roblox-client-health", { userId: 1, notResponding: true }));

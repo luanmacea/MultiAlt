@@ -4782,6 +4782,7 @@ mod launch_command_tests {
                 in_game: false,
                 wrong_account_user_id: None,
                 server: None,
+                challenge: false,
                 destination: Some(JoinedDestination {
                     place_id: 1,
                     job_id: Some("job".into()),
@@ -4887,6 +4888,7 @@ mod launch_join_wait_tests {
             in_game,
             wrong_account_user_id: None,
             server: None,
+            challenge: false,
             destination: None,
             exited,
         }

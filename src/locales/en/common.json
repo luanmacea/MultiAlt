@@ -2841,5 +2841,8 @@
   "Working...": "Working...",
   "The login window was closed before the sign-in finished.": "The login window was closed before the sign-in finished.",
   "The sign-in took too long. Try again.": "The sign-in took too long. Try again.",
-  "You signed in as {{got}}, not {{expected}}. Nothing was changed.": "You signed in as {{got}}, not {{expected}}. Nothing was changed."
+  "You signed in as {{got}}, not {{expected}}. Nothing was changed.": "You signed in as {{got}}, not {{expected}}. Nothing was changed.",
+  "{{name}}: Roblox is asking to confirm you're human. Solve it in the game window.": "{{name}}: Roblox is asking to confirm you're human. Solve it in the game window.",
+  "Roblox human check": "Roblox human check",
+  "Roblox is asking to confirm you're human. Solve it in the game window.": "Roblox is asking to confirm you're human. Solve it in the game window."
 }
