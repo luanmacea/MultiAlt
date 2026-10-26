@@ -2845,5 +2845,6 @@
   "{{name}}: Roblox is asking to confirm you're human. Solve it in the game window.": "{{name}}: Roblox pide confirmar que eres humano. Resuélvelo en la ventana del juego.",
   "Roblox human check": "Verificación de Roblox",
   "Roblox is asking to confirm you're human. Solve it in the game window.": "Roblox pide confirmar que eres humano. Resuélvelo en la ventana del juego.",
-  "The sign-in did not finish. The Console has the details.": "El inicio de sesión no terminó. La Consola tiene los detalles."
+  "The sign-in did not finish. The Console has the details.": "El inicio de sesión no terminó. La Consola tiene los detalles.",
+  "Signed in, but Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved.": "Sesión iniciada, pero Roblox está restringiendo esta cuenta (baneada, advertida o en revisión). Revísala en roblox.com/not-approved."
 }

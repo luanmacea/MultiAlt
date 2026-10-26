@@ -147,7 +147,7 @@ import {
   clientHealthEvent,
   type AwayEvent,
 } from "./utils/awayDigest";
-import { accountCheckSummaryText, type AccountCheckSummary } from "./utils/accountCheck";
+import { type AccountCheckSummary } from "./utils/accountCheck";
 import {
   failureRow,
   patchRow,
@@ -554,8 +554,8 @@ export interface StoreValue {
   checkModeration: (userId: number) => Promise<ModerationStatus | null>;
   /**
    * "Check accounts": sessão e moderação de cada conta, só leitura e com ritmo
-   * limitado (`check_accounts`). Com mais de uma conta termina abrindo a janela
-   * de resultados (`accountCheckReport`); com uma só, com o toast de resumo.
+   * limitado (`check_accounts`). Termina abrindo a janela de resultados
+   * (`accountCheckReport`), com uma conta ou com várias.
    */
   checkAccounts: (userIds: number[]) => Promise<AccountCheckSummary | null>;
   /** Progresso do "Check accounts" em andamento; `null` quando parado. */
@@ -1756,14 +1756,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const summary = await invoke<AccountCheckSummary>("check_accounts", { userIds });
       // `Valid` pode ter mudado no backend (401 = inválida, 200 = válida de novo).
       await loadAccounts().catch(() => {});
-      if (userIds.length > 1) {
-        // Várias contas: o toast de contagens não diz QUAIS foram banidas. A
-        // janela de resultados lista conta por conta.
-        setAccountCheckReport({ results: summary.results, at: Date.now() });
-      } else {
-        const tone: ToastTone = summary.invalid > 0 || summary.banned > 0 ? "warn" : "success";
-        addToast(accountCheckSummaryText(summary, tr), tone);
-      }
+      // Sempre a janela de resultados, mesmo com uma conta só (pedido do dono,
+      // 26/10/2026): é o padrão das ações, e é nela que estão "Fazer login de
+      // novo" e o motivo de cada conta.
+      setAccountCheckReport({ results: summary.results, at: Date.now() });
       return summary;
     } catch (e) {
       addToast(tr("Check failed: {{error}}", { error: String(e) }), "error");
@@ -1820,8 +1816,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         detail: tr("Sign in to {{name}} in the browser window. You solve the CAPTCHA.", { name }),
       });
       try {
-        await invoke("relogin_account", { userId });
-        patchActionRow({ userId, outcome: "ok", detail: tr("Signed in again") });
+        const result = await invoke<{ moderated?: boolean } | null>("relogin_account", { userId });
+        patchActionRow({
+          userId,
+          outcome: "ok",
+          // Conta moderada: a sessão foi gravada, mas o Roblox a restringe.
+          detail: result?.moderated
+            ? tr("Signed in, but Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved.")
+            : tr("Signed in again"),
+        });
       } catch (e) {
         // Não deu (janela fechada, tempo, outra conta): ela continua precisando
         // de login, e o botão fica para tentar de novo.
