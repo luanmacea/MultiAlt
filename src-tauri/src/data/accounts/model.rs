@@ -52,6 +52,11 @@ pub struct Account {
         deserialize_with = "string_or_default"
     )]
     pub browser_tracker_id: String,
+    /// Quando o Roblox pediu a verificação "confirme que é humano" e ela não foi
+    /// resolvida (RFC 3339, com fuso). Some quando a pessoa resolve ou a conta
+    /// entra num jogo (`human_check_mark`). Sem marca, o campo nem é gravado.
+    #[serde(rename = "HumanCheckAt", default, skip_serializing_if = "Option::is_none")]
+    pub human_check_at: Option<String>,
 }
 
 fn default_group() -> String {
@@ -167,6 +172,7 @@ impl Default for Account {
             fields: HashMap::new(),
             last_attempted_refresh: Utc::now(),
             browser_tracker_id: String::new(),
+            human_check_at: None,
         }
     }
 }

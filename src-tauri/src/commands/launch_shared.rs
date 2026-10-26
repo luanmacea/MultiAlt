@@ -69,6 +69,25 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
     }
 }
 
+/// O ticket do launch falhou porque a sessão morreu (a renovação também não
+/// deu: "Re-login required"), não por rede, limite de pedidos ou verificação.
+pub(crate) fn launch_error_means_dead_session(error: &str) -> bool {
+    error == session_relogin_error() || is_auth_session_error(error)
+}
+
+/// Sessão morta descoberta ao abrir: marca a conta inválida (a bolinha vermelha
+/// da lista, como o "Conferir contas") e avisa a tela (`account-session-dead`).
+/// Antes só o "Conferir contas" marcava, e a conta que falhava ao abrir
+/// continuava parecendo boa (26/10/2026). Nada além do `Valid` muda.
+pub(crate) fn mark_account_session_dead(store: &AccountStore, app: &tauri::AppHandle, user_id: i64, error: &str) {
+    if !launch_error_means_dead_session(error) {
+        return;
+    }
+    if store.set_valid(user_id, false).unwrap_or(false) {
+        let _ = app.emit("account-session-dead", serde_json::json!({ "userId": user_id }));
+    }
+}
+
 /// Quais grupos de campos de uma abertura vieram da exceção da conta (e não do
 /// perfil global). É o que o registro de exceções do lado Windows guarda para
 /// desfazer na próxima conta sem exceção (`OverrideLedger`).

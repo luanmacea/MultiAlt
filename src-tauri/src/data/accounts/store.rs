@@ -1466,6 +1466,22 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// Marca (`true`, com a hora) ou limpa (`false`) a verificação "confirme que
+    /// é humano" que o Roblox pediu na última sessão da conta. Devolve `true`
+    /// quando mudou algo.
+    pub fn set_human_check(&self, user_id: i64, pending: bool) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        if account.human_check_at.is_some() == pending {
+            return Ok(false);
+        }
+        account.human_check_at = pending.then(|| chrono::Utc::now().to_rfc3339());
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     /// Marca que a conta **foi usada agora**. Chamado no sucesso do launch (app,
     /// botting e web server): sem isso `last_use` só era escrito ao criar ou
     /// re-adicionar a conta, e a coluna "3d"/"2mo" da lista media idade do

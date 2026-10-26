@@ -808,7 +808,9 @@ pub enum HealthNotice {
     WrongAccount { user_id: i64, logged_user_id: i64 },
     /// A verificação "confirme que é humano" apareceu (`pending`) ou saiu da
     /// tela (resolvida, entrou no jogo ou o cliente fechou).
-    Challenge { user_id: i64, pending: bool },
+    /// `resolved`: saiu porque a pessoa resolveu (ou a conta entrou no jogo),
+    /// não porque o cliente fechou com ela na tela.
+    Challenge { user_id: i64, pending: bool, resolved: bool },
 }
 
 #[derive(Debug, Default)]
@@ -913,11 +915,13 @@ impl ClientHealthMonitor {
             entry.wrong_account = wrong;
 
             // Verificação do Roblox na tela: avisa quando aparece e quando sai.
-            let challenge = !entry.exit_seen && entry.session.challenge_pending();
+            let still_on_screen = entry.session.challenge_pending();
+            let challenge = !entry.exit_seen && still_on_screen;
             if challenge != entry.challenge_reported {
                 notices.push(HealthNotice::Challenge {
                     user_id: client.user_id,
                     pending: challenge,
+                    resolved: !still_on_screen,
                 });
                 entry.challenge_reported = challenge;
             }
@@ -1316,7 +1320,19 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 wrong_account_console_line(*logged_user_id, queue_stopped),
             );
         }
-        HealthNotice::Challenge { user_id, pending } => {
+        HealthNotice::Challenge { user_id, pending, resolved } => {
+            // A conta guarda a marca para a próxima vez que o app abrir.
+            if let Some(mark) = human_check_mark(*pending, *resolved) {
+                let store = app.state::<AccountStore>();
+                if store.set_human_check(*user_id, mark).unwrap_or(false) {
+                    let at = store
+                        .get_all()
+                        .ok()
+                        .and_then(|all| all.into_iter().find(|a| a.user_id == *user_id))
+                        .and_then(|a| a.human_check_at);
+                    let _ = app.emit("account-human-check", serde_json::json!({ "userId": user_id, "at": at }));
+                }
+            }
             let _ = app.emit(
                 "roblox-client-health",
                 serde_json::json!({
@@ -1341,5 +1357,19 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
             );
             emit_launch_log(app, *user_id, "info", "client", String::from("Entrou num jogo de novo"));
         }
+    }
+}
+
+/// O que fazer com a marca de verificação humana da conta a cada aviso:
+/// `Some(true)` marca (apareceu), `Some(false)` limpa (resolvida, ou entrou no
+/// jogo), `None` deixa como está (o cliente fechou com ela na tela — a próxima
+/// abertura vai pedir de novo).
+fn human_check_mark(pending: bool, resolved: bool) -> Option<bool> {
+    if pending {
+        Some(true)
+    } else if resolved {
+        Some(false)
+    } else {
+        None
     }
 }

@@ -40,6 +40,7 @@ import type { TabId as SettingsTabId } from "./components/settings/tabs";
 import type { AfkMode } from "./afkClickPoint";
 import {
   orderGroupKeys,
+  parseAccountDate,
   parseGroupName,
   parseGroupOrder,
   serializeGroupOrder,
@@ -3371,6 +3372,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
       // Conta jogada fora do app (pelo site, ou "em jogo" pela presença): o
       // backend regrava o "usado há" e avisa — a linha anda sem recarregar.
+      // Launch que falhou com a sessão morta: o backend marcou `Valid=false`.
+      listen<{ userId: number }>("account-session-dead", (e) => {
+        const userId = e.payload?.userId;
+        if (typeof userId !== "number") return;
+        setAccounts((prev) => prev.map((a) => (a.UserID === userId ? { ...a, Valid: false } : a)));
+      }),
+      // Verificação "confirme que é humano" que ficou sem resolver (ou saiu).
+      listen<{ userId: number; at: string | null }>("account-human-check", (e) => {
+        const userId = e.payload?.userId;
+        if (typeof userId !== "number") return;
+        const at = e.payload?.at ?? null;
+        setAccounts((prev) => prev.map((a) => (a.UserID === userId ? { ...a, HumanCheckAt: at } : a)));
+      }),
       listen<{ userId: number }>("account-used", (e) => {
         const userId = e.payload?.userId;
         if (typeof userId !== "number") return;
@@ -3834,10 +3848,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const now = Date.now();
       for (const account of accounts) {
         if (account.Fields?.NoCookieRefresh === "true") continue;
-        const daysSinceUse = (now - new Date(account.LastUse).getTime()) / 86400000;
+        const daysSinceUse = (now - parseAccountDate(account.LastUse).getTime()) / 86400000;
         if (daysSinceUse < 20) continue;
         const daysSinceRefresh =
-          (now - new Date(account.LastAttemptedRefresh).getTime()) / 86400000;
+          (now - parseAccountDate(account.LastAttemptedRefresh).getTime()) / 86400000;
         if (daysSinceRefresh < 7) continue;
         await refreshCookie(account.UserID);
         await new Promise((r) => setTimeout(r, 5000));
