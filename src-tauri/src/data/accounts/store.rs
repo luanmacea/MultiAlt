@@ -1294,9 +1294,8 @@ impl AccountStore {
             existing.username = account.username;
             existing.valid = account.valid;
             existing.last_use = account.last_use;
-            if !account.password.is_empty() {
-                existing.password = account.password;
-            }
+            // A anterior vai para o histórico; vazia não apaga a guardada.
+            existing.replace_password(&account.password);
         } else {
             accounts.push(account);
         }
@@ -1435,13 +1434,18 @@ impl AccountStore {
     /// cookie pelo do login e marca a sessão válida, sem tocar no resto (grupo,
     /// campos, senha). Quem chama garante que o cookie é **desta** conta. Devolve
     /// `false` quando a conta não existe.
-    pub fn relogin(&self, user_id: i64, new_token: &str) -> Result<bool, String> {
+    /// `typed_password`: a senha que estava no campo quando o login deu certo —
+    /// ela passa a ser a guardada (a anterior vai para o histórico).
+    pub fn relogin(&self, user_id: i64, new_token: &str, typed_password: Option<&str>) -> Result<bool, String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
         let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
             return Ok(false);
         };
         account.security_token = new_token.to_string();
         account.valid = true;
+        if let Some(password) = typed_password {
+            account.replace_password(password);
+        }
         self.save_locked(&accounts)?;
         Ok(true)
     }

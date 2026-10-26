@@ -48,7 +48,7 @@ fn persist_cookie_update(state: &AccountStore, user_id: i64, new_cookie: &str) -
 /// essa como "senha atual" e o Roblox respondia que estava errada.
 fn persist_password_update(state: &AccountStore, user_id: i64, new_password: &str) -> Result<(), String> {
     let mut account = get_account(state, user_id)?;
-    account.password = new_password.to_string();
+    account.replace_password(new_password);
     state.update(account)?;
     Ok(())
 }
