@@ -7,6 +7,8 @@ import { copyAccountSecret } from "../../utils/copySecret";
 import { collectGroupNames, parseGroupName } from "../../types";
 import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
+import { failureRow, rowsFromFollow, rowsFromFriendLink } from "../../utils/actionReport";
+import type { FollowUserState, FriendLinkState } from "../../types";
 import { ChevronDown, Gamepad2, Settings2, ShieldCheck, UserCheck, Users } from "lucide-react";
 
 /**
@@ -107,6 +109,8 @@ export function BottomActionBar() {
       return;
     }
     setFriendBusy(true);
+    const ids = accounts.map((a) => a.UserID);
+    store.startActionReport("make-friends", t("Make friends"), ids);
     try {
       const res = await invoke<{
         pairsTotal: number;
@@ -114,21 +118,26 @@ export function BottomActionBar() {
         verifiedOk: number;
         failed: number;
       }>("make_selected_friends", {
-        userIds: accounts.map((a) => a.UserID),
+        userIds: ids,
         mode,
         mainUserId: mode === "star" ? mainUserId : null,
         delayMs: friendDelayMs(),
       });
-      store.addToast(
-        tr("Friends linked: {{ok}} formed, {{already}} already, {{fail}} failed (of {{total}} pairs)", {
+      const final = await invoke<FriendLinkState>("get_friend_link_state").catch(() => null);
+      store.finishActionReport({
+        ...(final?.accounts.length ? { rows: rowsFromFriendLink(final, loginDetail()) } : {}),
+        summary: tr("Friends linked: {{ok}} formed, {{already}} already, {{fail}} failed (of {{total}} pairs)", {
           ok: res.verifiedOk,
           already: res.alreadyFriends,
           fail: res.failed,
           total: res.pairsTotal,
-        })
-      );
+        }),
+      });
     } catch (e) {
-      store.addToast(tr("Friend linking failed: {{error}}", { error: String(e) }));
+      store.finishActionReport({
+        rows: ids.map((userId) => failureRow(userId, e, loginDetail())),
+        summary: tr("Friend linking failed: {{error}}", { error: String(e) }),
+      });
     } finally {
       setFriendBusy(false);
     }
@@ -143,6 +152,8 @@ export function BottomActionBar() {
     setFollowMenuOpen(false);
     setActionsOpen(false);
     setFollowBusy(true);
+    const followerIds = accounts.map((a) => a.UserID).filter((id) => id !== target.id);
+    store.startActionReport("follow", tr("Follow {{name}}", { name: target.label }), followerIds);
     try {
       const res = await invoke<{
         total: number;
@@ -156,24 +167,32 @@ export function BottomActionBar() {
         targetName: target.name,
         delayMs: friendDelayMs(),
       });
-      store.addToast(
-        tr("Follow {{name}}: {{ok}} followed, {{already}} already following, {{fail}} failed", {
+      const final = await invoke<FollowUserState>("get_follow_user_state").catch(() => null);
+      const rows = final?.accounts.length
+        ? rowsFromFollow(final, loginDetail(), t("Waiting for you in the browser window"))
+        : [];
+      if (res.skippedTarget) {
+        rows.push({
+          userId: target.id,
+          outcome: "skipped",
+          detail: t("This is the account being followed: an account can't follow itself."),
+        });
+      }
+      store.finishActionReport({
+        ...(rows.length ? { rows } : {}),
+        summary: tr("Follow {{name}}: {{ok}} followed, {{already}} already following, {{fail}} failed", {
           name: target.label,
           ok: res.followed,
           already: res.alreadyFollowing,
           fail: res.failed,
-        })
-      );
-      if (res.skippedTarget) {
-        store.addToast(
-          tr("{{name}} was in the selection and was skipped: an account can't follow itself.", {
-            name: target.label,
-          })
-        );
-      }
+        }),
+      });
       setFollowQuery("");
     } catch (e) {
-      store.addToast(tr("Follow failed: {{error}}", { error: String(e) }));
+      store.finishActionReport({
+        rows: followerIds.map((userId) => failureRow(userId, e, loginDetail())),
+        summary: tr("Follow failed: {{error}}", { error: String(e) }),
+      });
     } finally {
       setFollowBusy(false);
     }
@@ -211,17 +230,21 @@ export function BottomActionBar() {
     await runFollow({ id: user.id, name: user.name, label });
   }
 
+  /** A mensagem das linhas de sessão morta (com "Fazer login de novo" na janela). */
+  function loginDetail() {
+    return t("Roblox ended this session. Sign in again to use the account.");
+  }
+
+  // Relato do dono (25/10/2026): com sessões inválidas, "nada acontecia" — o
+  // erro de cada conta era engolido e só um toast de contagem passava.
   async function handleRefreshAll() {
     setActionsOpen(false);
     setRefreshing(true);
-    let ok = 0, fail = 0;
-    for (const a of accounts) {
-      const result = await store.refreshCookie(a.UserID).catch(() => false);
-      if (result) ok++; else fail++;
-      await new Promise((r) => setTimeout(r, 2000));
+    try {
+      await store.refreshCookies(accounts.map((a) => a.UserID));
+    } finally {
+      setRefreshing(false);
     }
-    setRefreshing(false);
-    store.addToast(tr("Refreshed: {{ok}} ok, {{fail}} failed", { ok, fail }));
   }
 
   async function handleCheckAccounts() {
@@ -242,14 +265,23 @@ export function BottomActionBar() {
         "cookie",
         () => cookies.join("\n")
       );
-      store.addToast(
-        result.clearsInSecs
+      store.setActionReport({
+        kind: "copy-cookies",
+        title: t("Copy cookies"),
+        running: false,
+        at: Date.now(),
+        rows: accounts.map((a) =>
+          a.SecurityToken
+            ? { userId: a.UserID, outcome: "ok" as const }
+            : { userId: a.UserID, outcome: "skipped" as const, detail: t("No cookie saved for this account") }
+        ),
+        summary: result.clearsInSecs
           ? tr("Copied {{count}} cookies. Cleared from the clipboard in {{seconds}} s.", {
               count: result.count,
               seconds: result.clearsInSecs,
             })
-          : tr("Copied {{count}} cookies", { count: result.count })
-      );
+          : tr("Copied {{count}} cookies", { count: result.count }),
+      });
     } catch {
       store.addToast(tr("Failed to copy"));
     }
@@ -258,7 +290,7 @@ export function BottomActionBar() {
   async function handleMoveToGroup(group: string) {
     setGroupMenuOpen(false);
     setActionsOpen(false);
-    await store.moveToGroup(accounts.map((a) => a.UserID), group);
+    await store.moveToGroup(accounts.map((a) => a.UserID), group, { report: true });
   }
 
   async function handleNewGroup() {
@@ -266,7 +298,7 @@ export function BottomActionBar() {
     setActionsOpen(false);
     const name = await prompt(tr("New group name:"));
     if (!name?.trim()) return;
-    await store.moveToGroup(accounts.map((a) => a.UserID), name.trim());
+    await store.moveToGroup(accounts.map((a) => a.UserID), name.trim(), { report: true });
   }
 
   async function handleAddToBotting() {
@@ -281,7 +313,12 @@ export function BottomActionBar() {
       return;
     }
     try {
-      await store.addBottingAccounts(addableBottingIds);
+      await store.addBottingAccounts(addableBottingIds, { report: true });
+      for (const a of accounts) {
+        if (activeBottingIds.has(a.UserID)) {
+          store.patchActionRow({ userId: a.UserID, outcome: "already", detail: t("Already in Auto Rejoin") });
+        }
+      }
     } catch (e) {
       store.addToast(t("Auto Rejoin account action failed: {{error}}", { error: String(e) }));
     }
@@ -300,7 +337,7 @@ export function BottomActionBar() {
       store.addToast(t("No launched clients to restart"));
       return;
     }
-    await store.restartRobloxClients(launchedSelectedIds);
+    await store.restartRobloxClients(accounts.map((a) => a.UserID), { report: true });
   }
 
   async function handleRemoveAccounts() {
@@ -310,7 +347,7 @@ export function BottomActionBar() {
       ""
     );
     if (confirmed?.trim().toUpperCase() !== "REMOVE") return;
-    store.removeAccounts(accounts.map((a) => a.UserID));
+    store.removeAccounts(accounts.map((a) => a.UserID), { report: true });
   }
 
   function handleOpenChooseGame() {
@@ -754,7 +791,7 @@ export function BottomActionBar() {
             </button>
 
             <button
-              onClick={() => { setActionsOpen(false); store.killAllRobloxProcesses(); }}
+              onClick={() => { setActionsOpen(false); store.killAllRobloxProcesses({ report: true }); }}
               className="w-full text-left px-3 py-1.5 text-[12px] text-amber-300/80 hover:bg-amber-500/10 flex items-center gap-2"
             >
               ✕ {t("Close All Roblox")}

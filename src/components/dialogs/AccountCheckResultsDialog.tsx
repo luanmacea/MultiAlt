@@ -4,6 +4,7 @@ import { useStore } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useAccountLabel } from "../../hooks/useAccountLabel";
+import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import {
   buildCheckReport,
@@ -44,6 +45,7 @@ export function AccountCheckResultsDialog({ open, onClose }: { open: boolean; on
   const t = useTr();
   const store = useStore();
   const accountLabel = useAccountLabel();
+  const confirm = useConfirm();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
   const backdropClose = useBackdropClose(handleClose);
 
@@ -68,6 +70,7 @@ export function AccountCheckResultsDialog({ open, onClose }: { open: boolean; on
   const rows = filter ? built.rows.filter((r) => r.outcome === filter) : built.rows;
   const bannedIds = built.rows.filter((r) => r.outcome === "banned").map((r) => r.userId);
   const unknownIds = built.rows.filter((r) => r.outcome === "unknown").map((r) => r.userId);
+  const invalidIds = built.rows.filter((r) => r.outcome === "invalid").map((r) => r.userId);
   const checking = store.accountCheckProgress !== null;
 
   const outcomeLabel = (outcome: AccountCheckOutcome): string => {
@@ -88,6 +91,20 @@ export function AccountCheckResultsDialog({ open, onClose }: { open: boolean; on
   function selectBanned() {
     store.setSelectedIds(new Set(bannedIds));
     handleClose();
+  }
+
+  /** Sessão morta não se conserta com refresh: o caminho é logar de novo. */
+  async function signInAgain() {
+    if (invalidIds.length === 0 || checking) return;
+    const ok = await confirm(
+      t(
+        "{{count}} account(s) need to sign in again. A browser window opens for each one, one at a time, with the username and password filled in when they are saved. You solve the CAPTCHA, and the new session goes into the same account.",
+        { count: invalidIds.length }
+      )
+    );
+    if (!ok) return;
+    handleClose();
+    await store.reloginAccounts(invalidIds);
   }
 
   async function retryUnchecked() {
@@ -193,6 +210,15 @@ export function AccountCheckResultsDialog({ open, onClose }: { open: boolean; on
                 className="px-3 py-1.5 rounded-lg text-[12px] theme-btn-ghost border theme-border disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {t("Retry {{count}} that couldn't be checked", { count: unknownIds.length })}
+              </button>
+            )}
+            {invalidIds.length > 0 && (
+              <button
+                onClick={() => void signInAgain()}
+                disabled={checking}
+                className="px-3 py-1.5 rounded-lg text-[12px] theme-btn-ghost border theme-border disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {t("Sign in again ({{count}})", { count: invalidIds.length })}
               </button>
             )}
             {bannedIds.length > 0 && (
