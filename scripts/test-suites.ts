@@ -37,6 +37,7 @@ export const SUITES: Record<string, TestSuite> = {
       "exit_cleanup_tests",
       "launch_resolve_tests",
       "launch_shared_helper_tests",
+      "dead_session_tests",
       "launch_anyway_tests",
       "channel_follow_tests",
       "channel_build_pairing_tests",

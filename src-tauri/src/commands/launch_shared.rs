@@ -69,6 +69,25 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
     }
 }
 
+/// O ticket do launch falhou porque a sessão morreu (a renovação também não
+/// deu: "Re-login required"), não por rede, limite de pedidos ou verificação.
+pub(crate) fn launch_error_means_dead_session(error: &str) -> bool {
+    error == session_relogin_error() || is_auth_session_error(error)
+}
+
+/// Sessão morta descoberta ao abrir: marca a conta inválida (a bolinha vermelha
+/// da lista, como o "Conferir contas") e avisa a tela (`account-session-dead`).
+/// Antes só o "Conferir contas" marcava, e a conta que falhava ao abrir
+/// continuava parecendo boa (26/10/2026). Nada além do `Valid` muda.
+pub(crate) fn mark_account_session_dead(store: &AccountStore, app: &tauri::AppHandle, user_id: i64, error: &str) {
+    if !launch_error_means_dead_session(error) {
+        return;
+    }
+    if store.set_valid(user_id, false).unwrap_or(false) {
+        let _ = app.emit("account-session-dead", serde_json::json!({ "userId": user_id }));
+    }
+}
+
 /// Quais grupos de campos de uma abertura vieram da exceção da conta (e não do
 /// perfil global). É o que o registro de exceções do lado Windows guarda para
 /// desfazer na próxima conta sem exceção (`OverrideLedger`).
@@ -1632,6 +1651,42 @@ fn current_botting_status() -> BottingStatusPayload {
 #[cfg(target_os = "windows")]
 fn emit_botting_status(app: &tauri::AppHandle) {
     let _ = app.emit("botting-status", current_botting_status());
+}
+
+#[cfg(test)]
+mod dead_session_tests {
+    use super::*;
+
+    /// Relato do dono (26/10/2026): a Stone_Wolf888 falhava ao abrir com "precisa
+    /// refazer o login", mas a linha não tinha a bolinha vermelha — só o
+    /// "Conferir contas" marcava a sessão inválida. Agora o launch marca também.
+    #[test]
+    fn a_launch_that_needs_a_new_login_means_the_session_is_dead() {
+        assert!(launch_error_means_dead_session("Roblox invalidated this session. Re-login required."));
+        assert!(launch_error_means_dead_session("Failed to get authentication ticket (status 401): "));
+        assert!(launch_error_means_dead_session("Invalid cookie (status 401)"));
+    }
+
+    #[test]
+    fn other_launch_failures_leave_the_session_alone() {
+        // Rede, limite de pedidos, verificação e moderação não dizem que o
+        // cookie morreu.
+        assert!(!launch_error_means_dead_session("Request timed out"));
+        assert!(!launch_error_means_dead_session("Failed to get authentication ticket (status 429): "));
+        assert!(!launch_error_means_dead_session("Roblox asked for a captcha"));
+        assert!(!launch_error_means_dead_session("Roblox is restricting this account (moderated)"));
+    }
+
+    /// Todo caminho do launch que pede o ticket marca a sessão morta quando ele
+    /// falha por isso (conta sozinha, fila e preset).
+    #[test]
+    fn every_auth_ticket_failure_of_the_launch_marks_the_session() {
+        let source = include_str!("launch.rs");
+        let failures = source.matches("api::auth::get_auth_ticket(&cookie)").count();
+        let marks = source.matches("mark_account_session_dead(").count();
+        assert!(failures >= 3, "the launch lost its ticket requests? found {failures}");
+        assert_eq!(marks, failures, "{failures} ticket requests, {marks} of them mark a dead session");
+    }
 }
 
 #[cfg(test)]

@@ -1536,6 +1536,7 @@ async fn launch_roblox_windows(
         }
         Err(e) => {
             emit_launch_log(&app, user_id, "error", "auth", format!("Falha no auth ticket: {e}"));
+            mark_account_session_dead(state.inner(), &app, user_id, &e);
             notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WebhookReason::AuthTicketFailed), None);
             if is_moderated_error(&e) {
                 mark_account_moderated(state.inner(), &app, user_id);
@@ -1860,7 +1861,11 @@ async fn launch_roblox_other(
         let ticket = run_with_session_retry(state.inner(), user_id, |cookie| async move {
             api::auth::get_auth_ticket(&cookie).await
         })
-        .await?;
+        .await
+        .map_err(|e| {
+            mark_account_session_dead(state.inner(), &app, user_id, &e);
+            e
+        })?;
         let private_join = run_with_session_retry(state.inner(), user_id, |cookie| {
             let resolved_launch = resolved_launch.clone();
             async move { resolve_private_join(&cookie, place_id, &resolved_launch).await }
@@ -2347,6 +2352,7 @@ async fn run_launch_queue_windows(
             }
             Err(e) => {
                 emit_launch_log(app, uid, "error", "auth", format!("Falha no auth ticket: {e}"));
+                mark_account_session_dead(state.inner(), app, uid, &e);
                 notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WebhookReason::AuthTicketFailed), None);
                 if is_moderated_error(&e) {
                     mark_account_moderated(state.inner(), app, uid);
@@ -2737,6 +2743,7 @@ async fn run_launch_queue_macos(
         {
             Ok(t) => t,
             Err(err) => {
+                mark_account_session_dead(state.inner(), &app, uid, &err);
                 sequence.mark(uid, LaunchQueueState::Failed, Some(err));
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;

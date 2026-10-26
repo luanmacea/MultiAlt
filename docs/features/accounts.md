@@ -430,3 +430,12 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
   - **Só escrita.** O módulo nunca lê o conteúdo da área de transferência (`GetClipboardData` e afins): é o padrão de programa que rouba senha, e os antivírus o marcam. Quem sabe se o conteúdo ainda é nosso é o número de sequência. Travado por `clipboard_write_only_tests`, que varre o arquivo.
   - **Fora do Windows** o backend responde `CLIPBOARD_UNSUPPORTED` e a tela copia pelo `navigator.clipboard`, sem limpeza (e o aviso mantém o texto antigo). Qualquer **outro** erro no Windows (área de transferência ocupada) vira "Failed to copy" — não cai no caminho sem proteção.
   - APIs Win32 novas no binário (feature `Win32_System_DataExchange` do `windows-sys`): `OpenClipboard`, `EmptyClipboard`, `SetClipboardData`, `CloseClipboard`, `RegisterClipboardFormatW`, `GetClipboardSequenceNumber`; mais `GlobalAlloc`/`GlobalLock`/`GlobalUnlock`/`GlobalFree`, de features que já estavam lá.
+
+## Sessão morta descoberta ao abrir (26/10/2026)
+
+Relato do dono: a Stone_Wolf888 falhava ao abrir com "Roblox invalidated this session. Re-login required.", mas a linha não tinha a bolinha vermelha — só o "Conferir contas" gravava `Valid=false`. Agora todo caminho do launch que pede o ticket (`get_auth_ticket`) marca a conta inválida quando ele falha por sessão morta (`launch_error_means_dead_session`: a mensagem de novo login, ou 401/"invalid cookie"; rede, 429, verificação e moderação não contam) e avisa a tela (`account-session-dead`). Teste-trava: `every_auth_ticket_failure_of_the_launch_marks_the_session` (`dead_session_tests`).
+
+## Datas da conta são UTC sem fuso (26/10/2026)
+
+O backend grava `LastUse` e `LastAttemptedRefresh` em UTC **sem** o "Z" (`csharp_datetime`, formato herdado do RAM). A tela lia com `new Date`, que trata isso como hora local: no Brasil (UTC-3) a conta jogada havia menos de 3 h ficava no futuro e a coluna dizia "just now" (relato do dono, com contas fechadas meia hora antes). Toda leitura de data da conta no frontend passa por `parseAccountDate` ([types.ts](../../src/types.ts)): sem fuso vale UTC. O formato do arquivo não mudou.
+

@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Ban, Clock, Gamepad2, Hammer, Rocket, TriangleAlert, Wifi, X, type LucideIcon } from "lucide-react";
+import { Ban, Clock, Gamepad2, Hammer, Rocket, ShieldAlert, TriangleAlert, Wifi, X, type LucideIcon } from "lucide-react";
 
 /**
  * Selo de estado da conta (bolinha da linha e da legenda da barra de status).
@@ -11,6 +11,7 @@ import { Ban, Clock, Gamepad2, Hammer, Rocket, TriangleAlert, Wifi, X, type Luci
  */
 export const STATUS_KINDS = [
   "invalid",
+  "humancheck",
   "aged",
   "launched",
   "online",
@@ -23,6 +24,8 @@ export type StatusKind = (typeof STATUS_KINDS)[number];
 
 const ICONS: Record<StatusKind, LucideIcon> = {
   invalid: X,
+  // A última sessão parou na verificação "confirme que é humano".
+  humancheck: ShieldAlert,
   aged: Clock,
   launched: Rocket,
   online: Wifi,
@@ -36,6 +39,7 @@ const ICONS: Record<StatusKind, LucideIcon> = {
 /** Cores de sempre (as mesmas da legenda antiga). `aged` muda com a idade: vem por `color`. */
 export const STATUS_COLORS: Record<StatusKind, string> = {
   invalid: "#ef4444",
+  humancheck: "#e11d48",
   aged: "#f97316",
   launched: "#f59e0b",
   online: "#00a2ff",

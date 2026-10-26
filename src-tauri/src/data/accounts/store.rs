@@ -1466,6 +1466,22 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// Marca (`true`, com a hora) ou limpa (`false`) a verificação "confirme que
+    /// é humano" que o Roblox pediu na última sessão da conta. Devolve `true`
+    /// quando mudou algo.
+    pub fn set_human_check(&self, user_id: i64, pending: bool) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        if account.human_check_at.is_some() == pending {
+            return Ok(false);
+        }
+        account.human_check_at = pending.then(|| chrono::Utc::now().to_rfc3339());
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     /// Marca que a conta **foi usada agora**. Chamado no sucesso do launch (app,
     /// botting e web server): sem isso `last_use` só era escrito ao criar ou
     /// re-adicionar a conta, e a coluna "3d"/"2mo" da lista media idade do
@@ -2062,6 +2078,20 @@ mod account_store_tests {
     /// uso (pedido do dono, 25/10/2026: a principal aparecia "sem uso há 20+
     /// dias" jogando todo dia pelo site). A varredura e a presença passam aqui a
     /// toda hora: só grava quando a última marca é mais velha que `min_age`.
+    #[test]
+    fn the_human_check_mark_is_saved_and_cleared() {
+        let store = store("human-check");
+        store.add(account(7, "ann")).unwrap();
+        assert!(store.set_human_check(7, true).unwrap());
+        let saved = store.get_all().unwrap()[0].human_check_at.clone();
+        assert!(saved.is_some(), "the mark is stored with its time");
+        // Marcar de novo não regrava.
+        assert!(!store.set_human_check(7, true).unwrap());
+        assert!(store.set_human_check(7, false).unwrap());
+        assert!(store.get_all().unwrap()[0].human_check_at.is_none());
+        assert!(!store.set_human_check(99, true).unwrap());
+    }
+
     #[test]
     fn mark_used_if_stale_only_writes_when_the_last_mark_is_old() {
         let store = store("mark-used-stale");

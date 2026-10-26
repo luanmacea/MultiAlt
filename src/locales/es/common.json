@@ -2852,5 +2852,7 @@
   "Window size": "Tamaño de la ventana",
   "A different, rising beep, so you can let go of the mouse and keyboard before the focus moves.": "Un pitido distinto, ascendente, para que sueltes el ratón y el teclado antes de que el foco cambie.",
   "Beep 3 seconds before a cycle": "Pitar 3 segundos antes de cada ciclo",
-  "A Roblox window that was minimized or covered does its turn without showing up, so you can keep watching or working. In click and recording modes the mouse pointer still jumps to the click point for a moment.": "La ventana de Roblox que estaba minimizada o tapada hace su turno sin aparecer, y puedes seguir mirando o trabajando. En los modos clic y grabación, el puntero del ratón todavía salta al punto del clic por un momento."
+  "A Roblox window that was minimized or covered does its turn without showing up, so you can keep watching or working. In click and recording modes the mouse pointer still jumps to the click point for a moment.": "La ventana de Roblox que estaba minimizada o tapada hace su turno sin aparecer, y puedes seguir mirando o trabajando. En los modos clic y grabación, el puntero del ratón todavía salta al punto del clic por un momento.",
+  "human check": "verificación humana",
+  "Roblox asked for a human check last time and it was not solved. Open the account and solve it in the game window.": "La última vez Roblox pidió una verificación humana y no se resolvió. Abre la cuenta y resuélvela en la ventana del juego."
 }

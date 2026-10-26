@@ -2,7 +2,7 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, User, GripVer
 import { useStore } from "../../store";
 import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import type { Account } from "../../types";
-import { timeAgo, getFreshnessColor, AGED_AFTER_DAYS } from "../../types";
+import { timeAgo, getFreshnessColor, parseAccountDate, AGED_AFTER_DAYS } from "../../types";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 import { StatusBadge, STATUS_COLORS, type StatusKind } from "./StatusBadge";
@@ -95,6 +95,15 @@ export function AccountRow({ account, variant = "row" }: { account: Account; var
   } else if (!account.Valid) {
     statusDots.push({ kind: "invalid", color: STATUS_COLORS.invalid, title: t("Invalid session") });
   }
+  // A última sessão parou na verificação "confirme que é humano" e ninguém a
+  // resolveu: a próxima abertura vai pedir de novo (pedido do dono, 26/10/2026).
+  if (account.HumanCheckAt) {
+    statusDots.push({
+      kind: "humancheck",
+      color: STATUS_COLORS.humancheck,
+      title: t("Roblox asked for a human check last time and it was not solved. Open the account and solve it in the game window."),
+    });
+  }
   // Moderação lida do Roblox nesta sessão (painel, "Check accounts" ou antes do
   // launch). Só aparece quando há algo: conta limpa não ganha selo.
   const moderation = store.moderationByUserId?.get(account.UserID);
@@ -114,7 +123,7 @@ export function AccountRow({ account, variant = "row" }: { account: Account; var
     // A conta é contada a partir de `LastUse` — a mesma data que a coluna da
     // direita mostra como "3d"/"2mo" —, e isso não tem relação com a bolinha
     // vermelha, que é sessão inválida.
-    const agedDays = Math.floor((Date.now() - new Date(account.LastUse).getTime()) / 86400000);
+    const agedDays = Math.floor((Date.now() - parseAccountDate(account.LastUse).getTime()) / 86400000);
     statusDots.push({
       kind: "aged",
       color: freshness,

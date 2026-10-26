@@ -808,7 +808,9 @@ pub enum HealthNotice {
     WrongAccount { user_id: i64, logged_user_id: i64 },
     /// A verificação "confirme que é humano" apareceu (`pending`) ou saiu da
     /// tela (resolvida, entrou no jogo ou o cliente fechou).
-    Challenge { user_id: i64, pending: bool },
+    /// `resolved`: saiu porque a pessoa resolveu (ou a conta entrou no jogo),
+    /// não porque o cliente fechou com ela na tela.
+    Challenge { user_id: i64, pending: bool, resolved: bool },
 }
 
 #[derive(Debug, Default)]
@@ -913,11 +915,13 @@ impl ClientHealthMonitor {
             entry.wrong_account = wrong;
 
             // Verificação do Roblox na tela: avisa quando aparece e quando sai.
-            let challenge = !entry.exit_seen && entry.session.challenge_pending();
+            let still_on_screen = entry.session.challenge_pending();
+            let challenge = !entry.exit_seen && still_on_screen;
             if challenge != entry.challenge_reported {
                 notices.push(HealthNotice::Challenge {
                     user_id: client.user_id,
                     pending: challenge,
+                    resolved: !still_on_screen,
                 });
                 entry.challenge_reported = challenge;
             }
@@ -1316,7 +1320,19 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 wrong_account_console_line(*logged_user_id, queue_stopped),
             );
         }
-        HealthNotice::Challenge { user_id, pending } => {
+        HealthNotice::Challenge { user_id, pending, resolved } => {
+            // A conta guarda a marca para a próxima vez que o app abrir.
+            if let Some(mark) = human_check_mark(*pending, *resolved) {
+                let store = app.state::<AccountStore>();
+                if store.set_human_check(*user_id, mark).unwrap_or(false) {
+                    let at = store
+                        .get_all()
+                        .ok()
+                        .and_then(|all| all.into_iter().find(|a| a.user_id == *user_id))
+                        .and_then(|a| a.human_check_at);
+                    let _ = app.emit("account-human-check", serde_json::json!({ "userId": user_id, "at": at }));
+                }
+            }
             let _ = app.emit(
                 "roblox-client-health",
                 serde_json::json!({
@@ -1341,6 +1357,20 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
             );
             emit_launch_log(app, *user_id, "info", "client", String::from("Entrou num jogo de novo"));
         }
+    }
+}
+
+/// O que fazer com a marca de verificação humana da conta a cada aviso:
+/// `Some(true)` marca (apareceu), `Some(false)` limpa (resolvida, ou entrou no
+/// jogo), `None` deixa como está (o cliente fechou com ela na tela — a próxima
+/// abertura vai pedir de novo).
+fn human_check_mark(pending: bool, resolved: bool) -> Option<bool> {
+    if pending {
+        Some(true)
+    } else if resolved {
+        Some(false)
+    } else {
+        None
     }
 }
 
@@ -2047,7 +2077,7 @@ mod client_health_monitor_tests {
         let os = FakeOs::with_client(10, CHALLENGE);
         let mut monitor = ClientHealthMonitor::new();
         let notices = monitor.tick(&os, &[ours(1, 10)], T0);
-        assert_eq!(notices, vec![HealthNotice::Challenge { user_id: 1, pending: true }]);
+        assert_eq!(notices, vec![HealthNotice::Challenge { user_id: 1, pending: true, resolved: false }]);
         assert!(monitor.views()[&1].challenge);
 
         // Nada novo no log: não repete o aviso.
@@ -2055,7 +2085,7 @@ mod client_health_monitor_tests {
 
         os.append(10, CHALLENGE_DONE);
         let notices = monitor.tick(&os, &[ours(1, 10)], T0 + 4_000);
-        assert_eq!(notices, vec![HealthNotice::Challenge { user_id: 1, pending: false }]);
+        assert_eq!(notices, vec![HealthNotice::Challenge { user_id: 1, pending: false, resolved: true }]);
         assert!(!monitor.views()[&1].challenge);
     }
 
@@ -2066,8 +2096,35 @@ mod client_health_monitor_tests {
         monitor.tick(&os, &[ours(1, 10)], T0);
         os.alive.borrow_mut().clear();
         let notices = monitor.tick(&os, &[ours(1, 10)], T0 + 2_000);
-        assert!(notices.contains(&HealthNotice::Challenge { user_id: 1, pending: false }), "{notices:?}");
+        // Fechou sem resolver: a marca da conta fica (`human_check_mark`).
+        assert!(
+            notices.contains(&HealthNotice::Challenge { user_id: 1, pending: false, resolved: false }),
+            "{notices:?}"
+        );
         assert!(!monitor.views()[&1].challenge);
+    }
+
+    /// Pedido do dono (26/10/2026): ao abrir o app, nada dizia quais contas
+    /// tinham parado na verificação "confirme que é humano" na última vez. A
+    /// conta guarda a marca até a verificação ser resolvida ou ela entrar num jogo.
+    #[test]
+    fn the_account_keeps_the_human_check_mark_until_it_is_solved() {
+        assert_eq!(human_check_mark(true, false), Some(true));
+        assert_eq!(human_check_mark(false, true), Some(false));
+        // Cliente fechado com a verificação na tela: continua marcada.
+        assert_eq!(human_check_mark(false, false), None);
+    }
+
+    #[test]
+    fn joining_a_game_after_a_human_check_clears_the_mark() {
+        let os = FakeOs::with_client(10, CHALLENGE);
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[ours(1, 10)], T0);
+        os.append(10, "x [FLog::Output] ! Joining game 'abc' place 123 at 1.2.3.4
+");
+        let notices = monitor.tick(&os, &[ours(1, 10)], T0 + 2_000);
+        let resolved = notices.iter().any(|n| matches!(n, HealthNotice::Challenge { user_id: 1, resolved: true, .. }));
+        assert!(resolved, "{notices:?}");
     }
 
     fn ours(user_id: i64, pid: u32) -> TrackedClient {
