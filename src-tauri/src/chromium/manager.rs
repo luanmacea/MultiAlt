@@ -25,6 +25,9 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub struct ChromiumManager {
     children: Mutex<HashMap<i64, Child>>,
     login_cookie: Mutex<Option<String>>,
+    /// A senha que entrou no "Browser Login" (já conferida com a conta do
+    /// cookie). Sai uma vez só, por `take_login_password`.
+    login_password: Mutex<Option<String>>,
 }
 
 impl ChromiumManager {
@@ -88,6 +91,7 @@ impl ChromiumManager {
     pub fn close_login_session(&self) {
         self.kill(LOGIN_KEY);
         *lock(&self.login_cookie) = None;
+        *lock(&self.login_password) = None;
     }
 
     pub fn set_login_cookie(&self, cookie: Option<String>) {
@@ -96,6 +100,14 @@ impl ChromiumManager {
 
     pub fn login_cookie(&self) -> Option<String> {
         lock(&self.login_cookie).clone()
+    }
+
+    pub fn set_login_password(&self, password: Option<String>) {
+        *lock(&self.login_password) = password;
+    }
+
+    pub fn take_login_password(&self) -> Option<String> {
+        lock(&self.login_password).take()
     }
 }
 
@@ -144,6 +156,19 @@ mod chromium_manager_tests {
         manager.set_login_cookie(Some("token".into()));
         manager.close_login_session();
         assert!(manager.login_cookie().is_none());
+    }
+
+    #[test]
+    fn the_browser_login_password_is_handed_out_once_and_dies_with_the_session() {
+        let manager = ChromiumManager::new();
+        manager.set_login_password(Some("typed".into()));
+        assert_eq!(manager.take_login_password().as_deref(), Some("typed"));
+        // Lida uma vez, some: não chega numa conta que entrar depois.
+        assert!(manager.take_login_password().is_none());
+
+        manager.set_login_password(Some("typed".into()));
+        manager.close_login_session();
+        assert!(manager.take_login_password().is_none());
     }
 
     #[test]

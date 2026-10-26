@@ -780,6 +780,7 @@ pub fn run() {
             chromium::commands::open_login_browser,
             chromium::diagnose::run_browser_diagnostics,
             chromium::commands::extract_browser_cookie,
+            chromium::commands::extract_browser_login_password,
             chromium::commands::close_login_browser,
             chromium::commands::open_account_browser,
             chromium::commands::import_userpass,

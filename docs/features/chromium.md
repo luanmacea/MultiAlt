@@ -16,7 +16,7 @@ O controle é feito por **CDP** (Chrome DevTools Protocol) sobre WebSocket.
 | [chromium/download.rs](../../src-tauri/src/chromium/download.rs) | Resolve a build estável no catálogo Chrome for Testing, baixa, extrai e cacheia o binário (`ensure_chromium`, `is_installed`, `chromium_dir`); `resolve_browser_binary` decide entre caminho manual, download e navegador do sistema; `reinstall_chromium` apaga e baixa de novo |
 | [chromium/cdp.rs](../../src-tauri/src/chromium/cdp.rs) | `chrome_args` (linha de comando), `spawn_chrome` (processo + leitura do `DevToolsActivePort`), `CdpClient` (WebSocket CDP: `Network.*`, `Page.*`, `Runtime.evaluate`, `Browser.close`) |
 | [chromium/manager.rs](../../src-tauri/src/chromium/manager.rs) | `ChromiumManager`: processos vivos por conta (`LOGIN_KEY` = `i64::MIN` para a janela de login), cookie de login capturado, caminhos dos perfis |
-| [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) | Comandos Tauri: `is_browser_ready`, `ensure_browser`, `open_login_browser`, `extract_browser_cookie`, `close_login_browser`, `open_account_browser`, `import_userpass`, `run_browser_diagnostics` |
+| [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) | Comandos Tauri: `is_browser_ready`, `ensure_browser`, `open_login_browser`, `extract_browser_cookie`, `extract_browser_login_password`, `close_login_browser`, `open_account_browser`, `import_userpass`, `run_browser_diagnostics` |
 | [chromium/diagnose.rs](../../src-tauri/src/chromium/diagnose.rs) | Checagem do navegador (`browserBinary`, `browserFolder`, `browserLoginOpen`, `browserStart`, `browserRoblox`) — ver "Checagem do navegador" abaixo |
 | [store.tsx](../../src/store.tsx) | `openLoginBrowser` / `openAccountBrowser` e o listener do evento `browser-login-detected` |
 | [ImportDialog.tsx](../../src/components/dialogs/ImportDialog.tsx) | Chama `import_userpass` (usuário + senha) |
@@ -32,8 +32,8 @@ Perfis ficam em `<dir de dados>/chromium-profiles/<UserID>` e `<...>/chromium-pr
 3. `spawn_chrome(..., debug = true, ...)` sobe o browser com `--remote-debugging-port=0` e `--remote-debugging-address=127.0.0.1`. A porta real é lida da primeira linha do arquivo `DevToolsActivePort` dentro do perfil (polling de até 8 s).
 4. `CdpClient::connect(port)` busca em `http://127.0.0.1:<porta>/json` o primeiro alvo `page` e abre o WebSocket `webSocketDebuggerUrl`.
 5. `setup_login_session`: injeta o script de stealth (se ligado), apaga um `.ROBLOSECURITY` remanescente (perfil persistente) e navega para a página de login.
-6. Uma task de fundo pergunta `Network.getAllCookies` a cada 500 ms (até 4 min). Quando o `.ROBLOSECURITY` aparece: guarda em memória no `ChromiumManager`, **fecha a janela na hora** (`close_login_window`), apaga o perfil se ele não for persistente e emite `browser-login-detected`.
-7. O frontend busca o valor com `extract_browser_cookie` (só lê a memória do backend, não o browser), adiciona a conta e chama `close_login_browser`, que limpa o cookie em memória.
+6. Uma task de fundo pergunta `Network.getAllCookies` a cada 500 ms (até 4 min). Quando o `.ROBLOSECURITY` aparece: guarda em memória no `ChromiumManager`, **fecha a janela na hora** (`close_login_window`), apaga o perfil se ele não for persistente e emite `browser-login-detected`. Enquanto espera, lê o campo `#login-password`; quando o cookie aparece, guarda essa senha em memória só se a resposta do login (`LOGIN_USER_HOOK`) for da mesma conta do cookie (`browser_login_password`).
+7. O frontend busca o valor com `extract_browser_cookie` e a senha com `extract_browser_login_password` (que a entrega uma vez só; os dois só leem a memória do backend, não o browser), adiciona a conta e chama `close_login_browser`, que limpa o cookie em memória.
 
 ### Login com usuário e senha (`import_userpass`)
 
