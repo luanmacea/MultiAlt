@@ -1778,6 +1778,7 @@ pub fn place_in_grid(
                     size,
                     &request.excluded_pids,
                     request.style,
+                    false,
                 );
                 return match get_window_position(hwnd) {
                     Some(r) => WindowEnforcement::Placed(r),
@@ -1794,8 +1795,13 @@ pub fn place_in_grid(
             return move_to_with(hwnd, current, target, small);
         }
     }
+    // Janela que já está no tamanho da grade (uma organização anterior a pegou,
+    // quando várias contas abrem quase juntas) também vai sem o mínimo do
+    // Roblox: medi-la de novo a fazia crescer até ele, por cima das outras
+    // (teste real `real_grid_scenario_launch_placement_with_more_windows_than_cells`,
+    // 26/10/2026). A célula é a que as outras já têm, então não há o que medir.
     let (small, requested) = match grid_cell_in_use(&occupant_wins) {
-        Some(cell) if all_own && cell != requested => (small || grid_already_shrunk(cell, requested), cell),
+        Some(cell) if all_own => (small || cell == requested || grid_already_shrunk(cell, requested), cell),
         _ => (small, requested),
     };
     let (cell_w, cell_h) =
@@ -1817,6 +1823,7 @@ pub fn place_in_grid(
             size,
             &request.excluded_pids,
             request.style,
+            false,
         );
         return match get_window_position(hwnd) {
             Some(r) => WindowEnforcement::Placed(r),
@@ -1885,7 +1892,7 @@ pub fn arrange_roblox_grid(
     style: GridWindowStyle,
 ) -> Result<(usize, usize), String> {
     let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
-    arrange_roblox_grid_locked(monitor_indices, gap, size, excluded_pids, style)
+    arrange_roblox_grid_locked(monitor_indices, gap, size, excluded_pids, style, true)
 }
 
 /// `arrange_roblox_grid` com a trava da grade já tomada (a colocação do launch
@@ -1896,6 +1903,7 @@ fn arrange_roblox_grid_locked(
     size: Option<(u32, u32)>,
     excluded_pids: &std::collections::HashSet<u32>,
     style: GridWindowStyle,
+    restore_minimized: bool,
 ) -> Result<(usize, usize), String> {
     // Moldura e célula pequena só nos clientes que o app abriu; o aberto pelo
     // site é arrumado como sempre foi.
@@ -2003,6 +2011,22 @@ fn arrange_roblox_grid_locked(
     for (i, w) in wins.iter().enumerate() {
         let cell = slots[manual_slot(i, slots.len())];
         let hwnd = w.hwnd as HWND;
+        if minimized_hwnds.contains(&w.hwnd) && restore_minimized {
+            // O botão traz a minimizada de volta, já na célula (pedido do dono,
+            // 26/10/2026: abria uma por uma). Antes de restaurar, a posição
+            // normal vira a célula e sai o "voltar maximizada"; restaura sem
+            // roubar o foco e põe no tamanho da célula como as visíveis.
+            let rect = (cell.x, cell.y, cell_w, cell_h);
+            let _ = place_minimized_window(hwnd, rect);
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            if place_window_with(hwnd, rect, grid_swp_flags(small)) {
+                arranged += 1;
+            }
+            remember_grid_cell(w.hwnd, (small || own.contains(&w.pid)).then_some(rect), false);
+            continue;
+        }
         if minimized_hwnds.contains(&w.hwnd) {
             let rect = (cell.x, cell.y, cell_w, cell_h);
             if place_minimized_window(hwnd, rect) {
