@@ -4,6 +4,8 @@ import {
   failureRow,
   needsLogin,
   patchRow,
+  reloginErrorText,
+  reloginGaveUp,
   pendingRows,
   rowsFromFollow,
   rowsFromFriendLink,
@@ -82,5 +84,20 @@ describe("actionReport", () => {
     );
     expect(follow.map((r) => r.outcome)).toEqual(["ok", "already", "running", "failed"]);
     expect(follow[2].detail).toBe("in the browser");
+  });
+
+  it("traduz o motivo de um novo login que não terminou", () => {
+    const t = (key: string, vars?: Record<string, unknown>) =>
+      key.replace(/\{\{(\w+)\}\}/g, (_, k) => String(vars?.[k] ?? ""));
+    expect(reloginErrorText("Login window was closed before sign-in completed", t)).toBe(
+      "The login window was closed before the sign-in finished."
+    );
+    expect(reloginErrorText("Timed out waiting for sign-in", t)).toBe("The sign-in took too long. Try again.");
+    expect(
+      reloginErrorText("You signed in as bob, not ann. Nothing was changed — sign in to ann instead.", t)
+    ).toBe("You signed in as bob, not ann. Nothing was changed.");
+    expect(reloginErrorText("something else", t)).toBe("something else");
+    expect(reloginGaveUp("This account is no longer in the list.")).toBe(true);
+    expect(reloginGaveUp("Login window was closed before sign-in completed")).toBe(false);
   });
 });

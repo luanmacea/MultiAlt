@@ -152,6 +152,8 @@ import {
   failureRow,
   patchRow,
   pendingRows,
+  reloginErrorText,
+  reloginGaveUp,
   type ActionKind,
   type ActionReport,
   type ActionReportRow,
@@ -1821,7 +1823,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await invoke("relogin_account", { userId });
         patchActionRow({ userId, outcome: "ok", detail: tr("Signed in again") });
       } catch (e) {
-        patchActionRow({ userId, outcome: "failed", detail: String(e) });
+        // Não deu (janela fechada, tempo, outra conta): ela continua precisando
+        // de login, e o botão fica para tentar de novo.
+        patchActionRow({
+          userId,
+          outcome: reloginGaveUp(e) ? "failed" : "login",
+          detail: reloginErrorText(e, tr),
+        });
       }
     }
     await loadAccounts().catch(() => {});

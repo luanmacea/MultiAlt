@@ -2838,5 +2838,8 @@
   "Waiting for you in the browser window": "Esperando você na janela do navegador",
   "Working": "Em andamento",
   "Working {{done}}/{{total}}...": "Em andamento {{done}}/{{total}}...",
-  "Working...": "Em andamento..."
+  "Working...": "Em andamento...",
+  "The login window was closed before the sign-in finished.": "A janela de login foi fechada antes de terminar o login.",
+  "The sign-in took too long. Try again.": "O login demorou demais. Tente de novo.",
+  "You signed in as {{got}}, not {{expected}}. Nothing was changed.": "Você entrou como {{got}}, não como {{expected}}. Nada foi alterado."
 }

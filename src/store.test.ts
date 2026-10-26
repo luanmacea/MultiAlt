@@ -3862,7 +3862,8 @@ describe("ações com janela de resultados", () => {
     expect(report.kind).toBe("relogin");
     expect(report.rows).toEqual([
       expect.objectContaining({ userId: 2, outcome: "ok" }),
-      { userId: 3, outcome: "failed", detail: "You signed in as bob, not user3." },
+      // Login na conta errada: nada muda e ela continua precisando de login.
+      { userId: 3, outcome: "login", detail: "You signed in as bob, not user3. Nothing was changed." },
     ]);
   });
 

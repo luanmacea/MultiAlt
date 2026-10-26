@@ -144,3 +144,31 @@ export function rowsFromFollow(
     }
   });
 }
+
+/**
+ * Motivo de um "Fazer login de novo" que não terminou, na língua da tela. As
+ * mensagens vêm do backend em inglês (`relogin_account`); a desconhecida passa
+ * como veio.
+ */
+export function reloginErrorText(error: unknown, t: (key: string, vars?: Record<string, unknown>) => string): string {
+  const message = String(error ?? "").trim();
+  if (/login window was closed/i.test(message)) {
+    return t("The login window was closed before the sign-in finished.");
+  }
+  if (/timed out waiting for sign-in/i.test(message)) {
+    return t("The sign-in took too long. Try again.");
+  }
+  const wrong = /^You signed in as (.+?), not (.+?)\./.exec(message);
+  if (wrong) {
+    return t("You signed in as {{got}}, not {{expected}}. Nothing was changed.", {
+      got: wrong[1],
+      expected: wrong[2],
+    });
+  }
+  return message;
+}
+
+/** A conta saiu da lista no meio: aí não há o que tentar de novo. */
+export function reloginGaveUp(error: unknown): boolean {
+  return /no longer in the list/i.test(String(error ?? ""));
+}
