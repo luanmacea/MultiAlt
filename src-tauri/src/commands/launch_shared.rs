@@ -735,12 +735,6 @@ fn windows_client_overrides(
     resolved
 }
 
-/// `General.RestoreRobloxSettingsOnExit`: devolver ao fechar o app o que o
-/// launch mudou nos arquivos do Roblox (ideia 21). Desligada por padrão.
-fn restore_roblox_settings_enabled(settings: &SettingsStore) -> bool {
-    settings.get_bool("General", "RestoreRobloxSettingsOnExit")
-}
-
 /// `base_path`: pasta da versão do Roblox que vai realmente abrir (`None` =
 /// build padrão/produção, usada pelo servidor HTTP local, que não tem conta no
 /// contexto). Sem isso, `ClientAppSettings.json` era sempre escrito na pasta de
@@ -760,10 +754,10 @@ pub(crate) fn patch_client_settings_for_launch(
     let custom_settings = custom_client_settings_path(settings, effective_profile);
     let custom_settings = custom_settings.trim();
     let mut custom_applied = false;
-    // Ideia 21: com "devolver ao fechar" ligado, o que estava nos arquivos do
-    // Roblox antes desta escrita fica anotado (settings_restore.rs).
-    let restore_snapshot = restore_roblox_settings_enabled(settings)
-        .then(|| windows::snapshot_roblox_settings(windows::roblox_settings_files(base_path)));
+    // Ideia 21: o que estava nos arquivos do Roblox antes desta escrita fica
+    // anotado (settings_restore.rs) — sempre, mesmo com a devolução desligada:
+    // ligá-la depois tem de devolver o valor do usuário, não o do app.
+    let restore_snapshot = windows::snapshot_roblox_settings(windows::roblox_settings_files(base_path));
 
     // Legacy behavior: custom settings file overrides FPS unlock when valid.
     if !custom_settings.is_empty()
@@ -790,9 +784,7 @@ pub(crate) fn patch_client_settings_for_launch(
     )
     .ok()
     .flatten();
-    if let Some(snapshot) = restore_snapshot {
-        windows::record_roblox_settings_change(snapshot);
-    }
+    windows::record_roblox_settings_change(restore_snapshot);
     ResolvedClientWindow {
         // Sem pedido desta conta nem do perfil global, vale o que o registro
         // pôs de volta depois da exceção de outra conta (a tela cheia da
@@ -1639,6 +1631,23 @@ fn current_botting_status() -> BottingStatusPayload {
 #[cfg(target_os = "windows")]
 fn emit_botting_status(app: &tauri::AppHandle) {
     let _ = app.emit("botting-status", current_botting_status());
+}
+
+#[cfg(test)]
+mod settings_record_tests {
+    /// O launch anota o que muda nos arquivos do Roblox **sempre**, com a opção
+    /// de devolver ligada ou não: anotar só com ela ligada fazia o "original"
+    /// sair já com os valores do app (26/10/2026).
+    #[test]
+    fn every_write_to_the_roblox_files_is_recorded_whatever_the_option() {
+        for (name, source) in [
+            ("launch_shared.rs", include_str!("launch_shared.rs")),
+            ("launch.rs", include_str!("launch.rs")),
+        ] {
+            let gated = format!("{}(", "restore_roblox_settings_enabled");
+            assert!(!source.contains(&gated), "{name} still records only with the option on");
+        }
+    }
 }
 
 #[cfg(test)]

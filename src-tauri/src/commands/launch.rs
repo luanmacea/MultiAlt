@@ -3089,13 +3089,10 @@ fn cmd_apply_fps_unlock(
     #[cfg(target_os = "windows")]
     {
         use platform::windows;
-        // Também entra no que é devolvido ao fechar (ideia 21).
-        let snapshot = restore_roblox_settings_enabled(settings.inner())
-            .then(|| windows::snapshot_roblox_settings(windows::roblox_settings_files(None)));
+        // Também entra no que é devolvido (ideia 21), com a opção ligada ou não.
+        let snapshot = windows::snapshot_roblox_settings(windows::roblox_settings_files(None));
         let result = windows::apply_fps_unlock(max_fps);
-        if let Some(snapshot) = snapshot {
-            windows::record_roblox_settings_change(snapshot);
-        }
+        windows::record_roblox_settings_change(snapshot);
         return result;
     }
     #[cfg(not(target_os = "windows"))]

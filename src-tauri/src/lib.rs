@@ -140,16 +140,12 @@ enum SettingsOnExit {
     /// Roblox estiver rodando (`start_settings_restore_loop`). Nenhum cliente é
     /// fechado por isso.
     WaitForClients,
-    /// A opção foi desligada: esquece o anotado (sem mexer nos arquivos).
-    Discard,
 }
 
 fn settings_on_exit_plan(enabled: bool, pending: bool, roblox_running: bool) -> SettingsOnExit {
-    if !pending {
+    // Desligada, a anotação fica para quando a opção for ligada.
+    if !pending || !enabled {
         return SettingsOnExit::Nothing;
-    }
-    if !enabled {
-        return SettingsOnExit::Discard;
     }
     if roblox_running {
         return SettingsOnExit::WaitForClients;
@@ -189,10 +185,14 @@ mod settings_on_exit_tests {
         }
     }
 
+    /// Desligada, a anotação **fica**: ligar a opção depois devolve os valores
+    /// de verdade do usuário. Antes ela era jogada fora e o launch nem anotava
+    /// com a opção desligada — ligar mais tarde anotava os valores do app como
+    /// "originais", e o jogo pelo site ficava na janela 520x420 (26/10/2026).
     #[test]
-    fn with_the_option_off_what_was_recorded_is_forgotten() {
-        assert_eq!(settings_on_exit_plan(false, true, false), SettingsOnExit::Discard);
-        assert_eq!(settings_on_exit_plan(false, true, true), SettingsOnExit::Discard);
+    fn with_the_option_off_what_was_recorded_is_kept_for_later() {
+        assert_eq!(settings_on_exit_plan(false, true, false), SettingsOnExit::Nothing);
+        assert_eq!(settings_on_exit_plan(false, true, true), SettingsOnExit::Nothing);
     }
 }
 
@@ -220,7 +220,6 @@ fn restore_roblox_settings_on_exit(app: &AppHandle<Wry>) {
         SettingsOnExit::Restore => {
             windows::restore_roblox_settings();
         }
-        SettingsOnExit::Discard => windows::discard_roblox_settings_restore(),
     }
 }
 

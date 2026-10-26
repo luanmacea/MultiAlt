@@ -198,7 +198,11 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   e `cmd_apply_fps_unlock` ([launch.rs](../../src-tauri/src/commands/launch.rs)),
   e devolvido pelo laço `start_settings_restore_loop` e, na saída, por
   `restore_roblox_settings_on_exit` (os dois em [lib.rs](../../src-tauri/src/lib.rs)).
-- **Anota em volta da escrita:** com a opção ligada, o launch lê os dois
+- **Anota em volta da escrita, sempre:** com a opção ligada **ou desligada**
+  (desligada, a anotação só espera — nada é devolvido nem esquecido). Até
+  26/10/2026 só anotava com ela ligada: quem ligava depois de jogar pelo app
+  tinha como "original" os valores do app (janela 520x420 no monitor da grade),
+  e o jogo pelo site continuava pequeno. O launch lê os dois
   arquivos antes (`snapshot_roblox_settings`) e, depois de gravar, anota **por
   propriedade** o que mudou (`RestoreJournal::record`): o valor de antes da
   **primeira** mudança e o que o app escreveu por último. No XML contam só as
@@ -237,8 +241,10 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   valor de antes, e volta junto (`RESTORE_ONLY_XML_PROPS`; achado no teste real
   de 14/10/2026 — o jogo aberto pelo site abria no monitor da grade). Arquivo
   que o app criou e ficou vazio é apagado.
-- **Desligar a opção** esquece a anotação no próximo fechar, sem mexer nos
-  arquivos. Ligada depois, só conta o que mudar dali em diante.
+- **Desligar a opção** não devolve nem esquece nada: a anotação fica, e ligar
+  de novo devolve os valores de antes do app (até 26/10/2026 desligar
+  esquecia, e ligar depois contava só o que mudasse dali em diante — com os
+  valores do app já no arquivo).
 - **Convive com o registro das exceções** (`ClientOverrideLedger.json`, o que
   impede a exceção de uma conta de vazar para a próxima): depois da devolução,
   os valores anotados lá não batem mais com o arquivo e ele os descarta sozinho.
@@ -248,7 +254,8 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   do usuário ficam, arquivo criado pelo app apagado, cópia antes da primeira
   mudança, valor regravado no formato do Roblox, janela regravada, a decisão do
   laço com o app aberto — tudo em pastas temporárias) e `settings_on_exit_tests`
-  (devolve só sem Roblox nenhum, nem o do site; desligada, esquece).
+  (devolve só sem Roblox nenhum, nem o do site; desligada, a anotação fica) e
+  `settings_record_tests` (o launch anota com a opção desligada também).
   Interruptor em `settingsTabs.test.tsx`.
 
 ## Testes
