@@ -308,6 +308,16 @@ describe.each(COMPLETE_CATALOGS)("catálogo %s completo", (_name, dict, identica
     expect(padded).toEqual([]);
   });
 
+  /**
+   * UTF-8 lido como Windows-1252 vira "vocÃª", "gravaÃ§Ã£o" (26/10/2026: três
+   * frases novas chegaram assim à tela). "Ã" seguido de um desses caracteres,
+   * ou "Â" antes de pontuação, não existe em português nem em espanhol.
+   */
+  it("não tem acento quebrado por codificação errada", () => {
+    const broken = Object.keys(dict).filter((k) => /Ã[-¿‚-›ŒœŠšŸ]|Â[ -¿]/.test(dict[k]));
+    expect(broken).toEqual([]);
+  });
+
   it("traduziu tudo que não é jargão", () => {
     const untranslated = Object.keys(dict).filter((k) => dict[k] === en[k] && !identicalByDesign.has(k));
     expect(untranslated).toEqual([]);

@@ -174,8 +174,9 @@ fn set_transitions(hwnd: HWND, enabled: bool) {
     }
 }
 
-/// Deixa a janela 100% transparente e sem animação até `restore_window_visibility`.
-pub fn make_window_invisible(hwnd: HWND) -> Option<HiddenWindow> {
+/// Deixa a janela transparente (`alpha` de 0 a 255; 0 = some, mas não recebe
+/// clique — ver `afk_hidden_alpha`) e sem animação até `restore_window_visibility`.
+pub fn make_window_invisible(hwnd: HWND, alpha_while_hidden: u8) -> Option<HiddenWindow> {
     if !window_exists(hwnd) {
         return None;
     }
@@ -188,7 +189,7 @@ pub fn make_window_invisible(hwnd: HWND) -> Option<HiddenWindow> {
         } else {
             SetWindowLongW(hwnd, GWL_EXSTYLE, (ex | WS_EX_LAYERED) as i32);
         }
-        if SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA) == 0 {
+        if SetLayeredWindowAttributes(hwnd, 0, alpha_while_hidden, LWA_ALPHA) == 0 {
             if !was_layered {
                 SetWindowLongW(hwnd, GWL_EXSTYLE, ex as i32);
             }

@@ -1,6 +1,5 @@
 {
   "Keep Roblox windows out of sight": "Mantener las ventanas de Roblox fuera de la vista",
-  "In key mode, a Roblox window that was minimized or covered gets the key without showing up, so you can keep watching or working. Click mode still brings the window forward.": "En el modo tecla, la ventana de Roblox que estaba minimizada o tapada recibe la tecla sin aparecer, y puedes seguir viendo o trabajando. El modo clic todavía trae la ventana al frente.",
   "A Roblox window is running as administrator, so MultiAlt cannot unlock it. Opening another account will close that window.": "Una ventana de Roblox se está ejecutando como administrador, así que MultiAlt no puede desbloquearla. Abrir otra cuenta cerrará esa ventana.",
   "{{programs}} looks like a Roblox window that MultiAlt cannot unlock. Opening another account may close it.": "{{programs}} parece una ventana de Roblox que MultiAlt no puede desbloquear. Abrir otra cuenta puede cerrarla.",
   "Open anyway": "Abrir de todos modos",
@@ -2851,6 +2850,7 @@
   "Set automatically by Best size for each monitor": "Definido solo por Mejor tamaño en cada monitor",
   "When the grid arranges the windows, each one gets the largest landscape size that still fits every window on the grid monitors, with the gap. Turns off the width, height and smaller-windows options below.": "Al organizar en cuadrícula, cada ventana recibe el mayor tamaño horizontal en el que todas aún caben en los monitores de la cuadrícula, respetando el espacio entre ellas. Desactiva el ancho, el alto y la opción de ventanas más pequeñas de abajo.",
   "Window size": "Tamaño de la ventana",
-  "A different, rising beep, so you can let go of the mouse and keyboard before the focus moves.": "Un pitido distinto, ascendente, para que sueltes el ratÃ³n y el teclado antes de que el foco cambie.",
-  "Beep 3 seconds before a cycle": "Pitar 3 segundos antes de cada ciclo"
+  "A different, rising beep, so you can let go of the mouse and keyboard before the focus moves.": "Un pitido distinto, ascendente, para que sueltes el ratón y el teclado antes de que el foco cambie.",
+  "Beep 3 seconds before a cycle": "Pitar 3 segundos antes de cada ciclo",
+  "A Roblox window that was minimized or covered does its turn without showing up, so you can keep watching or working. In click and recording modes the mouse pointer still jumps to the click point for a moment.": "La ventana de Roblox que estaba minimizada o tapada hace su turno sin aparecer, y puedes seguir mirando o trabajando. En los modos clic y grabación, el puntero del ratón todavía salta al punto del clic por un momento."
 }

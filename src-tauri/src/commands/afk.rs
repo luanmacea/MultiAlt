@@ -696,11 +696,30 @@ const AFK_FULLSCREEN_MAX_WAIT_MS: i64 = 5 * 60_000;
 
 /// `Afk.HideWindows`: ligada por padrão (o ciclo dá o foco às janelas do
 /// Roblox sem elas aparecerem na tela — `platform/windows/hidden_focus.rs`);
-/// só `"false"` desliga. Vale só para o modo **tecla**: clique e gravação
-/// clicam num ponto da tela, e com a janela escondida atrás o clique cairia na
-/// janela do usuário.
-fn afk_hide_windows(raw: &str, action_is_key: bool) -> bool {
-    action_is_key && raw.trim() != "false"
+/// só `"false"` desliga. Vale em todo modo desde 26/10/2026: no clique e na
+/// gravação a janela fica na frente, invisível, só durante o envio
+/// (`afk_hidden_alpha`, `afk_tuck_before_action`).
+fn afk_hide_windows(raw: &str) -> bool {
+    raw.trim() != "false"
+}
+
+/// A transparência da janela escondida. Tecla: 0. Clique e gravação: 1 de
+/// 255 — com 0 o teste de acerto do Windows pula a janela e o clique cai na de
+/// baixo (medido com `WindowFromPoint`, 26/10/2026); com 1 ela recebe o clique
+/// e continua invisível a olho nu.
+fn afk_hidden_alpha(action_is_key: bool) -> u8 {
+    if action_is_key {
+        0
+    } else {
+        1
+    }
+}
+
+/// A janela volta para a profundidade de antes logo depois de ganhar o foco
+/// (tecla: vai para quem tem o foco) ou só depois do envio (clique e gravação:
+/// o clique cai na janela que estiver por cima do ponto).
+fn afk_tuck_before_action(action_is_key: bool) -> bool {
+    action_is_key
 }
 
 /// Quanto antes do ciclo o bipe de aviso toca (`Afk.BeepBeforeCycle`).
@@ -1161,6 +1180,7 @@ fn run_afk_cycle_blocking(
     // Janelas que o ciclo deixou transparentes: voltam a aparecer só depois
     // de devolvidas ao lugar (minimizadas ou atrás), no fim.
     let mut hidden: Vec<windows::HiddenWindow> = Vec::new();
+    let action_is_key = matches!(action, AfkCycleAction::Key(_));
 
     for &user_id in targets {
         let hwnd = window_of(user_id);
@@ -1203,12 +1223,12 @@ fn run_afk_cycle_blocking(
                     was_minimized,
                     !was_minimized && windows::window_partly_visible(hwnd),
                 ) {
-                    if let Some(saved) = windows::make_window_invisible(hwnd) {
+                    if let Some(saved) = windows::make_window_invisible(hwnd, afk_hidden_alpha(action_is_key)) {
                         hidden.push(saved);
                     }
                 }
                 let requested = windows::bring_forward_for_cycle(hwnd);
-                if requested && hide_windows {
+                if requested && hide_windows && afk_tuck_before_action(action_is_key) {
                     // Volta na hora para a profundidade de antes; o foco fica.
                     windows::tuck_window_after_focus(
                         hwnd,
@@ -1258,6 +1278,15 @@ fn run_afk_cycle_blocking(
                     }
                 };
 
+                // Clique e gravação: só agora volta para trás (o clique precisava
+                // dela por cima do ponto). O foco continua com ela até o fim.
+                if requested && hide_windows && !afk_tuck_before_action(action_is_key) {
+                    windows::tuck_window_after_focus(
+                        hwnd,
+                        was_minimized,
+                        above as windows_sys::Win32::Foundation::HWND,
+                    );
+                }
                 outcome.push((user_id, result));
                 std::thread::sleep(std::time::Duration::from_millis(AFK_BETWEEN_WINDOWS_MS));
             }
@@ -1428,10 +1457,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
         if !targets.is_empty() && !waiting && may_send {
             warned_at = None;
             let action = afk_cycle_action(&app, &config, &targets);
-            let hide = afk_hide_windows(
-                &app.state::<SettingsStore>().get_string("Afk", "HideWindows"),
-                matches!(action, AfkCycleAction::Key(_)),
-            );
+            let hide = afk_hide_windows(&app.state::<SettingsStore>().get_string("Afk", "HideWindows"));
             let stop = session.stop_flag.clone();
             let cycle_targets = targets.clone();
             let result = {
@@ -1624,10 +1650,7 @@ async fn afk_trigger_now(app: tauri::AppHandle, user_ids: Vec<i64>) -> Result<u3
     validate_afk_start(config.mode, &config.key, &user_ids)?;
 
     let action = afk_cycle_action(&app, &config, &user_ids);
-    let hide = afk_hide_windows(
-        &app.state::<SettingsStore>().get_string("Afk", "HideWindows"),
-        matches!(action, AfkCycleAction::Key(_)),
-    );
+    let hide = afk_hide_windows(&app.state::<SettingsStore>().get_string("Afk", "HideWindows"));
     let cycle_targets = user_ids.clone();
     let outcome = {
         let _guard = AFK_CYCLE_LOCK.lock().await;
@@ -2288,13 +2311,29 @@ mod afk_command_tests {
     // ── foco sem aparecer (Afk.HideWindows, 24/10/2026) ────────────────────
 
     #[test]
-    fn hiding_the_windows_is_on_by_default_and_only_for_the_key_mode() {
-        assert!(afk_hide_windows("", true));
-        assert!(afk_hide_windows("true", true));
-        assert!(!afk_hide_windows("false", true));
-        // Clique e gravação clicam num ponto da tela: com a janela escondida
-        // atrás, o clique cairia na janela do usuário.
-        assert!(!afk_hide_windows("", false));
+    fn hiding_the_windows_is_on_by_default_in_every_mode() {
+        assert!(afk_hide_windows(""));
+        assert!(afk_hide_windows("true"));
+        assert!(!afk_hide_windows("false"));
+    }
+
+    /// Pedido do dono (26/10/2026): no modo clique as janelas ainda vinham para
+    /// a frente. Com transparência 0 o Windows não entrega o clique à janela
+    /// (o teste de acerto a pula — medido com `WindowFromPoint`), e com 1 de
+    /// 255 entrega e continua invisível a olho nu.
+    #[test]
+    fn a_window_that_gets_a_click_is_hidden_at_one_not_zero() {
+        assert_eq!(afk_hidden_alpha(true), 0);
+        assert_eq!(afk_hidden_alpha(false), 1);
+    }
+
+    /// Tecla: volta para trás logo depois do foco (a tecla vai para quem tem o
+    /// foco). Clique e gravação: só depois do envio, senão o clique cairia na
+    /// janela que estiver por cima naquele ponto.
+    #[test]
+    fn a_clicked_window_goes_back_behind_only_after_the_click() {
+        assert!(afk_tuck_before_action(true));
+        assert!(!afk_tuck_before_action(false));
     }
 
     /// A ordem que deixa a janela invisível do começo ao fim: transparente
@@ -2312,6 +2351,10 @@ mod afk_command_tests {
         let invisible = cycle.find("windows::make_window_invisible(").expect("esconde");
         let bring = cycle.find("windows::bring_forward_for_cycle(").expect("traz a janela");
         let tuck = cycle.find("windows::tuck_window_after_focus(").expect("volta para trás");
+        // Clique e gravação: para trás depois do envio, ainda antes de reaparecer.
+        let tuck_after = cycle.rfind("windows::tuck_window_after_focus(").expect("volta para trás depois do clique");
+        let click = cycle.find("windows::click_afk_point(").expect("clica");
+        assert!(click < tuck_after, "o clique sai com a janela ainda na frente");
         let minimize = cycle.find("windows::minimize_window_quietly(").expect("re-minimiza");
         let visible = cycle.find("windows::restore_window_visibility(").expect("reaparece");
         assert!(invisible < bring && bring < tuck, "transparente antes de vir, para trás logo depois");

@@ -546,7 +546,9 @@ describe("ClicksTab — janelas fora de vista", () => {
     const { store } = renderDialog();
     const toggle = screen.getByRole("button", { name: "Keep Roblox windows out of sight" });
     expect(toggle).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/gets the key without showing up/i)).toBeInTheDocument();
+    expect(screen.getByText(/does its turn without showing up/i)).toBeInTheDocument();
+    // Desde 26/10/2026 vale no clique e na gravação também.
+    expect(screen.queryByText(/Click mode still brings the window forward/i)).not.toBeInTheDocument();
 
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-pressed", "false");
