@@ -4,11 +4,13 @@
 // O launch grava FPS, volume, qualidade, janela e FastFlags nos arquivos do
 // Roblox (`GlobalBasicSettings_13.xml` e o `ClientAppSettings.json` da versão).
 // Esses arquivos são do Roblox, não do app: o jogo aberto pelo site lê os
-// mesmos. Com `General.RestoreRobloxSettingsOnExit` ligado, o app anota, por
-// propriedade, o valor que estava lá **antes** da primeira mudança e o que ele
-// escreveu por último. Ao fechar o app (sem cliente que ele abriu rodando), cada
-// propriedade que ainda tem o valor do app volta ao do usuário; a que mudou
-// depois (o jogador mexeu dentro do jogo) fica como está.
+// mesmos. O app anota **sempre** (com a opção ligada ou não), por propriedade,
+// o valor que estava lá **antes** da primeira mudança e o que ele escreveu por
+// último. Com `General.RestoreRobloxSettingsOnExit` ligado, assim que nenhum
+// Roblox estiver rodando, cada propriedade que ainda tem o valor do app volta à
+// do usuário; a que mudou depois (o jogador mexeu dentro do jogo) fica como
+// está. Desligada, a anotação espera: anotar só com ela ligada fazia o
+// "original" sair com os valores do app (26/10/2026).
 //
 // Além disso, antes da primeira mudança de cada arquivo, uma cópia inteira dele
 // vai para `RobloxSettingsBackup/` na pasta de dados — para recuperar à mão se
@@ -389,11 +391,6 @@ pub fn has_pending_roblox_settings_restore_in(dir: &std::path::Path) -> bool {
     !load_restore_journal(dir).is_empty()
 }
 
-/// Esquece o que estava anotado (a opção foi desligada).
-pub fn discard_roblox_settings_restore_in(dir: &std::path::Path) {
-    let _ = std::fs::remove_file(dir.join(RESTORE_JOURNAL_FILE));
-}
-
 /// Devolve as configurações do usuário. Devolve quantos arquivos mudaram. A
 /// anotação só sai depois de devolver tudo; arquivo que não pôde ser gravado
 /// fica anotado para a próxima vez.
@@ -474,10 +471,6 @@ pub fn restore_watch_due(enabled: bool, pending: bool, roblox_running: bool, sec
 
 pub fn has_pending_roblox_settings_restore() -> bool {
     has_pending_roblox_settings_restore_in(&settings_restore_dir())
-}
-
-pub fn discard_roblox_settings_restore() {
-    discard_roblox_settings_restore_in(&settings_restore_dir());
 }
 
 pub fn restore_roblox_settings() -> usize {

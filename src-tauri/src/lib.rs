@@ -110,16 +110,12 @@ enum SettingsOnExit {
     /// Roblox estiver rodando (`start_settings_restore_loop`). Nenhum cliente é
     /// fechado por isso.
     WaitForClients,
-    /// A opção foi desligada: esquece o anotado (sem mexer nos arquivos).
-    Discard,
 }
 
 fn settings_on_exit_plan(enabled: bool, pending: bool, roblox_running: bool) -> SettingsOnExit {
-    if !pending {
+    // Desligada, a anotação fica para quando a opção for ligada.
+    if !pending || !enabled {
         return SettingsOnExit::Nothing;
-    }
-    if !enabled {
-        return SettingsOnExit::Discard;
     }
     if roblox_running {
         return SettingsOnExit::WaitForClients;
@@ -151,7 +147,6 @@ fn restore_roblox_settings_on_exit(app: &AppHandle<Wry>) {
         SettingsOnExit::Restore => {
             windows::restore_roblox_settings();
         }
-        SettingsOnExit::Discard => windows::discard_roblox_settings_restore(),
     }
 }
 
