@@ -37,6 +37,12 @@ fn chrome_args(profile: &Path, start_url: &str, debug: bool, stealth: bool) -> V
         "--disable-sync".to_string(),
         "--hide-crash-restore-bubble".to_string(),
         "--disable-search-engine-choice-screen".to_string(),
+        // Extensão que outro programa do PC instala em todo Chrome (o Google
+        // Drive põe o "Application Launcher For Drive"): cada perfil limpo a
+        // recebia de novo, com o aviso "added" e o "Action required" (teste
+        // real de 26/10/2026, abrindo a conta no navegador). O app não usa
+        // extensão nenhuma.
+        "--disable-extensions".to_string(),
         "--disable-features=Translate,PasswordLeakDetection".to_string(),
     ];
     if stealth {
@@ -104,6 +110,10 @@ const PROFILE_PREFERENCES: &[(&[&str], fn() -> Value)] = &[
     (&["autofill", "profile_enabled"], || json!(false)),
     (&["autofill", "credit_card_enabled"], || json!(false)),
     (&["profile", "default_content_setting_values", "notifications"], || json!(2)),
+    // A oferta de tradução (navegador em inglês no stealth, Roblox em
+    // português): o `--disable-features=Translate` já não a segura no
+    // Chrome 154 (teste real de 26/10/2026).
+    (&["translate", "enabled"], || json!(false)),
     (&["profile", "exit_type"], || json!("Normal")),
     (&["profile", "exited_cleanly"], || json!(true)),
 ];
