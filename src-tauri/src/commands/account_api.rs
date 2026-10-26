@@ -2544,8 +2544,8 @@ mod account_api_http_tests {
         }
         Mock::given(method("POST"))
             .and(path(mock_path(
-                "www",
-                "/authentication/signoutfromallsessionsandreauthenticate",
+                "auth",
+                "/v1/logoutfromallsessionsandreauthenticate",
             )))
             .and(header("cookie", cookie_of(token)))
             .respond_with(response)

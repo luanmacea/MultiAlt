@@ -380,11 +380,15 @@ pub async fn log_out_other_sessions(security_token: &str) -> Result<RefreshResul
 
     let client = build_client();
 
+    // O `www.roblox.com/authentication/signoutfromallsessionsandreauthenticate`
+    // saiu do ar (404, conferido em 25/10/2026): o "Atualizar cookies" falhava
+    // em toda conta, inclusive nas de sessão boa. O endereço atual é este.
     let request = client
-        .post(format!("{}/authentication/signoutfromallsessionsandreauthenticate", endpoints::host("www")))
+        .post(format!("{}/v1/logoutfromallsessionsandreauthenticate", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("Content-Type", "application/x-www-form-urlencoded");
+        .header("Content-Type", "application/json")
+        .body("{}");
     let response = send_with_csrf_retry(request, &csrf).await?;
 
     // Roblox may return redirects for this endpoint while still setting cookies.
@@ -1727,8 +1731,8 @@ mod auth_extra_tests {
 
         Mock::given(method("POST"))
             .and(path(mock_path(
-                "www",
-                "/authentication/signoutfromallsessionsandreauthenticate",
+                "auth",
+                "/v1/logoutfromallsessionsandreauthenticate",
             )))
             .and(header("cookie", cookie_of("signout-ok")))
             .respond_with(
@@ -1754,8 +1758,8 @@ mod auth_extra_tests {
 
         Mock::given(method("POST"))
             .and(path(mock_path(
-                "www",
-                "/authentication/signoutfromallsessionsandreauthenticate",
+                "auth",
+                "/v1/logoutfromallsessionsandreauthenticate",
             )))
             .and(header("cookie", cookie_of("signout-nocookie")))
             .respond_with(ResponseTemplate::new(200))
@@ -1776,8 +1780,8 @@ mod auth_extra_tests {
 
         Mock::given(method("POST"))
             .and(path(mock_path(
-                "www",
-                "/authentication/signoutfromallsessionsandreauthenticate",
+                "auth",
+                "/v1/logoutfromallsessionsandreauthenticate",
             )))
             .and(header("cookie", cookie_of("signout-fail")))
             .respond_with(ResponseTemplate::new(400).set_body_string("nope"))
