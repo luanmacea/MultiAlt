@@ -430,7 +430,9 @@ impl SettingsStore {
         }
 
         let login_defaults: &[(&str, &str)] = &[
-            ("PersistentProfile", "true"),
+            // Anônimo por padrão (26/10/2026): cada uso do navegador começa num
+            // perfil limpo e não guarda nada para a próxima vez.
+            ("PersistentProfile", "false"),
             ("StealthMode", "true"),
             // Vazio = nada configurado; `IniSection::set` não grava valor em
             // branco, então esta chave só aparece no INI depois que o usuário
@@ -443,6 +445,13 @@ impl SettingsStore {
             if !login.exists(key) {
                 login.set(key, value, None);
             }
+        }
+        // O padrão antigo era o perfil persistente, gravado no INI de quem já
+        // usava o app: desliga uma vez (pedido do dono, 26/10/2026) e depois
+        // respeita quem ligar de novo.
+        if !login.exists("PrivateBrowserDefaultV1") {
+            login.set("PersistentProfile", "false", None);
+            login.set("PrivateBrowserDefaultV1", "true", None);
         }
 
         // AFK mode. `Key` nasce **vazia** de proposito: sem tecla escolhida pelo
