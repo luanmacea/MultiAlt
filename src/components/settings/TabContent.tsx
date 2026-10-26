@@ -17,6 +17,7 @@ import { GeneratorTab } from "./GeneratorTab";
 import { IsolationTab } from "./IsolationTab";
 import { VersionsTab } from "./VersionsTab";
 import { BackupsTab } from "./BackupsTab";
+import { ChecksTab } from "./ChecksTab";
 import { useTr } from "../../i18n/text";
 
 export function TabContent({
@@ -81,6 +82,7 @@ export function TabContent({
             {tab === "updates" && <UpdatesTab s={s} />}
             {tab === "app" && <AppTab s={s} />}
             {tab === "backups" && <BackupsTab active={active} />}
+            {tab === "checks" && <ChecksTab />}
             {tab === "developer" && <DeveloperTab s={s} />}
             {tab === "webserver" && <WebServerTab s={s} />}
             {tab === "watcher" && <WatcherTab s={s} />}

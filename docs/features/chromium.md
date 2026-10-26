@@ -65,7 +65,7 @@ Ligada, o perfil acumula confiança do Roblox e pede menos captcha, mas todas as
 
 ## Checagem do navegador (`run_browser_diagnostics`, 26/10/2026)
 
-Um usuário relatou que o navegador "não fazia nada" ao criar contas e que reinstalar o Google Chrome resolveu: o download do Chromium próprio tinha falhado e o app estava usando o Chrome do PC (`find_system_chromium`). O cartão "Login browser does nothing?" (Settings › Accounts, abaixo do Bundled Browser) abre o mesmo diálogo do launch (`DiagnosticsDialog kind="browser"`), com as checagens de [chromium/diagnose.rs](../../src-tauri/src/chromium/diagnose.rs):
+Um usuário relatou que o navegador "não fazia nada" ao criar contas e que reinstalar o Google Chrome resolveu: o download do Chromium próprio tinha falhado e o app estava usando o Chrome do PC (`find_system_chromium`). O cartão "Login browser does nothing?" (Settings › Checks, ao lado do checklist do launch) abre o mesmo diálogo do launch (`DiagnosticsDialog kind="browser"`), com as checagens de [chromium/diagnose.rs](../../src-tauri/src/chromium/diagnose.rs):
 
 | id | O que diz |
 |---|---|

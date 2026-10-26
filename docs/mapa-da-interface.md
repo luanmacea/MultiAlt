@@ -131,7 +131,7 @@ Seções numa lista vertical à esquerda: as do dia a dia em cima, as técnicas 
 
 | Aba | O que mora ali |
 |---|---|
-| `Launch` | `Launch does nothing?` (a checagem), **Multi Roblox** (+ o experimental de teleporte e `Auto Close Roblox for Multi Roblox`), `Launch one account at a time`, o atraso entre contas (piso de 8 s), esperar a conta entrar no jogo, e o que roda antes de cada launch: checar ban, avisar conta online, `Auto Close Last Process`, `Shuffle Job ID`. |
+| `Launch` | **Multi Roblox** (+ o experimental de teleporte e `Auto Close Roblox for Multi Roblox`), `Launch one account at a time`, o atraso entre contas (piso de 8 s), esperar a conta entrar no jogo, e o que roda antes de cada launch: checar ban, avisar conta online, `Auto Close Last Process`, `Shuffle Job ID`. |
 | `Keep in game` | **Auto Rejoin** (o interruptor; as opções dele ficam na página AFK Mode, com botão até lá), o estado do "Reconnect accounts that drop" com botão para a página Session (onde ele muda), PC acordado e chacoalhar o mouse para parar. |
 | `Accounts` | Lista de contas (presença e o intervalo dela, nomes longos, alerta de idade, imagens, refresh de cookie) e navegador de login (perfil persistente, menos sinais de automação, executável próprio, navegador embutido). |
 | `Privacy & security` | Nomes ocultos (letras visíveis, avatares, Robux, nome na janela do Roblox), criptografia do arquivo de contas, aviso ao copiar credencial, **trancar por inatividade** (só com senha do app; a tela tranca e tudo continua rodando), "lembrar senha" e o fundo da tela de senha. |
@@ -162,7 +162,7 @@ Em Launch também fica, **desligado**, `Experimental: keep clients open across t
 | `Roblox Versions` | Add ▾ ou Settings › Versions | Instala, rotula e remove versões do cliente; `Browse` lista o catálogo remoto. |
 | `Backups` | Settings › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
 | `Theme Editor` | toolbar | Cores, estilo de botão e fontes; presets exportáveis. |
-| `Launch check` | Settings › Launch › `Launch does nothing?` ou o botão `Check what's wrong` da faixa de erro do launch | Confere Roblox instalado, pastas graváveis, internet até o Roblox, processos do Roblox sem janela e o Multi Roblox; cada linha diz o que fazer. **Só olha**: nunca fecha nada. Ver [support.md](features/support.md). |
+| `Launch check` | Settings › Checks › `Launch does nothing?` ou o botão `Check what's wrong` da faixa de erro do launch | Confere Roblox instalado, pastas graváveis, internet até o Roblox, processos do Roblox sem janela e o Multi Roblox; cada linha diz o que fazer. **Só olha**: nunca fecha nada. Ver [support.md](features/support.md). |
 | `Session` | barra lateral | Números de agora (jogando, reconectando, não responde, entrando — cada um filtra a lista), fila de lançamento (cancelar) e clientes abertos **agrupados por jogo e servidor**, com quem precisa de atenção no topo (focar; fechar em dois cliques na linha; `Close all clients` / `Close selected` com confirmação que lista as contas). Por linha, chips de teto de memória e de reconexão automática; os mesmos menus valem para as marcadas, na barra presa ao pé da lista. Depois, os ajustes: `Reconnect accounts that drop`, gravações e teto de memória de todas as contas. |
 
 ---
