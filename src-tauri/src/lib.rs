@@ -237,7 +237,9 @@ fn roblox_running_for_settings(roblox_pids: &[u32]) -> bool {
 fn start_settings_restore_loop(app: AppHandle<Wry>) {
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            // 1 s: quem fecha o jogo do app e abre pelo site logo em seguida
+            // tem de pegar os arquivos já devolvidos.
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             let handle = app.clone();
             let _ = tokio::task::spawn_blocking(move || {
                 use platform::windows;
@@ -248,11 +250,13 @@ fn start_settings_restore_loop(app: AppHandle<Wry>) {
                     return;
                 }
                 let roblox_running = roblox_running_for_settings(&windows::get_roblox_pids());
+                windows::note_roblox_running_for_restore(roblox_running);
                 if windows::restore_watch_due(
                     enabled,
                     true,
                     roblox_running,
                     windows::secs_since_last_settings_record(),
+                    windows::roblox_seen_since_last_settings_record(),
                 ) {
                     windows::restore_roblox_settings();
                 }

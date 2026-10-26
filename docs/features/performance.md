@@ -215,11 +215,14 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   (`0-GlobalBasicSettings_13.xml`, `1-ClientAppSettings.json`…). Fica lá depois
   da devolução, para recuperar à mão; um ciclo novo começa limpando as cópias
   do anterior.
-- **Com o app aberto** (`start_settings_restore_loop`, a cada 5 s;
+- **Com o app aberto** (`start_settings_restore_loop`, a cada 1 s;
   `restore_watch_due`): devolve quando há algo anotado e **nenhum**
-  `RobloxPlayerBeta.exe` roda, passados 60 s da última escrita do launch (o
-  patch é o último passo antes do spawn, e o processo leva uns segundos para
-  aparecer). Até 13/10/2026 só havia a devolução ao fechar o app: quem fechava o
+  `RobloxPlayerBeta.exe` roda, **depois** que um Roblox apareceu desde a última
+  escrita do launch (o cliente dele já leu os arquivos) — ou, se nenhum
+  apareceu, passados 60 s dela (o patch é o último passo antes do spawn, e o
+  processo leva uns segundos para aparecer). Até 26/10/2026 eram sempre 60 s, a
+  cada 5 s: quem fechava o jogo do app e abria pelo site logo depois (9 s, no
+  teste real) pegava a janela 520x420. Até 13/10/2026 só havia a devolução ao fechar o app: quem fechava o
   jogo e abria pelo site com o MultiAlt aberto ficava com a otimização. O mesmo
   laço devolve, ao abrir o app, o que ficou de uma execução anterior.
 - **Ao fechar** (`ExitRequested`/`Exit`, decidido uma vez só —

@@ -3082,10 +3082,7 @@ fn cmd_get_roblox_path() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn cmd_apply_fps_unlock(
-    settings: tauri::State<'_, SettingsStore>,
-    max_fps: u32,
-) -> Result<(), String> {
+fn cmd_apply_fps_unlock(max_fps: u32) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use platform::windows;

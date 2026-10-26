@@ -432,11 +432,27 @@ fn settings_restore_dir() -> PathBuf {
 
 pub fn record_roblox_settings_change(snapshot: RobloxSettingsSnapshot) {
     LAST_SETTINGS_RECORD.store(unix_now_secs(), std::sync::atomic::Ordering::SeqCst);
+    ROBLOX_SEEN_SINCE_RECORD.store(false, std::sync::atomic::Ordering::SeqCst);
     record_roblox_settings_change_in(&settings_restore_dir(), snapshot);
 }
 
 /// Quando o launch escreveu nos arquivos pela última vez (segundos Unix).
 static LAST_SETTINGS_RECORD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Algum Roblox rodou depois da última escrita do launch (o cliente que ele
+/// abriu apareceu)? Aí a folga já cumpriu o papel.
+static ROBLOX_SEEN_SINCE_RECORD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// O laço de devolução avisa que viu Roblox rodando.
+pub fn note_roblox_running_for_restore(running: bool) {
+    if running {
+        ROBLOX_SEEN_SINCE_RECORD.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+pub fn roblox_seen_since_last_settings_record() -> bool {
+    ROBLOX_SEEN_SINCE_RECORD.load(std::sync::atomic::Ordering::SeqCst)
+}
 
 /// Folga depois da última escrita do launch: o patch é o último passo antes
 /// do spawn, mas o processo do cliente leva uns segundos para aparecer, e
@@ -463,10 +479,24 @@ pub fn secs_since_last_settings_record() -> u64 {
 /// **nenhum** Roblox rodando (nem o aberto pelo site: ele regravaria os valores
 /// que tem na memória ao fechar) e a folga do último launch vencida.
 ///
+/// A folga acaba antes se um Roblox já apareceu depois da escrita
+/// (`client_seen_since_record`): o cliente do launch já leu os arquivos.
+///
 /// Antes a devolução só acontecia ao fechar o app: quem fechava o jogo e
 /// abria pelo site com o MultiAlt aberto ficava com a otimização (13/10/2026).
-pub fn restore_watch_due(enabled: bool, pending: bool, roblox_running: bool, secs_since_record: u64) -> bool {
-    enabled && pending && !roblox_running && secs_since_record >= RESTORE_WATCH_GRACE_SECS
+/// Depois, a folga fixa de 60 s ainda pegava quem abria pelo site logo depois
+/// de fechar o cliente do app (26/10/2026).
+pub fn restore_watch_due(
+    enabled: bool,
+    pending: bool,
+    roblox_running: bool,
+    secs_since_record: u64,
+    client_seen_since_record: bool,
+) -> bool {
+    enabled
+        && pending
+        && !roblox_running
+        && (client_seen_since_record || secs_since_record >= RESTORE_WATCH_GRACE_SECS)
 }
 
 pub fn has_pending_roblox_settings_restore() -> bool {
@@ -670,28 +700,44 @@ mod win_settings_restore_tests {
         assert_eq!(journal.restore_action("g.xml", None), RestoreAction::Keep);
     }
 
+    fn due(running: bool, secs: u64, seen: bool) -> bool {
+        restore_watch_due(true, true, running, secs, seen)
+    }
+
     #[test]
     fn with_the_app_open_it_restores_once_no_roblox_runs() {
-        assert!(restore_watch_due(true, true, false, RESTORE_WATCH_GRACE_SECS));
-        assert!(restore_watch_due(true, true, false, u64::MAX));
+        assert!(due(false, RESTORE_WATCH_GRACE_SECS, false));
+        assert!(due(false, u64::MAX, false));
     }
 
     #[test]
     fn a_running_client_even_from_the_website_holds_the_restore() {
-        assert!(!restore_watch_due(true, true, true, u64::MAX));
+        assert!(!due(true, u64::MAX, false));
+        assert!(!due(true, u64::MAX, true));
+        assert!(!due(true, 3, true));
     }
 
     #[test]
     fn right_after_a_launch_wrote_the_files_it_waits() {
         // O cliente novo ainda não apareceu: devolver agora tiraria a otimização dele.
-        assert!(!restore_watch_due(true, true, false, 5));
-        assert!(!restore_watch_due(true, true, false, RESTORE_WATCH_GRACE_SECS - 1));
+        assert!(!due(false, 5, false));
+        assert!(!due(false, RESTORE_WATCH_GRACE_SECS - 1, false));
+    }
+
+    /// Teste real de 26/10/2026: o jogador fechou o cliente aberto pelo app e
+    /// abriu pelo site 9 s depois; a folga fixa de 60 s ainda corria, e o jogo
+    /// do site leu a janela 520x420. Depois que o cliente do launch apareceu,
+    /// a folga já cumpriu o papel: sem Roblox rodando, devolve na hora.
+    #[test]
+    fn once_the_launched_client_appeared_and_closed_it_restores_right_away() {
+        assert!(due(false, 13, true));
+        assert!(due(false, 0, true));
     }
 
     #[test]
     fn nothing_recorded_or_the_option_off_does_nothing() {
-        assert!(!restore_watch_due(true, false, false, u64::MAX));
-        assert!(!restore_watch_due(false, true, false, u64::MAX));
+        assert!(!restore_watch_due(true, false, false, u64::MAX, true));
+        assert!(!restore_watch_due(false, true, false, u64::MAX, true));
     }
 
     #[test]
