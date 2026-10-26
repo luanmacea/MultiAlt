@@ -485,6 +485,7 @@ export const SUITES: Record<string, TestSuite> = {
     description: "Chromium via CDP: download, argumentos, sessão de login",
     rust: [
       "chromium_cdp_tests",
+      "browser_diagnose_tests",
       "chromium_manager_tests",
       "chromium_commands_tests",
       "chromium_download_tests",

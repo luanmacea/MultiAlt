@@ -179,6 +179,17 @@ export function AccountsTab({ s }: { s: UseSettingsReturn }) {
           <div className="mt-2 text-[11px] leading-snug text-red-400">{browserDownload.error}</div>
         )}
       </ActionCard>
+      {/* Um usuário relatou o navegador "não fazer nada" ao criar contas — era o
+          Chrome do PC, usado quando o download falha. A checagem diz qual abre
+          e se ele responde (chromium/diagnose.rs). */}
+      <ActionCard
+        title={t("Login browser does nothing?")}
+        description={t(
+          "Checks which browser logins and account creation use, whether it opens and answers, and whether the Roblox page loads. Downloads nothing."
+        )}
+        action={t("Run check")}
+        onAction={() => store.setBrowserCheckOpen(true)}
+      />
     </div>
   );
 }

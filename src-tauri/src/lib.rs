@@ -768,6 +768,7 @@ pub fn run() {
             get_closed_clients,
             dismiss_closed_client,
             chromium::commands::open_login_browser,
+            chromium::diagnose::run_browser_diagnostics,
             chromium::commands::extract_browser_cookie,
             chromium::commands::close_login_browser,
             chromium::commands::open_account_browser,

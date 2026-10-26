@@ -862,6 +862,9 @@ export interface StoreValue {
   /** Checagem "o launch não faz nada" (ideia 16) — Settings e a faixa de erro. */
   diagnosticsOpen: boolean;
   setDiagnosticsOpen: (open: boolean) => void;
+  /** Checagem do navegador de login (`run_browser_diagnostics`). */
+  browserCheckOpen: boolean;
+  setBrowserCheckOpen: (open: boolean) => void;
   /** Adicionar conta por Quick Login (ideia 12) — menu Add e AddAccountDialog. */
   quickLoginOpen: boolean;
   setQuickLoginOpen: (open: boolean) => void;
@@ -1153,6 +1156,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [browserCheckOpen, setBrowserCheckOpen] = useState(false);
   const [quickLoginOpen, setQuickLoginOpen] = useState(false);
   const [presetsDialog, setPresetsDialog] = useState<{ draft: LaunchPreset | null } | null>(null);
   const [presetsRevision, setPresetsRevision] = useState(0);
@@ -4268,6 +4272,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setVersionsDialogOpen,
     diagnosticsOpen,
     setDiagnosticsOpen,
+    browserCheckOpen,
+    setBrowserCheckOpen,
     quickLoginOpen,
     setQuickLoginOpen,
     setSessionDialogOpen,

@@ -28,7 +28,16 @@ fn chrome_args(profile: &Path, start_url: &str, debug: bool, stealth: bool) -> V
         format!("--user-data-dir={}", profile.to_string_lossy()),
         "--no-first-run".to_string(),
         "--no-default-browser-check".to_string(),
-        "--disable-features=Translate".to_string(),
+        // Pop-ups que não têm o que fazer aqui (pedido do dono, 26/10/2026),
+        // medidos com o Chrome for Testing 154: `--disable-infobars` tira a
+        // faixa "destinado apenas a testes automatizados" e `--disable-sync` o
+        // "Fazer login no Chromium?". Salvar senha e preenchimento automático
+        // saem pelas preferências do perfil (`prepare_profile`).
+        "--disable-infobars".to_string(),
+        "--disable-sync".to_string(),
+        "--hide-crash-restore-bubble".to_string(),
+        "--disable-search-engine-choice-screen".to_string(),
+        "--disable-features=Translate,PasswordLeakDetection".to_string(),
     ];
     if stealth {
         args.push("--lang=en-US".to_string());
@@ -49,6 +58,7 @@ pub async fn spawn_chrome(
     stealth: bool,
 ) -> Result<(Child, Option<u16>), String> {
     let _ = std::fs::create_dir_all(profile);
+    prepare_profile(profile);
     let active_port_file = profile.join("DevToolsActivePort");
     if debug {
         let _ = std::fs::remove_file(&active_port_file);
@@ -80,6 +90,56 @@ pub async fn spawn_chrome(
     }
 
     Ok((child, None))
+}
+
+/// Preferências gravadas no perfil antes de cada abertura: sem oferta de salvar
+/// senha nem de preencher endereço/cartão, sem pedido de notificação, e saída
+/// "Normal" (sem o balão "Restaurar páginas?" depois de o app fechar a janela).
+/// Nenhuma delas fica nas "Secure Preferences" (com assinatura): mexer nessas
+/// faria o Chrome dizer que as configurações foram alteradas e resetá-las.
+const PROFILE_PREFERENCES: &[(&[&str], fn() -> Value)] = &[
+    (&["credentials_enable_service"], || json!(false)),
+    (&["profile", "password_manager_enabled"], || json!(false)),
+    (&["profile", "password_manager_leak_detection"], || json!(false)),
+    (&["autofill", "profile_enabled"], || json!(false)),
+    (&["autofill", "credit_card_enabled"], || json!(false)),
+    (&["profile", "default_content_setting_values", "notifications"], || json!(2)),
+    (&["profile", "exit_type"], || json!("Normal")),
+    (&["profile", "exited_cleanly"], || json!(true)),
+];
+
+/// Antes de abrir o navegador num perfil: apaga a sessão anterior (as abas
+/// voltavam a cada abertura — relato do dono, 26/10/2026, com o perfil de
+/// login persistente) e grava `PROFILE_PREFERENCES`. Cookie, cache e histórico
+/// ficam: são o perfil persistente (`Login.PersistentProfile`) funcionando.
+/// Preferências que não dão para ler ficam como estão.
+pub(crate) fn prepare_profile(profile: &Path) {
+    let default = profile.join("Default");
+    let _ = std::fs::remove_dir_all(default.join("Sessions"));
+    for legacy in ["Current Session", "Current Tabs", "Last Session", "Last Tabs"] {
+        let _ = std::fs::remove_file(default.join(legacy));
+    }
+    let path = default.join("Preferences");
+    let mut prefs = match std::fs::read_to_string(&path) {
+        Ok(raw) => match serde_json::from_str::<Value>(&raw) {
+            Ok(value) if value.is_object() => value,
+            _ => return,
+        },
+        Err(_) => json!({}),
+    };
+    for (keys, value) in PROFILE_PREFERENCES {
+        let mut node = &mut prefs;
+        for key in &keys[..keys.len() - 1] {
+            if !node.get(*key).is_some_and(Value::is_object) {
+                node[*key] = json!({});
+            }
+            node = &mut node[*key];
+        }
+        node[keys[keys.len() - 1]] = value();
+    }
+    if std::fs::create_dir_all(&default).is_ok() {
+        let _ = std::fs::write(&path, prefs.to_string());
+    }
 }
 
 /// Quantas vezes (a cada `ACTIVE_PORT_POLL_MS`) se espera o `DevToolsActivePort`
@@ -518,6 +578,136 @@ mod chromium_cdp_tests {
 
     // ── chrome_args ────────────────────────────────────────────────────────
 
+    // ── perfil sem abas antigas nem pop-ups (pedido do dono, 26/10/2026) ──────
+
+    #[test]
+    fn chrome_args_hide_the_testing_bar_the_sign_in_button_and_the_password_prompts() {
+        let args = chrome_args(Path::new("p"), "about:blank", true, true);
+        // Medido com o Chrome for Testing 154: `--disable-infobars` tira a faixa
+        // "destinado apenas a testes automatizados" (`--test-type` não tira) e
+        // `--disable-sync` tira o "Fazer login no Chromium?".
+        assert!(args.contains(&"--disable-infobars".to_string()));
+        assert!(args.contains(&"--disable-sync".to_string()));
+        assert!(args.contains(&"--hide-crash-restore-bubble".to_string()));
+        let features = args.iter().find(|a| a.starts_with("--disable-features=")).expect("features");
+        assert!(features.contains("Translate") && features.contains("PasswordLeakDetection"), "{features}");
+        assert_eq!(args.last().unwrap(), "about:blank");
+    }
+
+    fn temp_profile(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ram-cdp-profile-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Default").join("Sessions")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn preparing_a_profile_drops_the_old_tabs_and_keeps_the_rest() {
+        let dir = temp_profile("tabs");
+        let default = dir.join("Default");
+        std::fs::write(default.join("Sessions").join("Tabs_1"), b"x").unwrap();
+        std::fs::write(default.join("Sessions").join("Session_1"), b"x").unwrap();
+        std::fs::write(default.join("Cookies"), b"keep").unwrap();
+        prepare_profile(&dir);
+        assert!(!default.join("Sessions").exists(), "the tabs of the last session would reopen");
+        assert_eq!(std::fs::read(default.join("Cookies")).unwrap(), b"keep");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preparing_a_profile_turns_off_saving_passwords_and_keeps_other_preferences() {
+        let dir = temp_profile("prefs");
+        let prefs_path = dir.join("Default").join("Preferences");
+        std::fs::write(&prefs_path, r#"{"intl":{"accept_languages":"en-US"},"profile":{"name":"x","exit_type":"Crashed"}}"#).unwrap();
+        prepare_profile(&dir);
+        let prefs: Value = serde_json::from_str(&std::fs::read_to_string(&prefs_path).unwrap()).unwrap();
+        assert_eq!(prefs["credentials_enable_service"], json!(false));
+        assert_eq!(prefs["profile"]["password_manager_enabled"], json!(false));
+        assert_eq!(prefs["profile"]["password_manager_leak_detection"], json!(false));
+        assert_eq!(prefs["autofill"]["profile_enabled"], json!(false));
+        assert_eq!(prefs["profile"]["default_content_setting_values"]["notifications"], json!(2));
+        // Saída "Normal": sem o balão "Restaurar páginas?".
+        assert_eq!(prefs["profile"]["exit_type"], json!("Normal"));
+        // O que já estava lá fica.
+        assert_eq!(prefs["intl"]["accept_languages"], json!("en-US"));
+        assert_eq!(prefs["profile"]["name"], json!("x"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preparing_a_new_profile_creates_the_preferences_and_an_unreadable_one_is_left_alone() {
+        let fresh = std::env::temp_dir().join(format!("ram-cdp-profile-fresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&fresh);
+        prepare_profile(&fresh);
+        let prefs: Value =
+            serde_json::from_str(&std::fs::read_to_string(fresh.join("Default").join("Preferences")).unwrap()).unwrap();
+        assert_eq!(prefs["credentials_enable_service"], json!(false));
+        let _ = std::fs::remove_dir_all(&fresh);
+
+        let broken = temp_profile("broken");
+        let path = broken.join("Default").join("Preferences");
+        std::fs::write(&path, "not json").unwrap();
+        prepare_profile(&broken);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "not json", "a file the app cannot read is not overwritten");
+        let _ = std::fs::remove_dir_all(&broken);
+    }
+
+    /// Com o Chromium de verdade (`RAM_CHROME_BINARY`): abre uma página, fecha
+    /// pelo caminho normal (que grava a sessão no perfil) e abre de novo no mesmo
+    /// perfil — só a página pedida pode estar lá, não a da vez anterior.
+    #[tokio::test]
+    #[ignore]
+    async fn real_chromium_reopens_a_profile_without_the_old_tabs() {
+        let binary = std::path::PathBuf::from(std::env::var("RAM_CHROME_BINARY").expect("RAM_CHROME_BINARY"));
+        let profile = std::env::temp_dir().join(format!("ram-real-tabs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&profile);
+        let page_urls = |port: u16| async move {
+            let targets: Value = reqwest::get(format!("http://127.0.0.1:{port}/json"))
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            targets
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|t| t["type"] == "page")
+                .map(|t| t["url"].as_str().unwrap_or("").to_string())
+                .collect::<Vec<_>>()
+        };
+
+        let (mut first, port) = spawn_chrome(&binary, &profile, "https://example.com/", true, false).await.unwrap();
+        let port = port.expect("debug port");
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        let before = page_urls(port).await;
+        if std::env::var("RAM_CHROME_KILL").is_ok() {
+            // O caminho do login: a janela é fechada matando o processo.
+            let _ = first.kill();
+        } else {
+            let mut cdp = CdpClient::connect(port).await.unwrap();
+            let _ = cdp.close_browser().await;
+        }
+        for _ in 0..50 {
+            if matches!(first.try_wait(), Ok(Some(_))) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let saved_sessions = profile.join("Default").join("Sessions").exists();
+
+        let (mut second, port) = spawn_chrome(&binary, &profile, "about:blank", true, false).await.unwrap();
+        let port = port.expect("debug port");
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        let after = page_urls(port).await;
+        let _ = second.kill();
+        let _ = first.kill();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let _ = std::fs::remove_dir_all(&profile);
+        eprintln!("first run pages {before:?}, sessions saved: {saved_sessions}, second run pages {after:?}");
+        assert!(after.iter().all(|u| !u.contains("example.com")), "the old tab came back: {after:?}");
+    }
+
     #[test]
     fn chrome_args_always_pass_the_profile_and_the_start_url() {
         let args = chrome_args(Path::new("C:\\profiles\\42"), "about:blank", false, false);
@@ -525,7 +715,7 @@ mod chromium_cdp_tests {
         assert_eq!(args.last().unwrap(), "about:blank");
         assert!(args.contains(&"--no-first-run".to_string()));
         assert!(args.contains(&"--no-default-browser-check".to_string()));
-        assert!(args.contains(&"--disable-features=Translate".to_string()));
+        assert!(args.iter().any(|a| a.starts_with("--disable-features=") && a.contains("Translate")));
     }
 
     #[test]

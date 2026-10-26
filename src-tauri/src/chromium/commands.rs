@@ -20,7 +20,7 @@ pub(super) fn manual_binary_path(settings: &SettingsStore) -> String {
     settings.get_string(MANUAL_BINARY_PATH_KEY.0, MANUAL_BINARY_PATH_KEY.1)
 }
 
-const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
+pub(super) const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
 const ROBLOX_HOME_URL: &str = "https://www.roblox.com/home";
 const ROBLOX_COMMUNITIES_URL: &str = "https://www.roblox.com/communities";
 

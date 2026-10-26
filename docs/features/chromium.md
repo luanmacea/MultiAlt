@@ -45,6 +45,30 @@ Igual aos passos 1–5, mas depois espera o seletor `#login-username` e manda um
 3. `close_browser` pede o encerramento gracioso (`Browser.close`, com `Page.close` como alternativa) — é o shutdown normal do Chromium que grava o cookie no disco. Esperamos a saída por até 10 s e, se travar, matamos o processo.
 4. **Fase 2 — a janela do usuário**: sobe de novo no mesmo perfil, direto em `https://www.roblox.com/home` — ou, com `groupId` (página Groups, depois de um captcha; ver [groups.md](groups.md)), em `https://www.roblox.com/communities/<groupId>`, montada no backend (`account_browser_start_url`) a partir só do id numérico —, **sem `--remote-debugging-port`**. É essa instância que o `ChromiumManager` rastreia.
 
+## Sem abas antigas nem pop-ups (26/10/2026)
+
+Relato do dono: o navegador de login abria com as abas antigas e cheio de oferta (salvar senha, "Fazer login no Chromium?", a faixa "Chrome for Testing é destinado apenas a testes automatizados"). Toda abertura (login, criação de contas, browser por conta) passa por `spawn_chrome`, que agora:
+
+- **Prepara o perfil** (`prepare_profile`, [cdp.rs](../../src-tauri/src/chromium/cdp.rs)): apaga `Default/Sessions` (as abas da vez anterior) e grava em `Default/Preferences` as chaves de `PROFILE_PREFERENCES` — sem salvar senha, sem alerta de senha vazada, sem preenchimento de endereço/cartão, notificações bloqueadas e saída "Normal". A causa das abas antigas, reproduzida com uma cópia do perfil `_login` real: o app fecha a janela de login **matando** o processo, o perfil fica `exit_type: Crashed` e a abertura seguinte mostrava "Restaurar páginas? O Chromium não foi encerrado corretamente" — e o "Restaurar" trazia tudo de volta. Nenhuma chave das `Secure Preferences` (assinadas) é tocada: mexer nelas faz o Chrome avisar que as configurações foram alteradas. Preferências que não dão para ler ficam como estão. Cookie, cache e histórico ficam — é o perfil persistente funcionando.
+- **Flags novas** (`chrome_args`), medidas com o Chrome for Testing 154: `--disable-infobars` tira a faixa do Chrome for Testing (`--test-type` **não** tira), `--disable-sync` tira o "Fazer login no Chromium?", e `--hide-crash-restore-bubble`, `--disable-search-engine-choice-screen` e `PasswordLeakDetection` em `--disable-features` fecham o resto.
+- Testes: `chromium_cdp_tests` (flags e preparação do perfil em pasta temporária) e o real `real_chromium_reopens_a_profile_without_the_old_tabs` (`#[ignore]`, `RAM_CHROME_BINARY=<chrome.exe>`; `RAM_CHROME_KILL=1` fecha matando, como o login).
+
+**Modo anônimo:** é o `Login.PersistentProfile` **desligado** ("Persistent login profile", Settings › Accounts): o perfil `_login` é apagado antes e depois de cada login, sem cookie, cache nem histórico de uma vez para a outra. Ligado (o padrão), o perfil acumula confiança do Roblox e pede menos captcha, mas todas as contas passam pelo mesmo perfil. A criação de contas sempre começa num perfil apagado.
+
+## Checagem do navegador (`run_browser_diagnostics`, 26/10/2026)
+
+Um usuário relatou que o navegador "não fazia nada" ao criar contas e que reinstalar o Google Chrome resolveu: o download do Chromium próprio tinha falhado e o app estava usando o Chrome do PC (`find_system_chromium`). O cartão "Login browser does nothing?" (Settings › Accounts, abaixo do Bundled Browser) abre o mesmo diálogo do launch (`DiagnosticsDialog kind="browser"`), com as checagens de [chromium/diagnose.rs](../../src-tauri/src/chromium/diagnose.rs):
+
+| id | O que diz |
+|---|---|
+| `browserBinary` | Qual navegador o login usa: o escolhido em Settings (`manual` / `manualInvalid`), o próprio (`downloaded` / `damaged`, faltando arquivo) ou, sem ele, o do PC (`systemFallback`, aviso — o caso do relato) / nenhum (`notDownloaded`) |
+| `browserFolder` | A pasta dos perfis aceita escrita |
+| `browserLoginOpen` | Há uma janela de login aberta agora (só aparece nesse caso) |
+| `browserStart` | Abertura de teste num perfil só dela (`_diagnostic`, apagado no fim): `opened` (com os segundos), `spawnFailed` (o Windows não deixou começar — antivírus), `didNotOpen` (subiu e não respondeu em 30 s — o "não faz nada"), `skipped` |
+| `browserRoblox` | A página de login do Roblox carregou dentro do navegador de teste |
+
+Não baixa nada (o download fica no botão Reinstall/Download) e não toca no perfil de login nem nos das contas. Como no launch, só `id`/`reason`/`count` saem do backend; a frase é de [utils/diagnostics.ts](../../src/utils/diagnostics.ts). Testes: `browser_diagnose_tests` (inclui o real `real_browser_check_opens_reaches_roblox_and_cleans_up`, `#[ignore]`, `RAM_CHROME_BINARY`) e `DiagnosticsDialog.test.tsx`.
+
 ## Qual binário abre: manual, baixado ou navegador do sistema
 
 `resolve_browser_binary` (chromium/download.rs) é chamado pelos três fluxos acima (`open_login_browser`, `import_userpass`, `open_account_browser`) **e pela criação de contas** (`start_signup_session`, [signup_session.rs](../../src-tauri/src/chromium/signup_session.rs)) em vez de `ensure_chromium` direto. Até 27/09/2026 a criação chamava `ensure_chromium` direto e ignorava o caminho manual e o navegador do sistema — quem configurou o caminho porque o download falha ficava preso no download ao criar contas. Ordem de preferência:
