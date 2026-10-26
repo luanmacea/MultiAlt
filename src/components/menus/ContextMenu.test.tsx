@@ -81,6 +81,22 @@ describe("ContextMenu — visibility", () => {
 });
 
 describe("ContextMenu — account actions", () => {
+  /** Novo login de propósito, depois de confirmar (25/10/2026). */
+  it("signs the selection in again after confirming", async () => {
+    promptAnswers.confirm = true;
+    const store = renderMenu({}, [A, B]);
+    await userEvent.click(item("Sign in again"));
+    await waitFor(() => expect(store.reloginAccounts).toHaveBeenCalledWith([1, 2]));
+  });
+
+  it("does not sign in again when the person cancels", async () => {
+    promptAnswers.confirm = false;
+    const store = renderMenu({}, [A, B]);
+    await userEvent.click(item("Sign in again"));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+    expect(store.reloginAccounts).not.toHaveBeenCalled();
+  });
+
   it("writes an alias to every selected account", async () => {
     promptAnswers.prompt = "Main";
     const store = renderMenu({}, [A, B]);

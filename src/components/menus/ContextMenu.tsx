@@ -263,6 +263,20 @@ export function ContextMenu() {
     },
     { separator: true, label: "" },
     { label: t("Copy"), submenu: copySubmenu },
+    // Novo login de propósito (não só quando a sessão morreu): o navegador de
+    // login abre com usuário e senha preenchidos quando salvos.
+    {
+      label: t("Sign in again"),
+      action: async () => {
+        const ok = await confirm(
+          t(
+            "{{count}} account(s) need to sign in again. A browser window opens for each one, one at a time, with the username and password filled in when they are saved. You solve the CAPTCHA, and the new session goes into the same account.",
+            { count: userIds.length }
+          )
+        );
+        if (ok) await store.reloginAccounts(userIds);
+      },
+    },
     { separator: true, label: "" },
   ];
 
