@@ -511,9 +511,15 @@ pub async fn close_login_browser(
     Ok(())
 }
 
+/// O valor do campo de senha do login, se houver.
+const READ_LOGIN_PASSWORD_SCRIPT: &str =
+    "(function(){var el=document.querySelector('#login-password');return el?el.value:null;})()";
+
 /// Abre o navegador de login, preenche usuário e senha quando vierem
 /// (`credentials`) e espera a pessoa terminar (o CAPTCHA é com ela). Devolve o
-/// `.ROBLOSECURITY` capturado; a janela fecha no instante em que ele aparece.
+/// `.ROBLOSECURITY` capturado e a última senha vista no campo (a que entrou —
+/// a pessoa pode ter digitado a certa por cima da preenchida); a janela fecha
+/// no instante em que o cookie aparece.
 /// Usado pelo "usuário:senha" (conta nova) e pelo "Fazer login de novo" (conta
 /// que já existe e perdeu a sessão).
 async fn sign_in_in_browser(
@@ -521,7 +527,7 @@ async fn sign_in_in_browser(
     chromium: &ChromiumManager,
     settings: &SettingsStore,
     credentials: Option<(&str, &str)>,
-) -> Result<String, String> {
+) -> Result<(String, Option<String>), String> {
     let (binary, _) = resolve_browser_binary(app, Some(&manual_binary_path(settings))).await?;
     chromium.close_login_session();
 
@@ -572,6 +578,7 @@ async fn sign_in_in_browser(
     }
 
     let mut captured = None;
+    let mut typed_password: Option<String> = None;
     for _ in 0..480 {
         if !chromium.is_alive(LOGIN_KEY) {
             return Err("Login window was closed before sign-in completed".into());
@@ -579,6 +586,11 @@ async fn sign_in_in_browser(
         if let Ok(Some(cookie)) = cdp.get_roblosecurity().await {
             captured = Some(cookie);
             break;
+        }
+        if let Ok(serde_json::Value::String(value)) = cdp.eval(READ_LOGIN_PASSWORD_SCRIPT).await {
+            if !value.is_empty() {
+                typed_password = Some(value);
+            }
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -588,7 +600,8 @@ async fn sign_in_in_browser(
         let _ = wipe_profile_dir(&profile);
     }
 
-    captured.ok_or_else(|| "Timed out waiting for sign-in".to_string())
+    let cookie = captured.ok_or_else(|| "Timed out waiting for sign-in".to_string())?;
+    Ok((cookie, typed_password))
 }
 
 #[tauri::command]
@@ -604,9 +617,11 @@ pub async fn import_userpass(
         return Err("Enter a username and password".into());
     }
 
-    let cookie = sign_in_in_browser(&app, &chromium, &settings, Some((&username, &password))).await?;
+    let (cookie, typed) = sign_in_in_browser(&app, &chromium, &settings, Some((&username, &password))).await?;
     let info = crate::api::auth::validate_cookie(&cookie).await?;
 
+    // A senha que entrou de fato (a pessoa pode ter corrigido no navegador).
+    let password = typed.filter(|t| !t.is_empty()).unwrap_or(password);
     let mut account = Account::new(cookie, info.name.clone(), info.user_id);
     account.password = password;
     state.add(account)?;
@@ -651,10 +666,12 @@ pub async fn relogin_account(
     let credentials = (!account.username.trim().is_empty() && !account.password.is_empty())
         .then(|| (account.username.as_str(), account.password.as_str()));
 
-    let cookie = sign_in_in_browser(&app, &chromium, &settings, credentials).await?;
+    let (cookie, typed) = sign_in_in_browser(&app, &chromium, &settings, credentials).await?;
     let info = crate::api::auth::validate_cookie(&cookie).await?;
     relogin_identity_check(user_id, &account.username, info.user_id, &info.name)?;
-    if !state.relogin(user_id, &cookie)? {
+    // O login deu certo: a senha do campo é a que funciona (quem trocou a
+    // senha pelo app antes da v2.2.0 digita a certa aqui e o app aprende).
+    if !state.relogin(user_id, &cookie, typed.as_deref())? {
         return Err("This account is no longer in the list.".to_string());
     }
 

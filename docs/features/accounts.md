@@ -172,6 +172,15 @@ Para não regravar o arquivo de contas a toda hora, `mark_used_if_stale` só gra
 
 Para conta com sessão morta, na janela de resultados e na do "Conferir contas" (botão "Fazer login de novo (N)", depois de uma confirmação que explica o que vai acontecer). Uma conta por vez: o navegador de login abre ([chromium/commands.rs](../../src-tauri/src/chromium/commands.rs), `sign_in_in_browser`, o mesmo do "usuário:senha") com **usuário e senha preenchidos quando a conta tem senha salva**, a pessoa resolve o CAPTCHA, e o cookie novo entra **na mesma conta** (`AccountStore::relogin`: troca o cookie e marca válida, sem tocar em grupo, campos e senha). Login feito em **outra** conta (perfil do navegador já logado em outra, usuário errado digitado) é recusado sem gravar nada (`relogin_identity_check`). O app nunca resolve o CAPTCHA.
 
+### Senhas: regras que não podem quebrar (25/10/2026)
+
+Regra crítica do CLAUDE.md ("Senha guardada nunca se perde"). O que aconteceu e o que existe hoje:
+
+- **As duas perdas.** (1) `change_password` de uma conta só trocava a senha no Roblox e o app continuava com a antiga — todas as versões até a v2.1.0 (a gravação, `persist_password_update`, entrou em 16/10, já na v2.2.0-beta; a troca em massa nunca saiu sem ela). Quem trocou digitou a nova, então a conhece. (2) O criador de contas gravava a senha da próxima identidade em cima da conta anterior do lote quando o cookie dela voltava depois da limpeza (ver [account-creation.md](account-creation.md)) — todas as versões até a v2.3.0. A senha gerada original **não é recuperável**: a semente é o relógio em nanossegundos, e muitas sementes dão o mesmo nome com senhas diferentes.
+- **`Account::replace_password`** é o único caminho para trocar a senha guardada de conta existente: guarda a anterior em `PasswordHistory` (da mais nova para a mais velha, até `PASSWORD_HISTORY_MAX` = 5, sem repetidas), e vazio nunca apaga. `AccountStore::add` (re-adicionar conta existente), `relogin` e `persist_password_update` passam por ele. O histórico mora no mesmo `AccountData.json` criptografado e não é gravado quando vazio (arquivo antigo carrega igual). Trava em teste: `every_write_of_a_saved_password_goes_through_replace_password`.
+- **O login ensina a senha.** O "Fazer login de novo" (e o "usuário:senha") lê o campo de senha da página até o login dar certo e grava **a que entrou** (`sign_in_in_browser` → `relogin(.., typed_password)`). Quem trocou a senha pelo app numa versão antiga digita a senha certa por cima da preenchida, e o app passa a guardar a certa (com a velha no histórico). Se a pessoa entrar por código de e-mail ou "Quick Sign-in", o campo pode ter outra coisa — por isso o histórico.
+- **Editar pela tela não mexe em credencial** (`update_account` → `keep_credentials_from`): a cópia da tela pode estar sem o histórico ou com cookie velho.
+
 ## Regras de negócio
 
 - **`UserID` é a identidade**: `add` com um `UserID` existente **atualiza** `SecurityToken`, `Username`, `Valid`, `LastUse` (e `Password` só se a nova não for vazia); alias, grupo, campos e descrição são preservados.

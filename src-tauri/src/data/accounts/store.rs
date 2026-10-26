@@ -1294,9 +1294,8 @@ impl AccountStore {
             existing.username = account.username;
             existing.valid = account.valid;
             existing.last_use = account.last_use;
-            if !account.password.is_empty() {
-                existing.password = account.password;
-            }
+            // A anterior vai para o histórico; vazia não apaga a guardada.
+            existing.replace_password(&account.password);
         } else {
             accounts.push(account);
         }
@@ -1435,13 +1434,18 @@ impl AccountStore {
     /// cookie pelo do login e marca a sessão válida, sem tocar no resto (grupo,
     /// campos, senha). Quem chama garante que o cookie é **desta** conta. Devolve
     /// `false` quando a conta não existe.
-    pub fn relogin(&self, user_id: i64, new_token: &str) -> Result<bool, String> {
+    /// `typed_password`: a senha que estava no campo quando o login deu certo —
+    /// ela passa a ser a guardada (a anterior vai para o histórico).
+    pub fn relogin(&self, user_id: i64, new_token: &str, typed_password: Option<&str>) -> Result<bool, String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
         let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
             return Ok(false);
         };
         account.security_token = new_token.to_string();
         account.valid = true;
+        if let Some(password) = typed_password {
+            account.replace_password(password);
+        }
         self.save_locked(&accounts)?;
         Ok(true)
     }
@@ -2001,7 +2005,7 @@ mod account_store_tests {
         old.password = "secret".to_string();
         store.add(old).unwrap();
 
-        assert!(store.relogin(7, "NEW-COOKIE").unwrap());
+        assert!(store.relogin(7, "NEW-COOKIE", None).unwrap());
 
         let after = store.get_all().unwrap().remove(0);
         assert_eq!(after.security_token, "NEW-COOKIE");
@@ -2013,11 +2017,44 @@ mod account_store_tests {
         assert_eq!(reloaded.get_all().unwrap()[0].security_token, "NEW-COOKIE");
     }
 
+    /// O login que deu certo ensina a senha: quem trocou a senha pelo app antes
+    /// da v2.2.0 (a nova não era gravada) digita a certa no "Fazer login de
+    /// novo", e ela passa a ser a guardada — com a antiga no histórico.
+    #[test]
+    fn a_successful_relogin_saves_the_password_that_worked() {
+        let store = store("relogin-typed");
+        let mut old = account(7, "ann");
+        old.password = "old-and-wrong".to_string();
+        store.add(old).unwrap();
+
+        assert!(store.relogin(7, "NEW-COOKIE", Some("the-right-one")).unwrap());
+
+        let after = store.get_all().unwrap().remove(0);
+        assert_eq!(after.password, "the-right-one");
+        assert_eq!(after.password_history, vec!["old-and-wrong".to_string()]);
+    }
+
+    /// Re-adicionar uma conta que já existe com outra senha não perde a antiga.
+    #[test]
+    fn adding_an_existing_account_with_another_password_keeps_the_old_one() {
+        let store = store("add-keeps-old-password");
+        let mut first = account(7, "ann");
+        first.password = "original".to_string();
+        store.add(first).unwrap();
+        let mut again = account(7, "ann");
+        again.password = "other".to_string();
+        store.add(again).unwrap();
+
+        let after = store.get_all().unwrap().remove(0);
+        assert_eq!(after.password, "other");
+        assert_eq!(after.password_history, vec!["original".to_string()]);
+    }
+
     #[test]
     fn relogin_of_a_missing_account_changes_nothing() {
         let store = store("relogin-missing");
         store.add(account(7, "ann")).unwrap();
-        assert!(!store.relogin(999, "NEW-COOKIE").unwrap());
+        assert!(!store.relogin(999, "NEW-COOKIE", None).unwrap());
         assert_ne!(store.get_all().unwrap()[0].security_token, "NEW-COOKIE");
     }
 
