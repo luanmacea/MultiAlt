@@ -59,6 +59,15 @@ Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas,
 - **Teto de 50 contas por sessão**, para um clique errado não virar uma maratona.
 - Timeout de uma conta **pula** aquela conta; janela fechada **encerra** a sessão.
 
+### Senha salva errada (25/10/2026)
+
+Relato do dono: conta criada pelo criador, "senha incorreta" no "Fazer login de novo" com a senha salva — e a conta existia. Conferido sem ler a senha: o formulário de login recebeu os 14 caracteres salvos (DOM e React iguais), e o formulário de cadastro de hoje tem um campo de senha só, preenchido certo. A causa achada no código:
+
+- `AccountStore::add` **sobrescreve a senha** de uma conta que já existe;
+- o criador gravava a conta assim que via **um** `.ROBLOSECURITY`, sem conferir se ela era nova. Entre um cadastro e o próximo do lote, uma resposta atrasada da conta anterior pode devolver o cookie dela depois do `reset_session`: o cadastro seguinte "terminava" na hora e gravava **a senha da próxima identidade em cima da conta anterior** (e a próxima nunca era criada).
+
+Agora: cookie de conta **já salva** não grava nada (`cookie_is_from_a_saved_account`): o app limpa, reabre o cadastro e espera a mesma conta de novo (até `STALE_COOKIE_RETRIES`). E a senha gravada é **a que estava no campo** na hora do envio (`READ_PASSWORD_FIELD_SCRIPT`, lido a cada passada; `password_to_save` cai para a gerada se não der para ler) — vale também se a pessoa mexeu no campo. Não reproduzido com cadastro de verdade (o assistente não cria contas): validar com um lote de 2 contas e o "Fazer login de novo" nelas. As contas que já ficaram com a senha errada não têm como ser recuperadas pelo app (o backup mais antigo, de 04/10, é anterior a elas).
+
 ## Seletores da página de cadastro
 
 A página é React, então escrever `.value` direto não atualiza o estado: o script usa o setter nativo do prototype e dispara os eventos (mesma técnica do `login_fill_script`).

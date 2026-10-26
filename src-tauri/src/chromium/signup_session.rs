@@ -219,17 +219,46 @@ async fn fill_signup_form(cdp: &mut CdpClient, identity: &SignupIdentity) -> Vec
     still_missing
 }
 
+/// O cookie é de uma conta que **já está salva**: não é a conta que acabou de
+/// ser criada. Acontece entre um cadastro e o próximo do lote: uma resposta
+/// atrasada da conta anterior devolve o cookie dela depois da limpeza, e o
+/// cadastro novo "terminava" na hora — gravando a senha da próxima identidade
+/// em cima da conta anterior (relato do dono, 25/10/2026: conta criada pelo
+/// app com "senha incorreta" no login).
+fn cookie_is_from_a_saved_account(saved_user_ids: &[i64], user_id: i64) -> bool {
+    saved_user_ids.contains(&user_id)
+}
+
+/// A senha que vai para a conta: a que estava no campo na hora do envio (a
+/// pessoa pode ter mexido nela); sem leitura, a gerada.
+fn password_to_save(typed: Option<&str>, generated: &str) -> String {
+    match typed {
+        Some(value) if !value.is_empty() => value.to_string(),
+        _ => generated.to_string(),
+    }
+}
+
+/// O valor do campo de senha marcado pelo app (`data-ram-field`), se houver.
+const READ_PASSWORD_FIELD_SCRIPT: &str =
+    "(function(){var el=document.querySelector('[data-ram-field=\"password\"]');return el?el.value:null;})()";
+
+/// Quantas vezes recomeçar a mesma conta quando o cookie que aparece é de uma
+/// conta já salva.
+const STALE_COOKIE_RETRIES: usize = 3;
+
 /// Espera o cookie aparecer (o usuário concluiu o cadastro), respeitando o
-/// cancelamento e o fechamento da janela.
+/// cancelamento e o fechamento da janela. Devolve também o último valor visto
+/// no campo de senha (o que foi enviado).
 async fn wait_for_signup(
     cdp: &mut CdpClient,
     chromium: &ChromiumManager,
     stop: &AtomicBool,
     identity: &SignupIdentity,
     auto_submit: bool,
-) -> Result<String, String> {
+) -> Result<(String, Option<String>), String> {
     let attempts = (CAPTCHA_WAIT.as_millis() / POLL_INTERVAL.as_millis()) as u32;
     let mut last_click: Option<std::time::Instant> = None;
+    let mut typed_password: Option<String> = None;
     for tick in 0..attempts {
         if stop.load(Ordering::Relaxed) {
             return Err("cancelled".to_string());
@@ -239,7 +268,13 @@ async fn wait_for_signup(
         }
         if let Ok(Some(cookie)) = cdp.get_roblosecurity().await {
             if !cookie.trim().is_empty() {
-                return Ok(cookie);
+                return Ok((cookie, typed_password));
+            }
+        }
+        // O que está no campo agora: é o que vai no envio.
+        if let Ok(serde_json::Value::String(value)) = cdp.eval(READ_PASSWORD_FIELD_SCRIPT).await {
+            if !value.is_empty() {
+                typed_password = Some(value);
             }
         }
         // Reparo periódico: campo que remontou volta a ser preenchido, e a
@@ -263,19 +298,32 @@ async fn wait_for_signup(
     Err("Tempo esgotado esperando a conclusão do cadastro".to_string())
 }
 
-/// Valida o cookie recém-criado e guarda a conta com a senha gerada.
+/// O que aconteceu ao guardar a conta.
+enum SignupSave {
+    Saved(String),
+    /// O cookie era de uma conta já salva: nada foi gravado.
+    StaleCookie,
+}
+
+/// Valida o cookie recém-criado e guarda a conta com a senha do campo (ou a
+/// gerada). Cookie de conta que já está na lista não grava nada.
 async fn save_account(
     accounts: &AccountStore,
     cookie: String,
     identity: &SignupIdentity,
-) -> Result<String, String> {
+    typed_password: Option<&str>,
+) -> Result<SignupSave, String> {
     let info = crate::api::auth::validate_cookie(&cookie).await?;
+    let saved: Vec<i64> = accounts.get_all()?.iter().map(|a| a.user_id).collect();
+    if cookie_is_from_a_saved_account(&saved, info.user_id) {
+        return Ok(SignupSave::StaleCookie);
+    }
     let mut account = Account::new(cookie, info.name.clone(), info.user_id);
     // O nome que vale é o que o Roblox aceitou, não o que geramos: o usuário
     // pode ter corrigido o campo na tela.
-    account.password = identity.password.clone();
+    account.password = password_to_save(typed_password, &identity.password);
     accounts.add(account)?;
-    Ok(info.name)
+    Ok(SignupSave::Saved(info.name))
 }
 
 #[tauri::command]
@@ -409,38 +457,67 @@ pub async fn start_signup_session(
                 };
             });
 
-            match wait_for_signup(&mut cdp, &chromium, &stop, &identity, auto_submit).await {
-                Ok(cookie) => {
-                    update(&app_task, |s| s.phase = "saving".to_string());
-                    match save_account(&accounts, cookie, &identity).await {
-                        Ok(name) => {
-                            // A lista principal recarrega neste evento. Sem
-                            // ele, as contas criadas só apareciam no próximo
-                            // start do app — inclusive as de uma sessão que o
-                            // usuário parou no meio.
-                            let _ = app_task.emit(
-                                "generator-account-added",
-                                serde_json::json!({ "username": name }),
-                            );
-                            update(&app_task, |s| {
-                                s.created += 1;
-                                s.created_usernames.push(name);
-                                s.last_error = None;
-                            });
+            let mut stale_retries = 0;
+            let mut end_session = false;
+            loop {
+                match wait_for_signup(&mut cdp, &chromium, &stop, &identity, auto_submit).await {
+                    Ok((cookie, typed_password)) => {
+                        update(&app_task, |s| s.phase = "saving".to_string());
+                        match save_account(&accounts, cookie, &identity, typed_password.as_deref()).await {
+                            Ok(SignupSave::Saved(name)) => {
+                                // A lista principal recarrega neste evento. Sem
+                                // ele, as contas criadas só apareciam no próximo
+                                // start do app — inclusive as de uma sessão que o
+                                // usuário parou no meio.
+                                let _ = app_task.emit(
+                                    "generator-account-added",
+                                    serde_json::json!({ "username": name }),
+                                );
+                                update(&app_task, |s| {
+                                    s.created += 1;
+                                    s.created_usernames.push(name);
+                                    s.last_error = None;
+                                });
+                            }
+                            // O navegador ainda estava na conta anterior: limpa,
+                            // reabre o cadastro e espera esta conta de novo.
+                            Ok(SignupSave::StaleCookie) if stale_retries < STALE_COOKIE_RETRIES => {
+                                stale_retries += 1;
+                                reset_session(&mut cdp).await;
+                                let reopened = cdp.navigate(ROBLOX_SIGNUP_URL).await.is_ok()
+                                    && cdp.wait_for_selector(SIGNUP_FORM_SELECTOR, 60).await;
+                                if reopened {
+                                    let _ = fill_signup_form(&mut cdp, &identity).await;
+                                    update(&app_task, |s| s.phase = "waiting-user".to_string());
+                                    continue;
+                                }
+                                update(&app_task, |s| {
+                                    s.last_error = Some("O formulário de cadastro não carregou".to_string());
+                                });
+                            }
+                            Ok(SignupSave::StaleCookie) => update(&app_task, |s| {
+                                s.last_error = Some(
+                                    "O navegador continuou na conta anterior; esta conta foi pulada".to_string(),
+                                );
+                            }),
+                            Err(e) => update(&app_task, |s| {
+                                s.last_error = Some(format!("Conta criada, mas não foi salva: {}", e));
+                            }),
                         }
-                        Err(e) => update(&app_task, |s| {
-                            s.last_error = Some(format!("Conta criada, mas não foi salva: {}", e));
-                        }),
+                    }
+                    Err(reason) if reason == "cancelled" => end_session = true,
+                    Err(reason) => {
+                        update(&app_task, |s| s.last_error = Some(reason));
+                        // Janela fechada encerra a sessão; timeout só pula a conta.
+                        if !chromium.is_alive(LOGIN_KEY) {
+                            end_session = true;
+                        }
                     }
                 }
-                Err(reason) if reason == "cancelled" => break,
-                Err(reason) => {
-                    update(&app_task, |s| s.last_error = Some(reason));
-                    // Janela fechada encerra a sessão; timeout só pula a conta.
-                    if !chromium.is_alive(LOGIN_KEY) {
-                        break;
-                    }
-                }
+                break;
+            }
+            if end_session {
+                break;
             }
         }
 
@@ -459,6 +536,27 @@ pub async fn start_signup_session(
 #[cfg(test)]
 mod signup_session_tests {
     use super::*;
+
+    /// Relato do dono (25/10/2026): conta criada pelo criador e "senha
+    /// incorreta" no login com a senha salva. Um cookie de conta que **já está
+    /// salva** (o da conta anterior, voltando depois da limpeza entre um
+    /// cadastro e outro) não é conta nova — gravar com ele punha a senha da
+    /// próxima identidade em cima da conta anterior.
+    #[test]
+    fn a_cookie_of_an_account_already_saved_is_not_a_new_account() {
+        assert!(cookie_is_from_a_saved_account(&[10, 20], 20));
+        assert!(!cookie_is_from_a_saved_account(&[10, 20], 30));
+        assert!(!cookie_is_from_a_saved_account(&[], 30));
+    }
+
+    /// A senha que vale é a que estava no campo na hora do envio (a pessoa
+    /// pode ter mexido); sem leitura, a gerada.
+    #[test]
+    fn the_password_saved_is_the_one_in_the_field() {
+        assert_eq!(password_to_save(Some("Typed123"), "Generated7"), "Typed123");
+        assert_eq!(password_to_save(Some(""), "Generated7"), "Generated7");
+        assert_eq!(password_to_save(None, "Generated7"), "Generated7");
+    }
 
     #[test]
     fn it_submits_once_the_form_is_complete_and_only_if_the_option_is_on() {
