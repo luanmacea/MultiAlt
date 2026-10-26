@@ -101,7 +101,7 @@ fn installation_problem(binary: &Path) -> Option<String> {
     }
 }
 
-fn cached_binary(app: &AppHandle) -> Option<PathBuf> {
+pub(crate) fn cached_binary(app: &AppHandle) -> Option<PathBuf> {
     let dir = chromium_dir(app).ok()?;
     let manifest = dir.join("version.json");
     let raw = std::fs::read_to_string(manifest).ok()?;
@@ -115,6 +115,15 @@ fn cached_binary(app: &AppHandle) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+/// Há uma cópia baixada registrada, mas com arquivo faltando ou cortado
+/// (`installation_problem`): é o "Reinstall" que resolve.
+pub(crate) fn has_damaged_download(app: &AppHandle) -> bool {
+    let Ok(dir) = chromium_dir(app) else {
+        return false;
+    };
+    dir.join("version.json").exists() && cached_binary(app).is_none()
 }
 
 pub fn is_installed(app: &AppHandle) -> bool {
@@ -241,7 +250,7 @@ pub fn find_system_chromium() -> Option<(PathBuf, String)> {
 /// usuário e **tem** que ser um arquivo comum — senão é erro na hora, sem
 /// cair silenciosamente para o download ou para a detecção automática, que é
 /// exatamente o que o usuário estava tentando evitar ao configurar isto.
-fn resolve_manual_path(raw: Option<&str>) -> Result<Option<PathBuf>, String> {
+pub(crate) fn resolve_manual_path(raw: Option<&str>) -> Result<Option<PathBuf>, String> {
     let Some(raw) = raw else { return Ok(None) };
     let trimmed = raw.trim();
     if trimmed.is_empty() {

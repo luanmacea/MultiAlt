@@ -85,6 +85,7 @@ function AppContent() {
     store.generatorDialogOpen ||
     store.updateDialogOpen ||
     store.diagnosticsOpen ||
+    store.browserCheckOpen ||
     store.quickLoginOpen ||
     store.presetsDialog !== null ||
     store.firstRunWalkthroughOpen ||
@@ -377,6 +378,11 @@ function AppContent() {
       />
 
       <DiagnosticsDialog open={store.diagnosticsOpen} onClose={() => store.setDiagnosticsOpen(false)} />
+      <DiagnosticsDialog
+        kind="browser"
+        open={store.browserCheckOpen}
+        onClose={() => store.setBrowserCheckOpen(false)}
+      />
 
       <QuickLoginDialog open={store.quickLoginOpen} onClose={() => store.setQuickLoginOpen(false)} />
 

@@ -28,7 +28,16 @@ fn chrome_args(profile: &Path, start_url: &str, debug: bool, stealth: bool) -> V
         format!("--user-data-dir={}", profile.to_string_lossy()),
         "--no-first-run".to_string(),
         "--no-default-browser-check".to_string(),
-        "--disable-features=Translate".to_string(),
+        // Pop-ups que não têm o que fazer aqui (pedido do dono, 26/10/2026),
+        // medidos com o Chrome for Testing 154: `--disable-infobars` tira a
+        // faixa "destinado apenas a testes automatizados" e `--disable-sync` o
+        // "Fazer login no Chromium?". Salvar senha e preenchimento automático
+        // saem pelas preferências do perfil (`prepare_profile`).
+        "--disable-infobars".to_string(),
+        "--disable-sync".to_string(),
+        "--hide-crash-restore-bubble".to_string(),
+        "--disable-search-engine-choice-screen".to_string(),
+        "--disable-features=Translate,PasswordLeakDetection".to_string(),
     ];
     if stealth {
         args.push("--lang=en-US".to_string());
@@ -49,6 +58,7 @@ pub async fn spawn_chrome(
     stealth: bool,
 ) -> Result<(Child, Option<u16>), String> {
     let _ = std::fs::create_dir_all(profile);
+    prepare_profile(profile);
     let active_port_file = profile.join("DevToolsActivePort");
     if debug {
         let _ = std::fs::remove_file(&active_port_file);
@@ -80,6 +90,56 @@ pub async fn spawn_chrome(
     }
 
     Ok((child, None))
+}
+
+/// Preferências gravadas no perfil antes de cada abertura: sem oferta de salvar
+/// senha nem de preencher endereço/cartão, sem pedido de notificação, e saída
+/// "Normal" (sem o balão "Restaurar páginas?" depois de o app fechar a janela).
+/// Nenhuma delas fica nas "Secure Preferences" (com assinatura): mexer nessas
+/// faria o Chrome dizer que as configurações foram alteradas e resetá-las.
+const PROFILE_PREFERENCES: &[(&[&str], fn() -> Value)] = &[
+    (&["credentials_enable_service"], || json!(false)),
+    (&["profile", "password_manager_enabled"], || json!(false)),
+    (&["profile", "password_manager_leak_detection"], || json!(false)),
+    (&["autofill", "profile_enabled"], || json!(false)),
+    (&["autofill", "credit_card_enabled"], || json!(false)),
+    (&["profile", "default_content_setting_values", "notifications"], || json!(2)),
+    (&["profile", "exit_type"], || json!("Normal")),
+    (&["profile", "exited_cleanly"], || json!(true)),
+];
+
+/// Antes de abrir o navegador num perfil: apaga a sessão anterior (as abas
+/// voltavam a cada abertura — relato do dono, 26/10/2026, com o perfil de
+/// login persistente) e grava `PROFILE_PREFERENCES`. Cookie, cache e histórico
+/// ficam: são o perfil persistente (`Login.PersistentProfile`) funcionando.
+/// Preferências que não dão para ler ficam como estão.
+pub(crate) fn prepare_profile(profile: &Path) {
+    let default = profile.join("Default");
+    let _ = std::fs::remove_dir_all(default.join("Sessions"));
+    for legacy in ["Current Session", "Current Tabs", "Last Session", "Last Tabs"] {
+        let _ = std::fs::remove_file(default.join(legacy));
+    }
+    let path = default.join("Preferences");
+    let mut prefs = match std::fs::read_to_string(&path) {
+        Ok(raw) => match serde_json::from_str::<Value>(&raw) {
+            Ok(value) if value.is_object() => value,
+            _ => return,
+        },
+        Err(_) => json!({}),
+    };
+    for (keys, value) in PROFILE_PREFERENCES {
+        let mut node = &mut prefs;
+        for key in &keys[..keys.len() - 1] {
+            if !node.get(*key).is_some_and(Value::is_object) {
+                node[*key] = json!({});
+            }
+            node = &mut node[*key];
+        }
+        node[keys[keys.len() - 1]] = value();
+    }
+    if std::fs::create_dir_all(&default).is_ok() {
+        let _ = std::fs::write(&path, prefs.to_string());
+    }
 }
 
 /// Quantas vezes (a cada `ACTIVE_PORT_POLL_MS`) se espera o `DevToolsActivePort`
