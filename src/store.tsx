@@ -3219,7 +3219,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      await addAccountByCookie(cookie);
+      // A senha que entrou no navegador (o backend só devolve quando a resposta
+      // do login é da mesma conta do cookie). Sem ela, a conta entra só com o
+      // cookie, como sempre.
+      const password = await invoke<string | null>("extract_browser_login_password").catch(() => null);
+      await addAccountByCookie(cookie, password ?? undefined);
       await invoke("close_login_browser").catch(() => {});
     });
     return () => {
