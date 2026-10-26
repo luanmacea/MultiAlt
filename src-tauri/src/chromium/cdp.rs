@@ -37,6 +37,12 @@ fn chrome_args(profile: &Path, start_url: &str, debug: bool, stealth: bool) -> V
         "--disable-sync".to_string(),
         "--hide-crash-restore-bubble".to_string(),
         "--disable-search-engine-choice-screen".to_string(),
+        // Extensão que outro programa do PC instala em todo Chrome (o Google
+        // Drive põe o "Application Launcher For Drive"): cada perfil limpo a
+        // recebia de novo, com o aviso "added" e o "Action required" (teste
+        // real de 26/10/2026, abrindo a conta no navegador). O app não usa
+        // extensão nenhuma.
+        "--disable-extensions".to_string(),
         "--disable-features=Translate,PasswordLeakDetection".to_string(),
     ];
     if stealth {
@@ -104,6 +110,10 @@ const PROFILE_PREFERENCES: &[(&[&str], fn() -> Value)] = &[
     (&["autofill", "profile_enabled"], || json!(false)),
     (&["autofill", "credit_card_enabled"], || json!(false)),
     (&["profile", "default_content_setting_values", "notifications"], || json!(2)),
+    // A oferta de tradução (navegador em inglês no stealth, Roblox em
+    // português): o `--disable-features=Translate` já não a segura no
+    // Chrome 154 (teste real de 26/10/2026).
+    (&["translate", "enabled"], || json!(false)),
     (&["profile", "exit_type"], || json!("Normal")),
     (&["profile", "exited_cleanly"], || json!(true)),
 ];
@@ -589,6 +599,7 @@ mod chromium_cdp_tests {
         assert!(args.contains(&"--disable-infobars".to_string()));
         assert!(args.contains(&"--disable-sync".to_string()));
         assert!(args.contains(&"--hide-crash-restore-bubble".to_string()));
+        assert!(args.contains(&"--disable-extensions".to_string()));
         let features = args.iter().find(|a| a.starts_with("--disable-features=")).expect("features");
         assert!(features.contains("Translate") && features.contains("PasswordLeakDetection"), "{features}");
         assert_eq!(args.last().unwrap(), "about:blank");
@@ -625,6 +636,7 @@ mod chromium_cdp_tests {
         assert_eq!(prefs["profile"]["password_manager_enabled"], json!(false));
         assert_eq!(prefs["profile"]["password_manager_leak_detection"], json!(false));
         assert_eq!(prefs["autofill"]["profile_enabled"], json!(false));
+        assert_eq!(prefs["translate"]["enabled"], json!(false));
         assert_eq!(prefs["profile"]["default_content_setting_values"]["notifications"], json!(2));
         // Saída "Normal": sem o balão "Restaurar páginas?".
         assert_eq!(prefs["profile"]["exit_type"], json!("Normal"));
