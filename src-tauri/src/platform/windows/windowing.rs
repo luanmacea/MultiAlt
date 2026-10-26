@@ -1778,6 +1778,7 @@ pub fn place_in_grid(
                     size,
                     &request.excluded_pids,
                     request.style,
+                    false,
                 );
                 return match get_window_position(hwnd) {
                     Some(r) => WindowEnforcement::Placed(r),
@@ -1794,8 +1795,13 @@ pub fn place_in_grid(
             return move_to_with(hwnd, current, target, small);
         }
     }
+    // Janela que já está no tamanho da grade (uma organização anterior a pegou,
+    // quando várias contas abrem quase juntas) também vai sem o mínimo do
+    // Roblox: medi-la de novo a fazia crescer até ele, por cima das outras
+    // (teste real `real_grid_scenario_launch_placement_with_more_windows_than_cells`,
+    // 26/10/2026). A célula é a que as outras já têm, então não há o que medir.
     let (small, requested) = match grid_cell_in_use(&occupant_wins) {
-        Some(cell) if all_own && cell != requested => (small || grid_already_shrunk(cell, requested), cell),
+        Some(cell) if all_own => (small || cell == requested || grid_already_shrunk(cell, requested), cell),
         _ => (small, requested),
     };
     let (cell_w, cell_h) =
@@ -1817,6 +1823,7 @@ pub fn place_in_grid(
             size,
             &request.excluded_pids,
             request.style,
+            false,
         );
         return match get_window_position(hwnd) {
             Some(r) => WindowEnforcement::Placed(r),
@@ -1885,7 +1892,7 @@ pub fn arrange_roblox_grid(
     style: GridWindowStyle,
 ) -> Result<(usize, usize), String> {
     let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
-    arrange_roblox_grid_locked(monitor_indices, gap, size, excluded_pids, style)
+    arrange_roblox_grid_locked(monitor_indices, gap, size, excluded_pids, style, true)
 }
 
 /// `arrange_roblox_grid` com a trava da grade já tomada (a colocação do launch
@@ -1896,6 +1903,7 @@ fn arrange_roblox_grid_locked(
     size: Option<(u32, u32)>,
     excluded_pids: &std::collections::HashSet<u32>,
     style: GridWindowStyle,
+    restore_minimized: bool,
 ) -> Result<(usize, usize), String> {
     // Moldura e célula pequena só nos clientes que o app abriu; o aberto pelo
     // site é arrumado como sempre foi.
@@ -2003,6 +2011,22 @@ fn arrange_roblox_grid_locked(
     for (i, w) in wins.iter().enumerate() {
         let cell = slots[manual_slot(i, slots.len())];
         let hwnd = w.hwnd as HWND;
+        if minimized_hwnds.contains(&w.hwnd) && restore_minimized {
+            // O botão traz a minimizada de volta, já na célula (pedido do dono,
+            // 26/10/2026: abria uma por uma). Antes de restaurar, a posição
+            // normal vira a célula e sai o "voltar maximizada"; restaura sem
+            // roubar o foco e põe no tamanho da célula como as visíveis.
+            let rect = (cell.x, cell.y, cell_w, cell_h);
+            let _ = place_minimized_window(hwnd, rect);
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            if place_window_with(hwnd, rect, grid_swp_flags(small)) {
+                arranged += 1;
+            }
+            remember_grid_cell(w.hwnd, (small || own.contains(&w.pid)).then_some(rect), false);
+            continue;
+        }
         if minimized_hwnds.contains(&w.hwnd) {
             let rect = (cell.x, cell.y, cell_w, cell_h);
             if place_minimized_window(hwnd, rect) {
@@ -3606,13 +3630,16 @@ $w = New-Object FakeRobloxWindow
                 .iter()
                 .map(|c| find_main_window(c.id()).expect("window"))
                 .collect();
+            // O caminho do launch, que deixa as minimizadas minimizadas (o
+            // botão as traz de volta: teste abaixo).
             let arrange = || {
-                arrange_roblox_grid(
+                arrange_roblox_grid_locked(
                     &[monitor],
                     gap,
                     None,
                     &std::collections::HashSet::new(),
                     GridWindowStyle::default(),
+                    false,
                 )
             };
             if arrange_first {
@@ -3639,6 +3666,94 @@ $w = New-Object FakeRobloxWindow
             assert!(overlaps.is_empty(), "arrange_first={arrange_first}: windows on top of one another: {overlaps:?}");
             assert_eq!(windows_outside(monitor), 0, "arrange_first={arrange_first}: a window left the monitor");
         }
+    }
+
+    /// Pedido do dono (26/10/2026): com as janelas minimizadas, o botão
+    /// "Arrange in grid" só mudava onde elas voltariam, e ele tinha de abrir uma
+    /// por uma. O botão agora as traz de volta, cada uma na sua célula.
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_arrange_button_brings_minimized_windows_back() {
+        let monitor = primary_monitor_index();
+        let gap = 8;
+        let count = 4;
+        let clients = spawn_fake_clients(count);
+        let hwnds: Vec<HWND> = clients
+            .children
+            .iter()
+            .map(|c| find_main_window(c.id()).expect("window"))
+            .collect();
+        // Metade minimizada, metade aberta — e uma minimizada depois de maximizada.
+        unsafe { ShowWindow(hwnds[0], windows_sys::Win32::UI::WindowsAndMessaging::SW_MAXIMIZE) };
+        std::thread::sleep(Duration::from_millis(300));
+        for &hwnd in &hwnds[..2] {
+            unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        let result = arrange_roblox_grid(
+            &[monitor],
+            gap,
+            None,
+            &std::collections::HashSet::new(),
+            GridWindowStyle::default(),
+        );
+        std::thread::sleep(Duration::from_millis(600));
+        let still_minimized = hwnds.iter().filter(|&&h| unsafe { IsIconic(h) } != 0).count();
+        let maximized = hwnds.iter().filter(|&&h| unsafe { IsZoomed(h) } != 0).count();
+        let overlaps = overlapping_pairs();
+        eprintln!(
+            "arrange with {count} windows (2 minimized) -> {result:?}, still minimized: {still_minimized}, maximized: {maximized}, overlapping pairs: {}",
+            overlaps.len()
+        );
+        assert_eq!(still_minimized, 0, "the button left windows minimized");
+        assert_eq!(maximized, 0, "a window came back maximized over the grid");
+        assert!(overlaps.is_empty(), "windows on top of one another: {overlaps:?}");
+        assert_eq!(windows_outside(monitor), 0, "a window left the monitor");
+    }
+
+    /// "Best size for each monitor" com janelas de verdade: todas cabem, sem
+    /// sobrepor nem sair do monitor, e na célula que a conta deu — inclusive
+    /// abrindo uma por uma, como no launch.
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_best_size_fits_every_window() {
+        let monitor = primary_monitor_index();
+        let gap = 10;
+        let style = GridWindowStyle { auto_fit: true, ..GridWindowStyle::default() };
+        let monitors = selected_monitors(&list_monitors(), &[monitor]);
+        for count in [3usize, 7] {
+            let clients = spawn_fake_clients(count);
+            let result = arrange_roblox_grid(&[monitor], gap, None, &std::collections::HashSet::new(), style);
+            std::thread::sleep(Duration::from_millis(500));
+            let best = best_fit_cell(&monitors, gap, count, &[]).expect("fits");
+            let sizes: Vec<(i32, i32)> = list_roblox_windows().iter().map(|w| (w.w, w.h)).collect();
+            eprintln!("best size, {count} windows -> {result:?}, cell {best:?}, sizes {sizes:?}");
+            assert!(sizes.iter().all(|&s| s == best), "{count}: not every window got the best cell");
+            assert!(overlapping_pairs().is_empty(), "{count}: windows on top of one another");
+            assert_eq!(windows_outside(monitor), 0, "{count}: a window left the monitor");
+            drop(clients);
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        // Uma por vez: cada janela nova rearruma no tamanho novo.
+        let clients = spawn_fake_clients(5);
+        let request = GridRequest {
+            monitor_indices: vec![monitor],
+            gap,
+            excluded_pids: std::collections::HashSet::new(),
+            style,
+        };
+        for child in &clients.children {
+            let hwnd = find_main_window(child.id()).expect("window");
+            let _ = place_in_grid(hwnd, child.id(), None, &request, true);
+            std::thread::sleep(Duration::from_millis(300));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        let best = best_fit_cell(&monitors, gap, 5, &[]).expect("fits");
+        let sizes: Vec<(i32, i32)> = list_roblox_windows().iter().map(|w| (w.w, w.h)).collect();
+        eprintln!("best size, 5 windows one by one -> cell {best:?}, sizes {sizes:?}");
+        assert!(sizes.iter().all(|&s| s == best), "one by one: not every window got the best cell");
+        assert!(overlapping_pairs().is_empty(), "one by one: windows on top of one another");
+        assert_eq!(windows_outside(monitor), 0, "one by one: a window left the monitor");
     }
 
     /// Gerador com semente (xorshift): a rodada que falhar se repete com
