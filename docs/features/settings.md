@@ -133,6 +133,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `FirstRunWalkthroughState` | `pending` (novo) / `completed` (INI existente) | Walkthrough; vira `skipped`/`completed`. |
 | `SavedPlaceId` / `SavedJobId` / `SavedLaunchData` | — | Últimos valores de launch. |
 | `GridGap` / `GridMonitors` | — (20 / vazio) | Arranjo de janelas em grade (Choose Game). |
+| `GridAutoFit` | `false` | "Best size for each monitor" (Settings › Optimization › Window size): a célula da grade é a maior, deitada (4:3 a 16:9), em que todas as janelas cabem nos monitores da grade com o gap; desabilita largura, altura e `GridAllowSmallWindows`. Ver [ui-layout.md](ui-layout.md). |
 | `GridAllowSmallWindows` | `false` | Célula da grade menor que o mínimo do Roblox (~800x600), só nos clientes que o app abriu. Ver [performance.md](performance.md). |
 | `GridBorderless` | `false` | Janelas da grade sem barra de título e borda, só nos clientes que o app abriu; desligar devolve as molduras. Ver [performance.md](performance.md). |
 | `AutoArrangeGrid` | `true` | Grade automática no launch: cada janela nova do Roblox (launch, fila, Auto Rejoin) vai para a primeira célula livre da grade de `GridMonitors`/`GridGap`. Contas com tamanho de janela próprio ficam de fora. Só `"false"` desliga (chave ausente = ligada). Interruptor no cartão Window grid da página Console e em Settings > Optimization. Ver [ui-layout.md](ui-layout.md#grade-de-janelas). |

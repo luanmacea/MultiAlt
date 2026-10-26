@@ -597,6 +597,7 @@ export const SUITES: Record<string, TestSuite> = {
       "diagnostics_tests",
       "win_windowing_tests",
       "win_grid_slot_tests",
+      "win_grid_auto_fit_tests",
       "grid_overflow_real_tests",
       "win_optimization_tests",
       "generator_command_tests",
@@ -646,6 +647,7 @@ export const SUITES: Record<string, TestSuite> = {
       "platform_info_tests",
       "win_grid_style_tests",
       "win_grid_slot_tests",
+      "win_grid_auto_fit_tests",
       "client_window_plan_tests",
       // Devolver as configurações do Roblox ao fechar (ideia 21, settings_restore.rs).
       "win_settings_restore_tests",

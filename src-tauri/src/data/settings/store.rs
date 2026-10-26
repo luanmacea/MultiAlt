@@ -114,6 +114,11 @@ impl SettingsStore {
                 Some("Grid cells may be smaller than Roblox's minimum window (only clients MultiAlt launched)"),
             ),
             (
+                "GridAutoFit",
+                "false",
+                Some("Grid cells take the largest landscape size that fits every window on the grid monitors (replaces the window size and GridAllowSmallWindows)"),
+            ),
+            (
                 "GridBorderless",
                 "false",
                 Some("Grid windows lose their title bar and border; turning it off gives them back"),
@@ -667,6 +672,7 @@ mod settings_store_tests {
                 ("StartRobloxMinimized", "false"),
                 ("AutoArrangeGrid", "true"),
                 ("GridAllowSmallWindows", "false"),
+                ("GridAutoFit", "false"),
                 ("GridBorderless", "false"),
                 ("StartOnPCStartup", "false"),
                 ("MinimizeToTray", "false"),

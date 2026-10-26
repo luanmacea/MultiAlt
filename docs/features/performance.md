@@ -178,6 +178,7 @@ on launch**. Valem na grade automática do launch e no botão **Arrange in grid*
 | Optimization | `FollowFocus` | `false` | Liga a otimização que segue o foco. |
 | Optimization | `MuteBackgroundClients` | `false` | Fundo mudo (só com a feature `live-audio`, que vai nas duas edições). |
 | General | `GridAllowSmallWindows` | `false` | Célula da grade menor que o mínimo do Roblox. |
+| General | `GridAutoFit` | `false` | Célula da grade no maior tamanho em que todas as janelas cabem (implica a de cima). Ver [ui-layout.md](ui-layout.md). |
 | General | `GridBorderless` | `false` | Janelas da grade sem moldura. |
 | General | `RestoreRobloxSettingsOnExit` | `false` | Devolve o que o launch mudou nos arquivos do Roblox quando nenhum Roblox estiver aberto (ver acima). O nome da chave ficou do tempo em que só devolvia ao fechar o app. |
 | Optimization | `{Normal,BottingPlayer,BottingBot}EnableProcessPolicy` e demais | ver [settings.md](settings.md#optimization) | Política de fundo (se ligada) e o estado devolvido ao desligar. |

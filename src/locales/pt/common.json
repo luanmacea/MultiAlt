@@ -2846,5 +2846,9 @@
   "Roblox human check": "Verificação do Roblox",
   "Roblox is asking to confirm you're human. Solve it in the game window.": "O Roblox está pedindo para confirmar que você é humano. Resolva na janela do jogo.",
   "The sign-in did not finish. The Console has the details.": "O login não terminou. O Console tem os detalhes.",
-  "Signed in, but Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved.": "Login feito, mas o Roblox está restringindo esta conta (banida, advertida ou em análise). Veja em roblox.com/not-approved."
+  "Signed in, but Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved.": "Login feito, mas o Roblox está restringindo esta conta (banida, advertida ou em análise). Veja em roblox.com/not-approved.",
+  "Best size for each monitor": "Melhor tamanho em cada monitor",
+  "Set automatically by Best size for each monitor": "Definido sozinho pelo Melhor tamanho em cada monitor",
+  "When the grid arranges the windows, each one gets the largest landscape size that still fits every window on the grid monitors, with the gap. Turns off the width, height and smaller-windows options below.": "Ao organizar em grade, cada janela fica com o maior tamanho deitado em que todas ainda cabem nos monitores da grade, respeitando o espaçamento. Desliga a largura, a altura e a opção de janelas menores abaixo.",
+  "Window size": "Tamanho da janela"
 }

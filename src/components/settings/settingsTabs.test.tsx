@@ -1076,6 +1076,57 @@ describe("OptimizationTab", () => {
     );
   });
 
+  /**
+   * Pedido do dono (26/10/2026): tamanho da janela e grade numa seção própria,
+   * acima do perfil "Normal", em vez de no meio dele.
+   */
+  it("puts the window size and the grid in their own section above the profile", async () => {
+    renderOptimization({});
+    const section = await screen.findByText("Window size");
+    const profile = screen.getByText("Official Roblox Client");
+    expect(section.compareDocumentPosition(profile) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const width = screen.getByLabelText("Window Width");
+    expect(width.compareDocumentPosition(profile) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      screen.getByRole("switch", { name: /Arrange in grid on launch/ }).compareDocumentPosition(profile) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("offers the best size for each monitor, off by default, and saves it", async () => {
+    renderOptimization({ General: { OverrideClientWindowSize: "true" } });
+    const toggle = await screen.findByRole("switch", { name: /Best size for each monitor/ });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByLabelText("Window Width")).toBeEnabled();
+
+    await userEvent.click(toggle);
+    await expectSaved("General", "GridAutoFit", "true");
+  });
+
+  /** Ligado, largura, altura e "menor que o mínimo" ficam desabilitados, não escondidos. */
+  it("disables, without hiding, the width, height and smaller windows while best size is on", async () => {
+    renderOptimization({ General: { OverrideClientWindowSize: "true", GridAutoFit: "true" } });
+    expect(await screen.findByLabelText("Window Width")).toBeDisabled();
+    expect(screen.getByLabelText("Window Height")).toBeDisabled();
+    expect(screen.getByRole("switch", { name: /Allow smaller windows in the grid/ })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+    expect(screen.getAllByText("Set automatically by Best size for each monitor").length).toBeGreaterThanOrEqual(2);
+    // As outras continuam livres.
+    expect(screen.getByRole("switch", { name: /Override Window Size/ })).not.toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("switch", { name: /Remove window borders in the grid/ })).not.toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+  });
+
+  it("hides the best size outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(screen.queryByRole("switch", { name: /Best size for each monitor/ })).not.toBeInTheDocument();
+  });
+
   /** A grade é uma só para todos os perfis: com perfis separados, o card diz isso. */
   it("says the grid options are shared when Auto Rejoin profiles are split", async () => {
     renderOptimization({

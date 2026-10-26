@@ -1263,6 +1263,66 @@ fn cell_that_fits(
     None
 }
 
+/// Formatos aceitos no "melhor tamanho": deitado, de 4:3 a 16:9 — nem
+/// esticado para um lado, nem em pé.
+const AUTO_FIT_RATIOS: [(i64, i64); 4] = [(4, 3), (3, 2), (16, 10), (16, 9)];
+
+/// A maior célula, num dos `AUTO_FIT_RATIOS`, em que `count` janelas cabem nos
+/// `monitors` com o `gap` (fora as células cobertas por `blockers`). `None` sem
+/// nada a arrumar, sem monitor, ou se nem no piso (`MIN_SMALL_GRID_CELL`) cabem.
+///
+/// A melhor célula sempre encosta numa borda: ou a largura é a de `c` colunas
+/// num monitor, ou a altura é a de `r` linhas. Basta testar esses tamanhos, do
+/// maior para o menor, em vez de varrer pixel a pixel.
+fn best_fit_cell(
+    monitors: &[MonitorInfoDto],
+    gap: i32,
+    count: usize,
+    blockers: &[(i32, i32, i32, i32)],
+) -> Option<(i32, i32)> {
+    if count == 0 || monitors.is_empty() {
+        return None;
+    }
+    let gap = gap.max(0);
+    let fits = |c: (i32, i32)| -> bool {
+        grid_slots(monitors, c.0, c.1, gap)
+            .iter()
+            .filter(|s| !blockers.iter().any(|&b| slot_overlaps(s, c, b)))
+            .count()
+            >= count
+    };
+    let lines = count.min(MAX_GRID_SLOTS) as i32;
+    let mut best: Option<(i32, i32)> = None;
+    for &(a, b) in &AUTO_FIT_RATIOS {
+        let mut widths: Vec<i32> = Vec::new();
+        for m in monitors {
+            for n in 1..=lines {
+                // `n` colunas: gap + n*w + (n-1)*gap <= largura.
+                widths.push((m.width - n * gap) / n);
+                // `n` linhas, convertidas em largura pelo formato.
+                let h = (m.height - n * gap) / n;
+                widths.push(((h as i64 * a) / b) as i32);
+            }
+        }
+        widths.sort_unstable_by(|x, y| y.cmp(x));
+        widths.dedup();
+        for w in widths {
+            let h = ((w as i64 * b) / a) as i32;
+            if w < MIN_SMALL_GRID_CELL.0 || h < MIN_SMALL_GRID_CELL.1 {
+                break;
+            }
+            if fits((w, h)) {
+                let area = |c: (i32, i32)| c.0 as i64 * c.1 as i64;
+                if best.map_or(true, |cur| area((w, h)) > area(cur)) {
+                    best = Some((w, h));
+                }
+                break;
+            }
+        }
+    }
+    best
+}
+
 /// A célula para a janela nova: a menos ocupada, empate na de menor índice —
 /// ou seja, a primeira livre; com a grade cheia, dá a volta a partir da 0.
 /// `occupants`: retângulos `(x, y, w, h)` das janelas da grade já abertas; uma
@@ -1343,6 +1403,17 @@ pub struct GridWindowStyle {
     pub allow_small: bool,
     /// `General.GridBorderless`.
     pub borderless: bool,
+    /// `General.GridAutoFit`: a célula é a maior em que todas as janelas cabem
+    /// nos monitores escolhidos (`best_fit_cell`), não o tamanho configurado.
+    pub auto_fit: bool,
+}
+
+impl GridWindowStyle {
+    /// Célula menor que o mínimo do Roblox: pedida, ou implícita no "melhor
+    /// tamanho" (sem ela a conta dá células que o Roblox cresce de volta).
+    pub fn small_cells(&self) -> bool {
+        self.allow_small || self.auto_fit
+    }
 }
 
 /// Os flags do `SetWindowPos` da grade: nunca rouba o foco nem mexe na ordem;
@@ -1657,7 +1728,7 @@ pub fn place_in_grid(
     }
     // A grade só é chamada para clientes que o app abriu. A moldura sai antes
     // de medir: sem ela a janela inteira é área útil.
-    let small = request.style.allow_small;
+    let small = request.style.small_cells();
     let (current, client) = if request.style.borderless {
         make_borderless(hwnd, pid);
         match movable_window(hwnd) {
@@ -1691,6 +1762,38 @@ pub fn place_in_grid(
     // base era uma janela que a pessoa aumentou), a nova num 816x639 caía numa
     // célula que só existe nesse tamanho, por cima das outras.
     let all_own = !occupant_wins.is_empty() && grid_small_allowed(true, &grid_pids, &own);
+    if request.style.auto_fit {
+        let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
+        let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
+        let occupants: Vec<(i32, i32, i32, i32)> = occupant_wins.iter().map(rect).collect();
+        let blockers: Vec<(i32, i32, i32, i32)> = blocker_wins.iter().map(rect).collect();
+        if let Some(best) = best_fit_cell(&monitors, request.gap, occupants.len() + 1, &blockers) {
+            // Uma janela a mais muda o melhor tamanho: rearruma todas nele.
+            // Com o tamanho igual, a nova só pega a primeira célula livre e
+            // ninguém se mexe.
+            if !occupant_wins.is_empty() && grid_cell_in_use(&occupant_wins) != Some(best) {
+                let _ = arrange_roblox_grid_locked(
+                    &request.monitor_indices,
+                    request.gap,
+                    size,
+                    &request.excluded_pids,
+                    request.style,
+                );
+                return match get_window_position(hwnd) {
+                    Some(r) => WindowEnforcement::Placed(r),
+                    None => WindowEnforcement::Skipped,
+                };
+            }
+            let small = grid_small_allowed(true, &grid_pids, &own);
+            let slots = grid_slots(&monitors, best.0, best.1, request.gap);
+            let target = match pick_grid_slot(&slots, best, &occupants, &blockers) {
+                Some(i) => (slots[i].x, slots[i].y, best.0, best.1),
+                None => (current.0, current.1, best.0, best.1),
+            };
+            remember_grid_cell(hwnd as isize, Some(target), false);
+            return move_to_with(hwnd, current, target, small);
+        }
+    }
     let (small, requested) = match grid_cell_in_use(&occupant_wins) {
         Some(cell) if all_own && cell != requested => (small || grid_already_shrunk(cell, requested), cell),
         _ => (small, requested),
@@ -1817,7 +1920,7 @@ fn arrange_roblox_grid_locked(
             .into_iter()
             .partition(|w| excluded_pids.contains(&w.pid));
     let window_pids: Vec<u32> = wins.iter().map(|w| w.pid).collect();
-    let mut small = grid_small_allowed(style.allow_small, &window_pids, &own);
+    let mut small = grid_small_allowed(style.small_cells(), &window_pids, &own);
     let blockers: Vec<(i32, i32, i32, i32)> = excluded.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
     if wins.is_empty() {
         return Err("Nenhuma janela de Roblox aberta foi encontrada.".to_string());
@@ -1841,8 +1944,15 @@ fn arrange_roblox_grid_locked(
         .find(|w| window_enforces_min_size(w.hwnd as HWND, (w.x, w.y, w.w, w.h)))
         .or_else(|| visible.first())
         .copied();
-    let (cell_w, cell_h) = match size {
-        Some((tw, th)) => {
+    // "Melhor tamanho": a célula sai da conta, não do tamanho configurado.
+    let auto_cell = if style.auto_fit {
+        best_fit_cell(&monitors, gap, wins.len(), &blockers)
+    } else {
+        None
+    };
+    let (cell_w, cell_h) = match (auto_cell, size) {
+        (Some(best), _) => best,
+        (None, Some((tw, th))) => {
             let first = probe.unwrap_or(wins[0]);
             let client = if probe.is_some() {
                 client_area_size(first.hwnd as HWND).unwrap_or((first.w, first.h))
@@ -1856,9 +1966,13 @@ fn arrange_roblox_grid_locked(
                 client,
             )
         }
-        None => most_common_size(&wins),
+        (None, None) => most_common_size(&wins),
     };
     let (cell_w, cell_h) = match probe {
+        // A célula do "melhor tamanho" já é a final: medir a janela aqui só
+        // traria o mínimo do Roblox de volta (fora os clientes do site, que
+        // `grid_small_allowed` já deixa crescer).
+        _ if auto_cell.is_some() => (cell_w, cell_h),
         Some(first) => grid_cell_size(
             (cell_w, cell_h),
             accepted_size(
@@ -2279,6 +2393,94 @@ mod win_windowing_tests {
 }
 
 #[cfg(test)]
+mod win_grid_auto_fit_tests {
+    use super::*;
+
+    // "Melhor tamanho em cada monitor" (General.GridAutoFit, pedido do dono em
+    // 26/10/2026): ele chutava largura e altura até achar o maior tamanho em que
+    // todas as contas cabiam. A célula sai da conta: a maior, em formato
+    // deitado (entre 4:3 e 16:9), em que `count` janelas cabem com o gap.
+
+    fn monitor(index: usize, x: i32, y: i32, width: i32, height: i32) -> MonitorInfoDto {
+        MonitorInfoDto { index, x, y, width, height, primary: index == 1 }
+    }
+
+    fn fits(monitors: &[MonitorInfoDto], cell: (i32, i32), gap: i32, count: usize, blockers: &[(i32, i32, i32, i32)]) -> bool {
+        grid_slots(monitors, cell.0, cell.1, gap)
+            .iter()
+            .filter(|s| !blockers.iter().any(|&b| slot_overlaps(s, cell, b)))
+            .count()
+            >= count
+    }
+
+    #[test]
+    fn one_window_takes_the_whole_monitor() {
+        let m = [monitor(1, 0, 0, 1920, 1080)];
+        assert_eq!(best_fit_cell(&m, 0, 1, &[]), Some((1920, 1080)));
+    }
+
+    #[test]
+    fn four_windows_on_one_monitor_make_the_largest_two_by_two() {
+        let m = [monitor(1, 0, 0, 1920, 1080)];
+        let cell = best_fit_cell(&m, 20, 4, &[]).expect("fits");
+        assert_eq!(cell, (924, 519));
+        assert!(fits(&m, cell, 20, 4, &[]));
+    }
+
+    #[test]
+    fn the_cell_is_the_largest_that_fits_and_one_pixel_more_does_not() {
+        let m = [monitor(1, 0, 0, 2560, 1400), monitor(2, 2560, 0, 1920, 1040)];
+        for count in [2usize, 3, 5, 7, 9, 12, 16] {
+            let (w, h) = best_fit_cell(&m, 20, count, &[]).expect("fits");
+            assert!(fits(&m, (w, h), 20, count, &[]), "{count} windows must fit in {w}x{h}");
+            let ratio = w as f64 / h as f64;
+            assert!((4.0 / 3.0 - 0.01..=16.0 / 9.0 + 0.01).contains(&ratio), "{count}: {w}x{h} is not landscape");
+            // Uma célula maior no mesmo formato já não cabe.
+            let bigger = (w + 2, ((w + 2) as i64 * h as i64 / w as i64) as i32 + 1);
+            assert!(!fits(&m, bigger, 20, count, &[]), "{count}: {w}x{h} was not the largest");
+        }
+    }
+
+    #[test]
+    fn more_windows_never_get_a_bigger_cell() {
+        let m = [monitor(1, 0, 0, 2560, 1400)];
+        let mut last = i64::MAX;
+        for count in 1..=30 {
+            let (w, h) = best_fit_cell(&m, 10, count, &[]).expect("fits");
+            let area = w as i64 * h as i64;
+            assert!(area <= last, "{count} windows got a bigger cell than {}", count - 1);
+            last = area;
+        }
+    }
+
+    #[test]
+    fn a_window_outside_the_grid_is_left_room() {
+        let m = [monitor(1, 0, 0, 1920, 1080)];
+        // A principal com tamanho próprio no canto esquerdo.
+        let blockers = [(0, 0, 960, 1080)];
+        let cell = best_fit_cell(&m, 0, 2, &blockers).expect("fits");
+        assert!(fits(&m, cell, 0, 2, &blockers));
+        assert!(cell.0 <= 960);
+    }
+
+    #[test]
+    fn nothing_to_arrange_or_no_room_gives_none() {
+        let m = [monitor(1, 0, 0, 1920, 1080)];
+        assert_eq!(best_fit_cell(&m, 10, 0, &[]), None);
+        assert_eq!(best_fit_cell(&[], 10, 3, &[]), None);
+        // Abaixo do piso da célula pequena (200x200) não serve.
+        assert_eq!(best_fit_cell(&[monitor(1, 0, 0, 800, 600)], 10, 40, &[]), None);
+    }
+
+    #[test]
+    fn auto_fit_implies_cells_smaller_than_the_roblox_minimum() {
+        let style = GridWindowStyle { allow_small: false, borderless: false, auto_fit: true };
+        assert!(style.small_cells());
+        assert!(!GridWindowStyle::default().small_cells());
+    }
+}
+
+#[cfg(test)]
 mod win_grid_slot_tests {
     use super::*;
 
@@ -2637,7 +2839,8 @@ mod win_grid_style_tests {
             GridWindowStyle::default(),
             GridWindowStyle {
                 allow_small: false,
-                borderless: false
+                borderless: false,
+                auto_fit: false
             }
         );
     }

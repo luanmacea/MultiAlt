@@ -358,6 +358,7 @@ pub(crate) fn grid_window_style(settings: &SettingsStore) -> platform::windows::
     platform::windows::GridWindowStyle {
         allow_small: settings.get_bool("General", "GridAllowSmallWindows"),
         borderless: settings.get_bool("General", "GridBorderless"),
+        auto_fit: settings.get_bool("General", "GridAutoFit"),
     }
 }
 
@@ -502,7 +503,7 @@ pub(crate) fn spawn_client_window_enforcement(
                 }
             }
             let outcome = match chosen {
-                Some(rect) => windows::hold_window_rect(hwnd, rect, grid_style.allow_small),
+                Some(rect) => windows::hold_window_rect(hwnd, rect, grid_style.small_cells()),
                 None if plan.grid => {
                     let request = {
                         let settings = app.state::<SettingsStore>();
@@ -3175,9 +3176,12 @@ mod client_window_plan_tests {
             grid_window_style(&settings),
             platform::windows::GridWindowStyle {
                 allow_small: true,
-                borderless: true
+                borderless: true,
+                auto_fit: false
             }
         );
+        settings.set("General", "GridAutoFit", "true").unwrap();
+        assert!(grid_window_style(&settings).auto_fit);
     }
 
     #[test]
