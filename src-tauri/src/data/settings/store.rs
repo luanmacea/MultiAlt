@@ -430,7 +430,9 @@ impl SettingsStore {
         }
 
         let login_defaults: &[(&str, &str)] = &[
-            ("PersistentProfile", "true"),
+            // Anônimo por padrão (26/10/2026): cada uso do navegador começa num
+            // perfil limpo e não guarda nada para a próxima vez.
+            ("PersistentProfile", "false"),
             ("StealthMode", "true"),
             // Vazio = nada configurado; `IniSection::set` não grava valor em
             // branco, então esta chave só aparece no INI depois que o usuário
@@ -443,6 +445,13 @@ impl SettingsStore {
             if !login.exists(key) {
                 login.set(key, value, None);
             }
+        }
+        // O padrão antigo era o perfil persistente, gravado no INI de quem já
+        // usava o app: desliga uma vez (pedido do dono, 26/10/2026) e depois
+        // respeita quem ligar de novo.
+        if !login.exists("PrivateBrowserDefaultV1") {
+            login.set("PersistentProfile", "false", None);
+            login.set("PrivateBrowserDefaultV1", "true", None);
         }
 
         // AFK mode. `Key` nasce **vazia** de proposito: sem tecla escolhida pelo
@@ -838,7 +847,7 @@ mod settings_store_tests {
         push(
             &mut out,
             "Login",
-            &[("PersistentProfile", "true"), ("StealthMode", "true")],
+            &[("PersistentProfile", "false"), ("StealthMode", "true"), ("PrivateBrowserDefaultV1", "true")],
         );
 
         // AFK mode. `Afk.Key` nasce vazia de proposito (sem tecla escolhida o
@@ -1137,6 +1146,34 @@ UpdaterFeatureChannel={chosen}
             stored.get_string("General", "FirstRunWalkthroughState"),
             "skipped"
         );
+    }
+
+    /// Pedido do dono (26/10/2026): navegador anônimo por padrão em tudo (login,
+    /// criação de contas, abrir a conta no navegador). Quem já tinha o app vinha
+    /// com o perfil persistente ligado (o padrão antigo): a migração desliga
+    /// uma vez, e depois respeita quem ligar de novo.
+    #[test]
+    fn the_private_browser_migration_turns_persistence_off_once() {
+        let migrated = from_existing("private-migrate", "[Login]
+PersistentProfile=true
+");
+        assert_eq!(migrated.get_string("Login", "PersistentProfile"), "false");
+        assert_eq!(migrated.get_string("Login", "PrivateBrowserDefaultV1"), "true");
+
+        let respected = from_existing(
+            "private-respected",
+            "[Login]
+PersistentProfile=true
+PrivateBrowserDefaultV1=true
+",
+        );
+        assert_eq!(respected.get_string("Login", "PersistentProfile"), "true");
+    }
+
+    #[test]
+    fn a_new_install_starts_with_the_private_browser() {
+        let fresh = from_existing("private-fresh", "");
+        assert_eq!(fresh.get_string("Login", "PersistentProfile"), "false");
     }
 
     #[test]

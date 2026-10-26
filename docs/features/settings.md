@@ -209,7 +209,7 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 
 | Chave | Default | Significado |
 |---|---|---|
-| `PersistentProfile` | `true` | Reutiliza o perfil do Chromium de login (menos captchas). Se `false`, o perfil é apagado antes/depois. |
+| `PersistentProfile` | `false` | "Keep browser data between uses": guarda os perfis do Chromium (login e contas) entre usos (menos captchas). Desligado (o padrão desde 26/10/2026, com migração única via `PrivateBrowserDefaultV1`), todo uso começa num perfil limpo e ele some ao fechar. Ver [chromium.md](chromium.md). |
 | `StealthMode` | `true` | Esconde sinais de automação no navegador de login. |
 
 ### `[Afk]` — detalhes em [afk-mode.md](afk-mode.md)

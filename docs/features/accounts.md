@@ -404,7 +404,7 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 | `General.ShowRobux` | `false` | Mostra o saldo de Robux no painel da conta (`get_robux`, leitura sem renovar a sessão); com os nomes escondidos, o saldo aparece como `****`. Substituiu o `HideRobuxWhenHidden` em 12/10/2026: o saldo tinha saído do painel em julho e a opção não escondia mais nada. |
 | `General.ShowPresence`, `PresenceUpdateRate` | `true`, `5` | Presença na lista. |
 | `Friends.RequestDelayMs` | (sem default no INI → 2500) | Intervalo entre pedidos de amizade e entre as contas do "Follow a user", em ms. Editável nos submenus Make Friends e Follow a user (em segundos). |
-| `Login.PersistentProfile`, `Login.StealthMode` | `true`, `true` | Comportamento do navegador de login. |
+| `Login.PersistentProfile`, `Login.StealthMode` | `false`, `true` | Comportamento do navegador de login. |
 
 ## Armadilhas / cuidados
 

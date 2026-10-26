@@ -72,7 +72,7 @@ const INVENTORY: Entry[] = [
   { label: "Auto Cookie Refresh", tab: "accounts", save: ["General", "AutoCookieRefresh", "true"] },
   // Pedido do dono (12/10/2026): "Show Robux" (desligado) no lugar do "Hide Robux When Hidden".
   { label: "Show Robux", tab: "accounts", save: ["General", "ShowRobux", "true"] },
-  { label: "Persistent login profile", tab: "accounts", save: ["Login", "PersistentProfile", "false"] },
+  { label: "Keep browser data between uses", tab: "accounts", save: ["Login", "PersistentProfile", "true"] },
   { label: "Reduce automation signals", tab: "accounts", save: ["Login", "StealthMode", "false"] },
   { label: "Custom browser executable", tab: "accounts" },
   { label: "Bundled Browser", tab: "accounts" },

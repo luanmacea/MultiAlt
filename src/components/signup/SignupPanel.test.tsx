@@ -167,7 +167,7 @@ describe("SignupPanel — ajustes que reduzem CAPTCHA", () => {
   it("aponta para os ajustes de login que reduzem o CAPTCHA", async () => {
     renderWithStore(<SignupPanel />);
 
-    const hint = await screen.findByText(/Persistent login profile/);
+    const hint = await screen.findByText(/Keep browser data between uses/);
     expect(hint).toHaveTextContent("Reduce automation signals");
     expect(hint).toHaveTextContent("Settings");
   });

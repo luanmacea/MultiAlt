@@ -478,6 +478,16 @@ pub fn run() {
             // Devolver as configurações do Roblox sem esperar o app fechar.
             #[cfg(target_os = "windows")]
             start_settings_restore_loop(app.handle().clone());
+            // Navegador anônimo (o padrão): os perfis que sobraram de antes —
+            // de quando ele era persistente, ou de uma janela fechada com o app
+            // fora — somem ao abrir. Em segundo plano: pode haver muitos.
+            if !chromium::commands::keeps_browser_data(&app.state::<SettingsStore>()) {
+                if let Ok(login) = chromium::ChromiumManager::login_profile(app.handle()) {
+                    if let Some(root) = login.parent().map(std::path::Path::to_path_buf) {
+                        std::thread::spawn(move || chromium::commands::wipe_private_profiles(&root));
+                    }
+                }
+            }
 
             // Show, "Launch preset" (os presets, só pelo nome) e Quit — ver
             // commands/tray.rs. O submenu é refeito quando os presets mudam.

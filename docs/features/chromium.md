@@ -53,7 +53,14 @@ Relato do dono: o navegador de login abria com as abas antigas e cheio de oferta
 - **Flags novas** (`chrome_args`), medidas com o Chrome for Testing 154: `--disable-infobars` tira a faixa do Chrome for Testing (`--test-type` **não** tira), `--disable-sync` tira o "Fazer login no Chromium?", e `--hide-crash-restore-bubble`, `--disable-search-engine-choice-screen` e `PasswordLeakDetection` em `--disable-features` fecham o resto.
 - Testes: `chromium_cdp_tests` (flags e preparação do perfil em pasta temporária) e o real `real_chromium_reopens_a_profile_without_the_old_tabs` (`#[ignore]`, `RAM_CHROME_BINARY=<chrome.exe>`; `RAM_CHROME_KILL=1` fecha matando, como o login).
 
-**Modo anônimo:** é o `Login.PersistentProfile` **desligado** ("Persistent login profile", Settings › Accounts): o perfil `_login` é apagado antes e depois de cada login, sem cookie, cache nem histórico de uma vez para a outra. Ligado (o padrão), o perfil acumula confiança do Roblox e pede menos captcha, mas todas as contas passam pelo mesmo perfil. A criação de contas sempre começa num perfil apagado.
+**Anônimo por padrão em tudo (26/10/2026, pedido do dono).** `Login.PersistentProfile` agora nasce **desligado** ("Keep browser data between uses", Settings › Accounts) e vale para **todo** uso do navegador (`keeps_browser_data`, [commands.rs](../../src-tauri/src/chromium/commands.rs)):
+- **Login:** o perfil `_login` é apagado antes e logo depois da captura do cookie (já era assim com a opção desligada).
+- **Criação de contas:** sempre começa num perfil apagado (com a opção ligada ou não).
+- **Abrir a conta no navegador** (`open_account_browser`) e as páginas automáticas (`AccountPageBrowser`, grupos/perfil): o perfil da conta é apagado antes da fase 1 e **some quando a janela fecha** — um vigia segue o PID da janela (`private_watch_step`: janela trocada por outra da mesma conta não apaga, quem abriu a nova já começou do zero) e a automática apaga no `close`.
+- **Ao abrir o app** com a opção desligada, os perfis que sobraram de antes (de quando era persistente, ou de janela fechada com o app fora) são apagados em segundo plano (`wipe_private_profiles`).
+- **Migração única** (`Login.PrivateBrowserDefaultV1`): quem já tinha o app vinha com `PersistentProfile=true` gravado (o padrão antigo); a primeira abertura da versão nova desliga, e depois respeita quem ligar de novo.
+
+Ligada, o perfil acumula confiança do Roblox e pede menos captcha, mas todas as contas passam pelo mesmo perfil. Testes: `the_private_browser_migration_turns_persistence_off_once`, `a_new_install_starts_with_the_private_browser` (settings), `a_closed_private_window_gets_its_profile_wiped_and_a_replaced_one_does_not` e `starting_private_wipes_every_profile_left_from_before` (`chromium_commands_tests`).
 
 ## Checagem do navegador (`run_browser_diagnostics`, 26/10/2026)
 
@@ -153,7 +160,7 @@ Ou seja: a mudança não torna o app resistente a um atacante já rodando como o
 
 | Chave (`RAMSettings.ini`) | Default | Efeito |
 |---|---|---|
-| `Login.PersistentProfile` | `true` | Mantém o perfil `_login` entre logins. Desligado, o perfil é apagado antes de subir e logo depois da captura do cookie |
+| `Login.PersistentProfile` | `false` | "Keep browser data between uses": ligado, os perfis (login e contas) ficam entre um uso e outro. Desligado (o padrão desde 26/10/2026), todo uso começa num perfil limpo e ele some ao fechar — ver "Anônimo por padrão em tudo" |
 | `Login.StealthMode` | `true` | `--lang=en-US` e injeção de `navigator.webdriver = undefined` antes do primeiro documento |
 | `Login.ManualBinaryPath` | `""` | Caminho de um Chrome/Edge/Chromium/Brave próprio, digitado pelo usuário. Vazio (default) segue para o download; preenchido, vence o download e o navegador do sistema no login **e** na criação de contas (ver "Qual binário abre" acima). Vazio nunca é gravado no INI (`EMPTY_STRING_DEFAULTS` em `data/settings/store.rs`) |
 

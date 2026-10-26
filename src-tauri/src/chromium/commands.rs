@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -150,6 +150,10 @@ pub async fn open_account_browser(
     // Duas instâncias no mesmo perfil brigam pelo lock do Chromium: a janela
     // antiga desta conta tem que sair antes de plantarmos o cookie de novo.
     chromium.kill(user_id);
+    let private = !keeps_browser_data(&settings);
+    if private {
+        let _ = wipe_profile_dir(&profile);
+    }
 
     // Fase 1 — browser de setup. É o único momento em que a porta de debug
     // existe: ele fica em `about:blank`, sem nenhuma página do Roblox aberta,
@@ -192,7 +196,11 @@ pub async fn open_account_browser(
     // valendo sem precisarmos injetar nada.
     let start_url = account_browser_start_url(group_id);
     let (child, _) = spawn_chrome(&binary, &profile, &start_url, false, stealth).await?;
+    let pid = child.id();
     chromium.track(user_id, child);
+    if private {
+        wipe_profile_when_closed(app.clone(), user_id, pid, profile);
+    }
     Ok(())
 }
 
@@ -261,6 +269,8 @@ pub(crate) struct AccountPageBrowser {
     child: std::process::Child,
     cdp: CdpClient,
     window_id: Option<i64>,
+    /// Navegador anônimo: o perfil que some ao fechar.
+    wipe_on_close: Option<PathBuf>,
 }
 
 impl AccountPageBrowser {
@@ -291,6 +301,10 @@ impl AccountPageBrowser {
         // Mesmo perfil do "Open in browser": a janela antiga dessa conta sai
         // antes (dois Chromium no mesmo perfil brigam pelo lock).
         app.state::<ChromiumManager>().kill(user_id);
+        let private = !keeps_browser_data(&settings);
+        if private {
+            let _ = wipe_profile_dir(&profile);
+        }
 
         let (child, port) = spawn_chrome(&binary, &profile, "about:blank", true, stealth).await?;
         let Some(port) = port else {
@@ -304,7 +318,12 @@ impl AccountPageBrowser {
                 return Err(e);
             }
         };
-        let mut browser = Self { child, cdp, window_id: None };
+        let mut browser = Self {
+            child,
+            cdp,
+            window_id: None,
+            wipe_on_close: private.then(|| profile.clone()),
+        };
         if let Ok(window) = browser.cdp.send("Browser.getWindowForTarget", serde_json::json!({})).await {
             browser.window_id = window.get("windowId").and_then(|v| v.as_i64());
         }
@@ -375,6 +394,10 @@ impl AccountPageBrowser {
             let _ = self.child.kill();
         }
         let _ = self.child.wait();
+        if let Some(profile) = self.wipe_on_close.take() {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let _ = wipe_profile_dir(&profile);
+        }
     }
 }
 
@@ -392,6 +415,65 @@ async fn plant_account_cookie(
     cdp.set_roblosecurity(token, ".roblox.com", expires).await?;
     cdp.set_roblosecurity(token, "www.roblox.com", expires).await?;
     Ok(())
+}
+
+/// `Login.PersistentProfile`: o navegador guarda dados entre um uso e outro?
+/// Desligado (o padrão desde 26/10/2026), todo uso — login, criação de contas,
+/// abrir a conta no navegador e as páginas automáticas — começa num perfil
+/// limpo, e o perfil some quando a janela fecha.
+pub(crate) fn keeps_browser_data(settings: &SettingsStore) -> bool {
+    settings.get_bool("Login", "PersistentProfile")
+}
+
+/// O passo do vigia da janela anônima de uma conta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrivateWatch {
+    Wait,
+    Wipe,
+    /// Outra janela da conta tomou o lugar: o perfil é dela agora.
+    Stop,
+}
+
+fn private_watch_step(tracked_pid: Option<u32>, watched_pid: u32, alive: bool) -> PrivateWatch {
+    match tracked_pid {
+        Some(pid) if pid != watched_pid => PrivateWatch::Stop,
+        Some(_) if alive => PrivateWatch::Wait,
+        _ => PrivateWatch::Wipe,
+    }
+}
+
+/// Apaga o perfil anônimo da conta quando a janela dela fecha.
+fn wipe_profile_when_closed(app: AppHandle, user_id: i64, pid: u32, profile: PathBuf) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let manager = app.state::<ChromiumManager>();
+            match private_watch_step(manager.pid_of(user_id), pid, manager.is_alive(user_id)) {
+                PrivateWatch::Wait => continue,
+                PrivateWatch::Stop => return,
+                PrivateWatch::Wipe => {
+                    // O Chromium ainda solta os arquivos uns instantes depois de sair.
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let _ = wipe_profile_dir(&profile);
+                    return;
+                }
+            }
+        }
+    });
+}
+
+/// Com o navegador anônimo, ao abrir o app: apaga os perfis que sobraram de
+/// antes (de quando ele era persistente, ou de uma janela que o app não viu
+/// fechar). Só pastas — o resto da pasta dos perfis fica.
+pub(crate) fn wipe_private_profiles(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.path().is_dir() {
+            let _ = wipe_profile_dir(&entry.path());
+        }
+    }
 }
 
 pub(super) fn wipe_profile_dir(profile: &Path) -> Result<(), String> {
@@ -776,6 +858,39 @@ pub async fn relogin_account(
 #[cfg(test)]
 mod chromium_commands_tests {
     use super::*;
+
+    // ── navegador anônimo (Login.PersistentProfile desligado) ────────────────
+
+    #[test]
+    fn a_closed_private_window_gets_its_profile_wiped_and_a_replaced_one_does_not() {
+        // A janela ainda aberta: espera.
+        assert_eq!(private_watch_step(Some(42), 42, true), PrivateWatch::Wait);
+        // Fechou (é a mesma janela que o vigia segue): apaga.
+        assert_eq!(private_watch_step(Some(42), 42, false), PrivateWatch::Wipe);
+        // Trocada por outra janela da mesma conta (ou o app a fechou para abrir
+        // de novo): quem abriu a nova já começou do zero; apagar agora levaria
+        // o cookie que ela acabou de plantar.
+        assert_eq!(private_watch_step(Some(7), 42, true), PrivateWatch::Stop);
+        assert_eq!(private_watch_step(Some(7), 42, false), PrivateWatch::Stop);
+        // Não rastreada mais (fechada pelo app): apaga.
+        assert_eq!(private_watch_step(None, 42, false), PrivateWatch::Wipe);
+    }
+
+    #[test]
+    fn starting_private_wipes_every_profile_left_from_before() {
+        let root = temp_dir("private-root");
+        for name in ["_login", "11715660717", "75444209"] {
+            std::fs::create_dir_all(root.join(name).join("Default")).unwrap();
+            std::fs::write(root.join(name).join("Default").join("Cookies"), b"x").unwrap();
+        }
+        std::fs::write(root.join("note.txt"), b"keep").unwrap();
+        wipe_private_profiles(&root);
+        assert!(!root.join("_login").exists());
+        assert!(!root.join("11715660717").exists());
+        assert!(!root.join("75444209").exists());
+        assert!(root.join("note.txt").exists(), "only profile folders go");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     /// "Fazer login de novo" só grava o cookie se o login foi na mesma conta.
     #[test]

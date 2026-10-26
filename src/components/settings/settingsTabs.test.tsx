@@ -427,8 +427,16 @@ describe("Former General controls", () => {
     await expectSaved(section, key, "true");
   });
 
+  /** Anônimo por padrão (pedido do dono, 26/10/2026): guardar dados é opção. */
+  it("keeps no browser data by default and saves when it is turned on", async () => {
+    renderGeneral();
+    const toggle = (await screen.findByText("Keep browser data between uses")).closest("[role=switch]");
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    await userEvent.click(await screen.findByText("Keep browser data between uses"));
+    await expectSaved("Login", "PersistentProfile", "true");
+  });
+
   it.each([
-    ["Persistent login profile", "PersistentProfile"],
     ["Reduce automation signals", "StealthMode"],
   ])("turns the %s login option off (it defaults to on)", async (label, key) => {
     renderGeneral();
