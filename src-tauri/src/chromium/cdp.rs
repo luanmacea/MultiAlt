@@ -191,6 +191,39 @@ return document.activeElement===el;}})()",
     )
 }
 
+/// Guarda a conta que a **resposta do login** do Roblox devolveu
+/// (`auth.roblox.com/v2/login` → `{"user":{"id","name"}}`) no `localStorage`
+/// do roblox.com, com a hora. É a prova de quem entrou quando as consultas de
+/// "de quem é esta sessão" recusam (conta moderada: relato de 26/10/2026, a
+/// Rapid_Raven878 logava e o app jogava a sessão fora).
+pub const LOGIN_USER_HOOK: &str = "(function(){\
+if(window.__ramLoginHook)return;window.__ramLoginHook=true;\
+function keep(t){try{var d=JSON.parse(t);var u=d&&d.user;if(u&&u.id){localStorage.setItem('__ramLoginUser',JSON.stringify({id:u.id,name:u.name||'',at:Date.now()}));}}catch(e){}}\
+var f=window.fetch;if(f){window.fetch=function(i){var url=(typeof i==='string')?i:((i&&i.url)||'');var p=f.apply(this,arguments);\
+if(/\\/v2\\/login/.test(url)){p.then(function(r){r.clone().text().then(keep).catch(function(){});}).catch(function(){});}return p;};}\
+var o=XMLHttpRequest.prototype.open,s=XMLHttpRequest.prototype.send;\
+XMLHttpRequest.prototype.open=function(m,u){this.__ramUrl=u;return o.apply(this,arguments);};\
+XMLHttpRequest.prototype.send=function(){var x=this;if(/\\/v2\\/login/.test(String(x.__ramUrl||''))){x.addEventListener('load',function(){keep(x.responseText);});}return s.apply(this,arguments);};\
+})()";
+
+/// Lê o que o [`LOGIN_USER_HOOK`] guardou.
+pub const READ_LOGIN_USER_SCRIPT: &str = "localStorage.getItem('__ramLoginUser')";
+
+/// A conta da resposta do login, se ela foi guardada **depois** de
+/// `since_ms` (o perfil persistente guarda o `localStorage` de logins
+/// anteriores — de outra conta).
+pub fn parse_login_user(stored: &Value, since_ms: i64) -> Option<(i64, String)> {
+    let text = stored.as_str()?;
+    let parsed: Value = serde_json::from_str(text).ok()?;
+    let id = parsed.get("id")?.as_i64().filter(|id| *id > 0)?;
+    let at = parsed.get("at")?.as_i64()?;
+    if at < since_ms {
+        return None;
+    }
+    let name = parsed.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+    Some((id, name))
+}
+
 fn login_fill_script(username: &str, password: &str) -> String {
     let user = serde_json::to_string(username).unwrap_or_default();
     let pass = serde_json::to_string(password).unwrap_or_default();
@@ -358,6 +391,19 @@ impl CdpClient {
             Some(error) => Err(format!("The page did not load: {error}")),
             None => Ok(()),
         }
+    }
+
+    /// Liga o [`LOGIN_USER_HOOK`] nas páginas que abrirem daqui em diante e na
+    /// que está aberta.
+    pub async fn watch_login_response(&mut self) -> Result<(), String> {
+        let _ = self.send("Page.enable", json!({})).await;
+        self.send(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": LOGIN_USER_HOOK }),
+        )
+        .await?;
+        let _ = self.eval(LOGIN_USER_HOOK).await;
+        Ok(())
     }
 
     pub async fn inject_stealth(&mut self) -> Result<(), String> {
@@ -781,6 +827,26 @@ mod chromium_cdp_tests {
     }
 
     // ── login_fill_script (credential-injection safety) ────────────────────
+
+    #[test]
+    fn the_login_user_is_read_only_when_it_is_from_this_sign_in() {
+        let stored = json!(r#"{"id":11715660717,"name":"Rapid_Raven878","at":5000}"#);
+        assert_eq!(parse_login_user(&stored, 4000), Some((11715660717, "Rapid_Raven878".to_string())));
+        // Guardado num login anterior (perfil persistente): não vale.
+        assert_eq!(parse_login_user(&stored, 6000), None);
+        assert_eq!(parse_login_user(&Value::Null, 0), None);
+        assert_eq!(parse_login_user(&json!("not json"), 0), None);
+        assert_eq!(parse_login_user(&json!(r#"{"id":0,"at":9}"#), 0), None);
+    }
+
+    #[test]
+    fn the_login_hook_watches_the_login_request_and_keeps_only_the_user() {
+        assert!(LOGIN_USER_HOOK.contains("/v2\\/login") || LOGIN_USER_HOOK.contains("v2\\/login"));
+        assert!(LOGIN_USER_HOOK.contains("__ramLoginUser"));
+        assert!(LOGIN_USER_HOOK.contains("d.user"));
+        // Nada além de id, nome e hora: o corpo (que pode ter token) não é guardado.
+        assert!(!LOGIN_USER_HOOK.contains("setItem('__ramLoginUser',t"));
+    }
 
     #[test]
     fn login_fill_script_targets_the_roblox_login_form() {
