@@ -97,6 +97,8 @@ describe("actionReport", () => {
       reloginErrorText("You signed in as bob, not ann. Nothing was changed — sign in to ann instead.", t)
     ).toBe("You signed in as bob, not ann. Nothing was changed.");
     expect(reloginErrorText("something else", t)).toBe("something else");
+    // Sem motivo vindo do backend, a linha ainda diz algo (e onde ver mais).
+    expect(reloginErrorText("", t)).toBe("The sign-in did not finish. The Console has the details.");
     expect(reloginGaveUp("This account is no longer in the list.")).toBe(true);
     expect(reloginGaveUp("Login window was closed before sign-in completed")).toBe(false);
   });
