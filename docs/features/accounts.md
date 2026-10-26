@@ -158,6 +158,15 @@ Pedido do dono: toda ação do menu **Ações** mostra o resultado conta a conta
 - Cada ação: **Atualizar cookies** (`store.refreshCookies`, uma por vez com 2 s entre elas, como antes); **Copiar cookies** (copiada / sem cookie salvo, e quando a área de transferência se limpa); **Fazer amizades** e **Seguir** (ao vivo, a partir de `friend-link-state` / `follow-user-state`, e o retrato final do backend); **Mover para grupo** (a falha de gravação de cada conta, que antes era engolida e a conta "voltava" ao reabrir); **Reiniciar clientes** (a seleção inteira; quem não tem cliente aberto pelo app aparece como pulada); **Adicionar ao Auto Rejoin** (inclusive as que já estavam); **Fechar todos os clientes** (as contas que estavam abertas e o total de processos); **Remover** (o toast de Desfazer continua).
 - No **clique direito** a janela abre com **mais de uma** conta (a regra do "Conferir contas"); com uma, fica o toast curto. **Arrastar** conta para grupo nunca abre janela.
 
+### "Usado há" de conta jogada fora do app (25/10/2026)
+
+O `LastUse` só andava no launch pelo app (`mark_used`): a conta principal do dono, jogada todo dia **pelo site**, aparecia "sem uso há 20+ dias". Agora também anda quando:
+
+- **o cliente está aberto neste PC**, pelo app ou pelo site (a varredura de clientes de fora, a cada 5 s, passa por todo processo rastreado — inclusive sessões longas) e na identificação manual de um cliente de fora ([external_clients.rs](../../src-tauri/src/commands/external_clients.rs));
+- **a presença diz "em jogo"** (`userPresenceType` 2, em `get_presence`): cobre quem joga em outro aparelho. Só com "Mostrar presença" ligada, que é quando o app consulta a presença.
+
+Para não regravar o arquivo de contas a toda hora, `mark_used_if_stale` só grava quando a última marca tem mais de 10 min (`IN_USE_MARK_EVERY`). O backend avisa a tela com o evento `account-used` e a linha anda na hora.
+
 ### Fazer login de novo (`relogin_account`)
 
 Para conta com sessão morta, na janela de resultados e na do "Conferir contas" (botão "Fazer login de novo (N)", depois de uma confirmação que explica o que vai acontecer). Uma conta por vez: o navegador de login abre ([chromium/commands.rs](../../src-tauri/src/chromium/commands.rs), `sign_in_in_browser`, o mesmo do "usuário:senha") com **usuário e senha preenchidos quando a conta tem senha salva**, a pessoa resolve o CAPTCHA, e o cookie novo entra **na mesma conta** (`AccountStore::relogin`: troca o cookie e marca válida, sem tocar em grupo, campos e senha). Login feito em **outra** conta (perfil do navegador já logado em outra, usuário errado digitado) é recusado sem gravar nada (`relogin_identity_check`). O app nunca resolve o CAPTCHA.

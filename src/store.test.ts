@@ -3883,3 +3883,24 @@ describe("ações com janela de resultados", () => {
     ]);
   });
 });
+
+/**
+ * Pedido do dono (25/10/2026): a principal, jogada todo dia pelo site, aparecia
+ * "sem uso há 20+ dias". O backend marca o uso (cliente aberto pelo site ou
+ * presença "em jogo") e avisa com `account-used`; a linha anda na hora.
+ */
+describe("account-used", () => {
+  it("atualiza o 'usado há' só da conta avisada", async () => {
+    const old = new Date(Date.now() - 20 * 24 * 3600 * 1000).toISOString();
+    accountsData = [account({ UserID: 1, LastUse: old }), account({ UserID: 2, LastUse: old })];
+    settingsData = { General: {} };
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("account-used")).toBe(true));
+
+    act(() => emit("account-used", { userId: 1 }));
+
+    const byId = new Map(result.current.accounts.map((a) => [a.UserID, a.LastUse]));
+    expect(Date.now() - new Date(byId.get(1)!).getTime()).toBeLessThan(5000);
+    expect(byId.get(2)).toBe(old);
+  });
+});

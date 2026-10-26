@@ -3345,6 +3345,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
         if (e.payload?.status) rememberModeration(e.payload.userId, e.payload.status);
       }),
+      // Conta jogada fora do app (pelo site, ou "em jogo" pela presença): o
+      // backend regrava o "usado há" e avisa — a linha anda sem recarregar.
+      listen<{ userId: number }>("account-used", (e) => {
+        const userId = e.payload?.userId;
+        if (typeof userId !== "number") return;
+        const now = new Date().toISOString();
+        setAccounts((prev) => prev.map((a) => (a.UserID === userId ? { ...a, LastUse: now } : a)));
+      }),
       listen<{ done: number; total: number }>("account-check-progress", (e) => {
         const { done, total } = e.payload ?? { done: 0, total: 0 };
         // Só atualiza um check em andamento: um evento atrasado depois do fim

@@ -1479,6 +1479,24 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// `mark_used` para quem passa a toda hora (cliente aberto pelo site, presença
+    /// "em jogo"): só grava quando a última marca é mais velha que `min_age` —
+    /// conferir de 5 em 5 s não pode virar uma gravação do arquivo a cada vez.
+    /// Devolve `true` quando marcou.
+    pub fn mark_used_if_stale(&self, user_id: i64, min_age: chrono::Duration) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        let now = Utc::now();
+        if now - account.last_use < min_age {
+            return Ok(false);
+        }
+        account.last_use = now;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     pub fn reorder(&self, user_ids: &[i64]) -> Result<(), String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
 
@@ -2001,6 +2019,27 @@ mod account_store_tests {
         store.add(account(7, "ann")).unwrap();
         assert!(!store.relogin(999, "NEW-COOKIE").unwrap());
         assert_ne!(store.get_all().unwrap()[0].security_token, "NEW-COOKIE");
+    }
+
+    /// Conta jogada fora do app (pelo site, ou em outro aparelho) também está em
+    /// uso (pedido do dono, 25/10/2026: a principal aparecia "sem uso há 20+
+    /// dias" jogando todo dia pelo site). A varredura e a presença passam aqui a
+    /// toda hora: só grava quando a última marca é mais velha que `min_age`.
+    #[test]
+    fn mark_used_if_stale_only_writes_when_the_last_mark_is_old() {
+        let store = store("mark-used-stale");
+        let mut old = account(7, "ann");
+        old.last_use = chrono::Utc::now() - chrono::Duration::days(20);
+        store.add(old).unwrap();
+
+        let ten_minutes = chrono::Duration::minutes(10);
+        assert!(store.mark_used_if_stale(7, ten_minutes).unwrap(), "20 dias: marca");
+        let marked = store.get_all().unwrap()[0].last_use;
+        assert!(chrono::Utc::now() - marked < chrono::Duration::seconds(5));
+
+        assert!(!store.mark_used_if_stale(7, ten_minutes).unwrap(), "acabou de marcar: não regrava");
+        assert_eq!(store.get_all().unwrap()[0].last_use, marked);
+        assert!(!store.mark_used_if_stale(999, ten_minutes).unwrap(), "conta inexistente");
     }
 
     #[test]
