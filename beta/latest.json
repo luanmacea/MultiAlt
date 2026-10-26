@@ -1,11 +1,11 @@
 {
-  "version": "2.3.0-beta",
-  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: a5950f5\nApp version: 2.3.0\n\n## What's Changed\n* Reconnect after internet drops, ban check results, Shuffle and Auto Rejoin fixes by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/37\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v2.2.0-beta...v2.3.0-beta",
-  "pub_date": "2026-10-22T02:53:36.704Z",
+  "version": "2.4.0-beta",
+  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: df44c0f\nApp version: 2.4.0\n\n## What's Changed\n* Best window size per monitor, hidden AFK clicks, safer passwords and a clean login browser by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/39\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v2.3.0-beta...v2.4.0-beta",
+  "pub_date": "2026-10-26T18:44:00.943Z",
   "platforms": {
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclR6Tk5wTGo2eitNUlNzcm1pL3k5Z2NtYlluOGZBNEpWelpzemJBdGFDYzVNTGg4QmZDSmhwTVNyWWE4VUg0bGlqd2QyZlBXL2xaWDZxT3BPUWI2V0FJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNjM3NjEyCWZpbGU6TXVsdGlBbHRfMi4zLjBfeDY0X2VuLVVTLm1zaQplRXpZMzliSzQrRU5QYStwVmxZb3pZMS9hckRDblFucXNDUnBZSHUxZnRvNWU5bU9hQktDV2M5STlxTXJlVkxQUVJUNXlqRHd0S2NqZndiWTZteHRCUT09Cg==",
-      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v2.3.0-beta/MultiAlt-Setup.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclMwb2w5ditoU1FRNXJqeDZTU1BGZ09ZdUlvQjhrNlBqRjZQMDk3aEE1eERSNzFnL0pacVlaeVFhcG94S3A3R1kzTmdPWFBQNWx0V3VjSEVNalR5TEFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMDQwMjM2CWZpbGU6TXVsdGlBbHRfMi40LjBfeDY0X2VuLVVTLm1zaQpjaVFOSnZSM1pBOXBBVW1JcGZKaUZwL2N0VWVZeVBNbm9sS2lIblZtUGhVUzFlaFNmUkVQT2hQTi9jZERQUGJad1Y5bG1EREFXTmkxYmFQbTdJVHFBUT09Cg==",
+      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v2.4.0-beta/MultiAlt-Setup.msi"
     }
   }
 }
