@@ -2888,5 +2888,6 @@
   "Keep browser data between uses": "Guardar los datos del navegador entre usos",
   "Off by default: every login, account creation and account opened in the browser starts in a clean profile, and nothing is kept once the window closes. On, the browser keeps its profile so Roblox trusts this device more and asks for fewer captchas, but every account goes through the same profile.": "Desactivado por defecto: cada inicio de sesión, creación de cuenta y cuenta abierta en el navegador empieza en un perfil limpio, y no se guarda nada al cerrar la ventana. Activado, el navegador conserva su perfil, Roblox confía más en este dispositivo y pide menos captchas, pero todas las cuentas pasan por el mismo perfil.",
   "Checks": "Comprobaciones",
-  "Something does nothing? Run the matching check: it says what is in the way and what to do.": "¿Algo no hace nada? Ejecuta la comprobación correspondiente: dice qué lo impide y qué hacer."
+  "Something does nothing? Run the matching check: it says what is in the way and what to do.": "¿Algo no hace nada? Ejecuta la comprobación correspondiente: dice qué lo impide y qué hacer.",
+  "MultiAlt version that made this backup": "Versión de MultiAlt que hizo esta copia de seguridad"
 }
