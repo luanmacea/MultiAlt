@@ -2850,5 +2850,7 @@
   "Best size for each monitor": "Melhor tamanho em cada monitor",
   "Set automatically by Best size for each monitor": "Definido sozinho pelo Melhor tamanho em cada monitor",
   "When the grid arranges the windows, each one gets the largest landscape size that still fits every window on the grid monitors, with the gap. Turns off the width, height and smaller-windows options below.": "Ao organizar em grade, cada janela fica com o maior tamanho deitado em que todas ainda cabem nos monitores da grade, respeitando o espaçamento. Desliga a largura, a altura e a opção de janelas menores abaixo.",
-  "Window size": "Tamanho da janela"
+  "Window size": "Tamanho da janela",
+  "A different, rising beep, so you can let go of the mouse and keyboard before the focus moves.": "Um bipe diferente, subindo, para dar tempo de soltar o mouse e o teclado antes de o foco sair.",
+  "Beep 3 seconds before a cycle": "Bipar 3 segundos antes de cada ciclo"
 }

@@ -456,6 +456,7 @@ impl SettingsStore {
             ("IntervalSeconds", "0"),
             ("Key", ""),
             ("BeepOnCycle", "false"),
+            ("BeepBeforeCycle", "false"),
             ("Mode", "key"),
             ("ClickX", "50"),
             ("ClickY", "50"),

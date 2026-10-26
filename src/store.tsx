@@ -35,7 +35,7 @@ import type {
   LaunchPresetEvent,
   LaunchPresetView,
 } from "./types";
-import { playAfkBeep } from "./utils/afkBeep";
+import { playAfkBeep, playAfkWarningBeep } from "./utils/afkBeep";
 import type { TabId as SettingsTabId } from "./components/settings/tabs";
 import type { AfkMode } from "./afkClickPoint";
 import {
@@ -3503,6 +3503,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } catch {
           // Sem som é perda aceitável; nada a mostrar na tela.
         }
+      }),
+      // Aviso de 3 s antes do ciclo: o backend só emite com
+      // `Afk.BeepBeforeCycle` ligado.
+      listen("afk-cycle-soon", () => {
+        playAfkWarningBeep();
       }),
       listen("afk-stopped", () => {
         setAfkStatus((prev) => (prev ? { ...prev, active: false, accounts: [] } : prev));
