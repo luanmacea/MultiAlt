@@ -88,7 +88,14 @@ function AppliesBadge({ text }: { text: string }) {
   );
 }
 
-function OptimizationProfileSection({
+/**
+ * Tamanho da janela e grade, numa seção própria acima do perfil (pedido do
+ * dono, 26/10/2026: dentro do perfil "Normal" ficava difícil de achar). O
+ * tamanho é do perfil escolhido acima; as opções da grade valem para todos.
+ * Com "Best size for each monitor" ligado, largura, altura e "Allow smaller
+ * windows" ficam desabilitados (não escondidos): a grade calcula a célula.
+ */
+function WindowSizeSection({
   s,
   title,
   profile,
@@ -101,6 +108,115 @@ function OptimizationProfileSection({
   isWindows: boolean;
   /** Auto Rejoin com perfis separados: a grade continua uma só para todos. */
   splitProfiles?: boolean;
+}) {
+  const t = useTr();
+  const windowSizeOverrideEnabled = s.getBool(
+    "General",
+    generalKey(profile, "OverrideClientWindowSize")
+  );
+  const autoFit = isWindows && s.getBool("General", "GridAutoFit");
+  const sizeDisabledReason = autoFit
+    ? "Set automatically by Best size for each monitor"
+    : !windowSizeOverrideEnabled
+      ? "Requires Override Window Size"
+      : undefined;
+
+  return (
+    <div className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 px-4 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <SectionLabel>{t("Window size")}</SectionLabel>
+        <AppliesBadge text={t("Applies on next launch")} />
+      </div>
+      {splitProfiles ? (
+        <div className="mt-1 text-[12px] text-zinc-500">
+          {title} · {t("Grid options are the same for every profile.")}
+        </div>
+      ) : null}
+
+      <Divider />
+      <Toggle
+        checked={s.getBool("General", generalKey(profile, "OverrideClientWindowSize"))}
+        onChange={(v) => s.setBool("General", generalKey(profile, "OverrideClientWindowSize"), v)}
+        label="Override Window Size"
+        description="Optional: start Roblox in windowed mode with this size"
+      />
+      {isWindows ? (
+        // Uma chave só para todos os perfis, como as outras opções da grade.
+        <Toggle
+          checked={autoFit}
+          onChange={(v) => s.setBool("General", "GridAutoFit", v)}
+          label="Best size for each monitor"
+          description="When the grid arranges the windows, each one gets the largest landscape size that still fits every window on the grid monitors, with the gap. Turns off the width, height and smaller-windows options below."
+        />
+      ) : null}
+      <NumberField
+        value={s.getNumber("General", generalKey(profile, "ClientWindowWidth"), 1280)}
+        onChange={(v) => s.setNumber("General", generalKey(profile, "ClientWindowWidth"), v)}
+        label="Window Width"
+        min={320}
+        max={7680}
+        disabled={sizeDisabledReason !== undefined}
+        description={sizeDisabledReason}
+      />
+      <NumberField
+        value={s.getNumber("General", generalKey(profile, "ClientWindowHeight"), 720)}
+        onChange={(v) => s.setNumber("General", generalKey(profile, "ClientWindowHeight"), v)}
+        label="Window Height"
+        min={240}
+        max={4320}
+        disabled={sizeDisabledReason !== undefined}
+        description={sizeDisabledReason}
+      />
+      <Toggle
+        checked={s.getBool("General", generalKey(profile, "StartRobloxMinimized"))}
+        onChange={(v) => s.setBool("General", generalKey(profile, "StartRobloxMinimized"), v)}
+        label="Start Roblox Minimized"
+        description="Launches Roblox and minimizes the client window right after startup"
+      />
+      {isWindows ? (
+        // Ligada por padrão — só o "false" gravado a desliga.
+        <>
+          <Toggle
+            checked={s.get("General", "AutoArrangeGrid", "true") !== "false"}
+            onChange={(v) => s.setBool("General", "AutoArrangeGrid", v)}
+            label="Arrange in grid on launch"
+            description="Each new Roblox window takes the first free cell of the grid (Console page). Accounts with their own window size keep it."
+          />
+          {/* Ideia 22 (docs/features/performance.md): só nos clientes que o
+              app abriu, no launch e no botão Arrange in grid. */}
+          <Toggle
+            checked={s.getBool("General", "GridAllowSmallWindows")}
+            onChange={(v) => s.setBool("General", "GridAllowSmallWindows", v)}
+            disabled={autoFit}
+            label="Allow smaller windows in the grid"
+            description={
+              autoFit
+                ? "Set automatically by Best size for each monitor"
+                : "Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen. Also applies to the Arrange in grid button."
+            }
+          />
+          <Toggle
+            checked={s.getBool("General", "GridBorderless")}
+            onChange={(v) => s.setBool("General", "GridBorderless", v)}
+            label="Remove window borders in the grid"
+            description="Grid windows lose their title bar and border so they sit edge to edge. Also applies to the Arrange in grid button; turning this off gives the borders back."
+          />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function OptimizationProfileSection({
+  s,
+  title,
+  profile,
+  isWindows,
+}: {
+  s: UseSettingsReturn;
+  title: string;
+  profile: OptimizationProfileId;
+  isWindows: boolean;
 }) {
   const t = useTr();
   const customClientSettings = s.get("General", generalKey(profile, "CustomClientSettings"), "").trim();
@@ -122,10 +238,6 @@ function OptimizationProfileSection({
   const graphicsOverrideEnabled = s.getBool(
     "General",
     generalKey(profile, "OverrideClientGraphics")
-  );
-  const windowSizeOverrideEnabled = s.getBool(
-    "General",
-    generalKey(profile, "OverrideClientWindowSize")
   );
   const processPolicyEnabled = s.getBool(
     "Optimization",
@@ -237,68 +349,6 @@ function OptimizationProfileSection({
         disabled={!graphicsOverrideEnabled}
         description={!graphicsOverrideEnabled ? "Requires Override Graphics Level" : undefined}
       />
-      <Toggle
-        checked={s.getBool("General", generalKey(profile, "OverrideClientWindowSize"))}
-        onChange={(v) => s.setBool("General", generalKey(profile, "OverrideClientWindowSize"), v)}
-        label="Override Window Size"
-        description="Optional: start Roblox in windowed mode with this size"
-      />
-      <NumberField
-        value={s.getNumber("General", generalKey(profile, "ClientWindowWidth"), 1280)}
-        onChange={(v) => s.setNumber("General", generalKey(profile, "ClientWindowWidth"), v)}
-        label="Window Width"
-        min={320}
-        max={7680}
-        disabled={!windowSizeOverrideEnabled}
-        description={!windowSizeOverrideEnabled ? "Requires Override Window Size" : undefined}
-      />
-      <NumberField
-        value={s.getNumber("General", generalKey(profile, "ClientWindowHeight"), 720)}
-        onChange={(v) => s.setNumber("General", generalKey(profile, "ClientWindowHeight"), v)}
-        label="Window Height"
-        min={240}
-        max={4320}
-        disabled={!windowSizeOverrideEnabled}
-        description={!windowSizeOverrideEnabled ? "Requires Override Window Size" : undefined}
-      />
-      <Toggle
-        checked={s.getBool("General", generalKey(profile, "StartRobloxMinimized"))}
-        onChange={(v) => s.setBool("General", generalKey(profile, "StartRobloxMinimized"), v)}
-        label="Start Roblox Minimized"
-        description="Launches Roblox and minimizes the client window right after startup"
-      />
-      {isWindows ? (
-        // Uma chave só para todos os perfis (launch e Auto Rejoin): a grade é
-        // uma só. Ligada por padrão — só o "false" gravado a desliga.
-        <>
-          <Toggle
-            checked={s.get("General", "AutoArrangeGrid", "true") !== "false"}
-            onChange={(v) => s.setBool("General", "AutoArrangeGrid", v)}
-            label="Arrange in grid on launch"
-            description="Each new Roblox window takes the first free cell of the grid (Console page). Accounts with their own window size keep it."
-          />
-          {splitProfiles ? (
-            <div className="text-[12px] leading-5 text-zinc-500">
-              {t("Grid options are the same for every profile.")}
-            </div>
-          ) : null}
-          {/* Ideia 22 (docs/features/performance.md): só nos clientes que o
-              app abriu, no launch e no botão Arrange in grid. */}
-          <Toggle
-            checked={s.getBool("General", "GridAllowSmallWindows")}
-            onChange={(v) => s.setBool("General", "GridAllowSmallWindows", v)}
-            label="Allow smaller windows in the grid"
-            description="Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen. Also applies to the Arrange in grid button."
-          />
-          <Toggle
-            checked={s.getBool("General", "GridBorderless")}
-            onChange={(v) => s.setBool("General", "GridBorderless", v)}
-            label="Remove window borders in the grid"
-            description="Grid windows lose their title bar and border so they sit edge to edge. Also applies to the Arrange in grid button; turning this off gives the borders back."
-          />
-        </>
-      ) : null}
-
       {isWindows ? (
         <>
           <Divider />
@@ -751,12 +801,19 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
         </div>
       ) : null}
 
-      <OptimizationProfileSection
+      <WindowSizeSection
         s={s}
         title={activeProfile.label}
         profile={activeProfile.id}
         isWindows={isWindows}
         splitProfiles={profiles.length > 1}
+      />
+
+      <OptimizationProfileSection
+        s={s}
+        title={activeProfile.label}
+        profile={activeProfile.id}
+        isWindows={isWindows}
       />
     </div>
   );

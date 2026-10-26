@@ -14,6 +14,7 @@ import {
   Server,
   ShieldCheck,
   Sparkles,
+  Stethoscope,
   Users,
 } from "lucide-react";
 import { ENABLE_ACCOUNT_GENERATOR, ENABLE_WEBSERVER } from "../../featureFlags";
@@ -34,6 +35,7 @@ export type TabId =
   | "updates"
   | "app"
   | "backups"
+  | "checks"
   | "developer"
   | "webserver"
   | "watcher"
@@ -51,6 +53,7 @@ const ALL_TABS: TabId[] = [
   "updates",
   "app",
   "backups",
+  "checks",
   "developer",
   "webserver",
   "watcher",
@@ -98,6 +101,9 @@ export const SETTINGS_TABS: TabDef[] = [
   // Fecha o grupo do dia a dia: backup é o que salva o usuário quando algo dá
   // errado, e como diálogo aberto por "Manage" na antiga Misc ninguém o achava.
   { id: "backups", label: "Backups", icon: <DatabaseBackup {...ICON} /> },
+  // Os checklists do launch e do navegador de login juntos (26/10/2026): um
+  // ficava em Launch e o outro em Accounts, e eram difíceis de achar.
+  { id: "checks", label: "Checks", icon: <Stethoscope {...ICON} /> },
   { id: "developer", label: "Developer", icon: <Code {...ICON} />, advanced: true },
   {
     id: "webserver",

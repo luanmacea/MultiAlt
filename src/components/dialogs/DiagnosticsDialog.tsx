@@ -6,9 +6,32 @@ import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
 import { diagnosticText, overallStatus, type DiagnosticCheck, type DiagnosticStatus } from "../../utils/diagnostics";
 
+/** `launch` (o padrão) ou `browser`: o navegador de login e de criação de contas. */
+type CheckKind = "launch" | "browser";
+
 interface DiagnosticsDialogProps {
   open: boolean;
   onClose: () => void;
+  kind?: CheckKind;
+}
+
+/** As frases de cada checagem, com `t()` literal para o extrator de chaves achar. */
+function kindCopy(kind: CheckKind, t: (text: string) => string) {
+  return kind === "browser"
+    ? {
+        command: "run_browser_diagnostics",
+        title: t("Login browser check"),
+        intro: t(
+          "Checks the browser used for logins and account creation: which one opens, whether it answers and whether the Roblox page loads. It opens a test window for a few seconds and downloads nothing."
+        ),
+        problem: t("Found a problem that stops the login browser."),
+      }
+    : {
+        command: "run_launch_diagnostics",
+        title: t("Launch check"),
+        intro: t("Checks the usual reasons a launch does nothing. It only looks; it never closes a Roblox window."),
+        problem: t("Found a problem that stops launches."),
+      };
 }
 
 const STATUS_ICON: Record<DiagnosticStatus, { icon: typeof CheckCircle2; className: string }> = {
@@ -22,8 +45,10 @@ const STATUS_ICON: Record<DiagnosticStatus, { icon: typeof CheckCircle2; classNa
  * (`run_launch_diagnostics`) e mostra uma linha por item, com o que fazer. Só
  * lê — nenhum botão aqui fecha cliente ou mexe em arquivo do Roblox.
  */
-export function DiagnosticsDialog({ open, onClose }: DiagnosticsDialogProps) {
+export function DiagnosticsDialog({ open, onClose, kind = "launch" }: DiagnosticsDialogProps) {
+
   const t = useTr();
+  const copy = kindCopy(kind, t);
   const backdropClose = useBackdropClose(onClose);
   const [checks, setChecks] = useState<DiagnosticCheck[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +61,7 @@ export function DiagnosticsDialog({ open, onClose }: DiagnosticsDialogProps) {
     const id = ++runId.current;
     setRunning(true);
     setError(null);
-    invoke<DiagnosticCheck[]>("run_launch_diagnostics")
+    invoke<DiagnosticCheck[]>(copy.command)
       .then((result) => {
         if (runId.current === id) setChecks(Array.isArray(result) ? result : []);
       })
@@ -46,7 +71,7 @@ export function DiagnosticsDialog({ open, onClose }: DiagnosticsDialogProps) {
       .finally(() => {
         if (runId.current === id) setRunning(false);
       });
-  }, []);
+  }, [copy.command]);
 
   useEffect(() => {
     if (!open) {
@@ -70,12 +95,12 @@ export function DiagnosticsDialog({ open, onClose }: DiagnosticsDialogProps) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={t("Launch check")}
+        aria-label={copy.title}
         className="theme-modal-scope theme-panel theme-border border rounded-2xl shadow-2xl w-[520px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] overflow-y-auto animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b theme-border">
-          <h2 className="text-sm font-semibold text-[var(--panel-fg)]">{t("Launch check")}</h2>
+          <h2 className="text-sm font-semibold text-[var(--panel-fg)]">{copy.title}</h2>
           <button onClick={onClose} className="theme-muted hover:opacity-100 transition-opacity" aria-label={t("Close")}>
             <X size={16} strokeWidth={2} />
           </button>
@@ -83,7 +108,7 @@ export function DiagnosticsDialog({ open, onClose }: DiagnosticsDialogProps) {
 
         <div className="px-4 py-3 space-y-3">
           <p className="text-[12px] theme-muted">
-            {t("Checks the usual reasons a launch does nothing. It only looks; it never closes a Roblox window.")}
+            {copy.intro}
           </p>
 
           {overall && !running && (
@@ -92,7 +117,7 @@ export function DiagnosticsDialog({ open, onClose }: DiagnosticsDialogProps) {
                 ? t("Nothing wrong found.")
                 : overall === "warn"
                   ? t("Something here may be in the way.")
-                  : t("Found a problem that stops launches.")}
+                  : copy.problem}
             </p>
           )}
 

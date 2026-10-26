@@ -142,8 +142,7 @@ pub fn update_account(
         .into_iter()
         .find(|a| a.user_id == account.user_id)
     {
-        account.security_token = stored.security_token;
-        account.password = stored.password;
+        account.keep_credentials_from(&stored);
     }
     state.update(account)
 }

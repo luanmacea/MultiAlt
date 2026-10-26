@@ -80,6 +80,16 @@ impl AccountCheckSummary {
     }
 }
 
+/// Sessão morta: sem ela a moderação não responde, e a conta banida de vez
+/// aparecia só como "inválida" (relato do dono, 26/10/2026). A página pública
+/// do usuário (sem cookie) diz `isBanned`; qualquer falha nela deixa "inválida".
+async fn invalid_or_terminated(user_id: i64) -> AccountCheckOutcome {
+    match api::roblox::get_user_info(None, user_id).await {
+        Ok(info) if info.is_banned => AccountCheckOutcome::Banned,
+        _ => AccountCheckOutcome::Invalid,
+    }
+}
+
 /// Uma conta: moderação primeiro (conta banida pode ter a sessão recusada em
 /// `users/authenticated` sem que o cookie esteja morto), depois a sessão.
 async fn check_one_account(
@@ -92,7 +102,7 @@ async fn check_one_account(
         Ok(token) if token.trim().is_empty() => {
             // Sem cookie não há sessão: o mesmo ponto vermelho da linha.
             let _ = state.set_valid(user_id, false);
-            return AccountCheckOutcome::Invalid;
+            return invalid_or_terminated(user_id).await;
         }
         Ok(_) => {}
         Err(_) => return AccountCheckOutcome::Unknown,
@@ -116,7 +126,7 @@ async fn check_one_account(
         }
         Ok(SessionCheck::Invalid) => {
             let _ = state.set_valid(user_id, false);
-            return AccountCheckOutcome::Invalid;
+            return invalid_or_terminated(user_id).await;
         }
         _ => return AccountCheckOutcome::Unknown,
     }

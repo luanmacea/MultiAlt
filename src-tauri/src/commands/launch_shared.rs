@@ -69,6 +69,25 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
     }
 }
 
+/// O ticket do launch falhou porque a sessão morreu (a renovação também não
+/// deu: "Re-login required"), não por rede, limite de pedidos ou verificação.
+pub(crate) fn launch_error_means_dead_session(error: &str) -> bool {
+    error == session_relogin_error() || is_auth_session_error(error)
+}
+
+/// Sessão morta descoberta ao abrir: marca a conta inválida (a bolinha vermelha
+/// da lista, como o "Conferir contas") e avisa a tela (`account-session-dead`).
+/// Antes só o "Conferir contas" marcava, e a conta que falhava ao abrir
+/// continuava parecendo boa (26/10/2026). Nada além do `Valid` muda.
+pub(crate) fn mark_account_session_dead(store: &AccountStore, app: &tauri::AppHandle, user_id: i64, error: &str) {
+    if !launch_error_means_dead_session(error) {
+        return;
+    }
+    if store.set_valid(user_id, false).unwrap_or(false) {
+        let _ = app.emit("account-session-dead", serde_json::json!({ "userId": user_id }));
+    }
+}
+
 /// Quais grupos de campos de uma abertura vieram da exceção da conta (e não do
 /// perfil global). É o que o registro de exceções do lado Windows guarda para
 /// desfazer na próxima conta sem exceção (`OverrideLedger`).
@@ -248,6 +267,9 @@ pub(crate) struct ClientWindowPlan {
     /// resolvido): se a janela aparecer em tela cheia, essa tela cheia veio do
     /// XML regravado por outro cliente, e é tirada — uma vez.
     pub leave_fullscreen: bool,
+    /// A janela vai para a grade: se nascer maximizada, volta ao normal — uma
+    /// vez (`should_leave_maximized`).
+    pub leave_maximized: bool,
 }
 
 impl ClientWindowPlan {
@@ -277,8 +299,12 @@ pub(crate) fn client_window_plan(inputs: ClientWindowInputs) -> ClientWindowPlan
         saved_rect: if grid { None } else { inputs.saved_rect },
         // Com tamanho no plano a conta é "em janela" por definição (o XML
         // grava `Fullscreen=false` junto do `StartScreenSize`). Sem tamanho e
-        // sem `Some(false)`, a tela cheia é preferência do próprio jogador.
+        // sem `Some(false)`, a tela cheia é preferência do próprio jogador —
+        // mesmo com a grade (`an_alt_with_nothing_resolved_keeps_the_players_own_fullscreen`).
         leave_fullscreen: inputs.window_size.is_some() || inputs.fullscreen == Some(false),
+        // Maximizada não é modo de jogo: é como a janela foi fechada da última
+        // vez (quem joga maximizado pelo site). Com a grade, volta ao normal.
+        leave_maximized: grid,
     }
 }
 
@@ -351,6 +377,7 @@ pub(crate) fn grid_window_style(settings: &SettingsStore) -> platform::windows::
     platform::windows::GridWindowStyle {
         allow_small: settings.get_bool("General", "GridAllowSmallWindows"),
         borderless: settings.get_bool("General", "GridBorderless"),
+        auto_fit: settings.get_bool("General", "GridAutoFit"),
     }
 }
 
@@ -455,6 +482,8 @@ pub(crate) fn spawn_client_window_enforcement(
         // A tela cheia herdada é tirada uma vez só (`leave_fullscreen`): se o
         // Roblox voltar para ela, a conferência seguinte a vê e para.
         let mut fullscreen_exit_tried = false;
+        // Maximizada com a grade: idem (`should_leave_maximized`).
+        let mut maximized_exit_tried = false;
         // Lido uma vez: a conferência segura a célula escolhida com os mesmos
         // flags com que ela foi posta.
         let grid_style = plan
@@ -484,8 +513,16 @@ pub(crate) fn spawn_client_window_enforcement(
                     }
                 }
             }
+            if windows::should_leave_maximized(plan.leave_maximized, mode, maximized_exit_tried) {
+                maximized_exit_tried = true;
+                if windows::leave_maximized(hwnd) {
+                    // O tamanho de agora é o normal guardado, não o que o XML deu.
+                    first_look = false;
+                    eprintln!("[window] PID {pid}: saiu de maximizada para entrar na grade");
+                }
+            }
             let outcome = match chosen {
-                Some(rect) => windows::hold_window_rect(hwnd, rect, grid_style.allow_small),
+                Some(rect) => windows::hold_window_rect(hwnd, rect, grid_style.small_cells()),
                 None if plan.grid => {
                     let request = {
                         let settings = app.state::<SettingsStore>();
@@ -718,12 +755,6 @@ fn windows_client_overrides(
     resolved
 }
 
-/// `General.RestoreRobloxSettingsOnExit`: devolver ao fechar o app o que o
-/// launch mudou nos arquivos do Roblox (ideia 21). Desligada por padrão.
-fn restore_roblox_settings_enabled(settings: &SettingsStore) -> bool {
-    settings.get_bool("General", "RestoreRobloxSettingsOnExit")
-}
-
 /// `base_path`: pasta da versão do Roblox que vai realmente abrir (`None` =
 /// build padrão/produção, usada pelo servidor HTTP local, que não tem conta no
 /// contexto). Sem isso, `ClientAppSettings.json` era sempre escrito na pasta de
@@ -743,10 +774,10 @@ pub(crate) fn patch_client_settings_for_launch(
     let custom_settings = custom_client_settings_path(settings, effective_profile);
     let custom_settings = custom_settings.trim();
     let mut custom_applied = false;
-    // Ideia 21: com "devolver ao fechar" ligado, o que estava nos arquivos do
-    // Roblox antes desta escrita fica anotado (settings_restore.rs).
-    let restore_snapshot = restore_roblox_settings_enabled(settings)
-        .then(|| windows::snapshot_roblox_settings(windows::roblox_settings_files(base_path)));
+    // Ideia 21: o que estava nos arquivos do Roblox antes desta escrita fica
+    // anotado (settings_restore.rs) — sempre, mesmo com a devolução desligada:
+    // ligá-la depois tem de devolver o valor do usuário, não o do app.
+    let restore_snapshot = windows::snapshot_roblox_settings(windows::roblox_settings_files(base_path));
 
     // Legacy behavior: custom settings file overrides FPS unlock when valid.
     if !custom_settings.is_empty()
@@ -773,9 +804,7 @@ pub(crate) fn patch_client_settings_for_launch(
     )
     .ok()
     .flatten();
-    if let Some(snapshot) = restore_snapshot {
-        windows::record_roblox_settings_change(snapshot);
-    }
+    windows::record_roblox_settings_change(restore_snapshot);
     ResolvedClientWindow {
         // Sem pedido desta conta nem do perfil global, vale o que o registro
         // pôs de volta depois da exceção de outra conta (a tela cheia da
@@ -1049,11 +1078,51 @@ where
         .map_err(|e| format!("{label} task failed: {e}"))
 }
 
+/// Resposta pendente do "abrir mesmo assim?" (`multi-roblox-confirm`). Uma por
+/// vez: uma pergunta nova responde "não" à anterior.
+static LAUNCH_ANYWAY_ANSWER: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<bool>>> =
+    std::sync::Mutex::new(None);
+
+/// Quanto o launch espera a pessoa responder. Sem resposta (ninguém na frente
+/// do PC, reconexão automática), conta como "não": nada é fechado.
+const LAUNCH_ANYWAY_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+fn register_launch_anyway_question() -> tokio::sync::oneshot::Receiver<bool> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let previous = LAUNCH_ANYWAY_ANSWER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .replace(tx);
+    if let Some(previous) = previous {
+        let _ = previous.send(false);
+    }
+    rx
+}
+
+/// Entrega a resposta da tela. `false` se não havia pergunta pendente.
+fn answer_launch_anyway(allow: bool) -> bool {
+    let pending = LAUNCH_ANYWAY_ANSWER.lock().unwrap_or_else(|e| e.into_inner()).take();
+    pending.map(|tx| tx.send(allow).is_ok()).unwrap_or(false)
+}
+
+async fn wait_launch_anyway_answer(
+    rx: tokio::sync::oneshot::Receiver<bool>,
+    wait: std::time::Duration,
+) -> bool {
+    matches!(tokio::time::timeout(wait, rx).await, Ok(Ok(true)))
+}
+
+#[tauri::command]
+fn answer_multi_roblox_confirm(allow: bool) -> bool {
+    answer_launch_anyway(allow)
+}
+
 #[cfg(target_os = "windows")]
 async fn ensure_multi_roblox_enabled(
     auto_close_conflicts: bool,
     reserve_singleton_event: bool,
-) -> Result<(), String> {
+    ask: Option<&tauri::AppHandle>,
+) -> Result<Option<String>, String> {
     // Experimental e desligado por padrão (ideia 3): com a opção ligada, o
     // `enable_multi_roblox` também reserva o nome `ROBLOX_singletonEvent`.
     platform::windows::set_singleton_reservation_enabled(reserve_singleton_event);
@@ -1065,8 +1134,22 @@ async fn ensure_multi_roblox_enabled(
     // opção opt-in, o launch para aqui com a mensagem — abrir fecharia esse
     // cliente. Com `AutoCloseRobloxForMultiRbx` ligado segue o caminho de
     // sempre dessa opção, abaixo.
+    // Seguiu apesar de outro programa segurar a trava: o aviso volta para o
+    // chamador pôr no log do launch.
+    let notice = platform::windows::multi_roblox_notice(&outcome);
+    // Abrir fecharia uma janela: pergunta na tela em vez de dar erro. Sem
+    // resposta em 2 min (ou recusa), segue o caminho de sempre — nada fecha.
+    if let (Some(app), Some(question)) = (ask, platform::windows::launch_anyway_question(&outcome)) {
+        let rx = register_launch_anyway_question();
+        if app.emit("multi-roblox-confirm", &question).is_ok()
+            && wait_launch_anyway_answer(rx, LAUNCH_ANYWAY_WAIT).await
+        {
+            platform::windows::lock_roblox_cookies()?;
+            return Ok(Some(platform::windows::MULTI_ROBLOX_LAUNCHED_ANYWAY.to_string()));
+        }
+    }
     if let Some(response) = platform::windows::held_event_response(outcome, auto_close_conflicts) {
-        return response;
+        return response.map(|()| notice);
     }
 
     let roblox_pids = platform::windows::get_roblox_pids();
@@ -1082,7 +1165,7 @@ async fn ensure_multi_roblox_enabled(
             let enabled_after =
                 run_off_worker("Multi Roblox", platform::windows::enable_multi_roblox).await??;
             if enabled_after {
-                return Ok(());
+                return Ok(None);
             }
         }
         return Err(
@@ -1101,7 +1184,7 @@ async fn ensure_multi_roblox_enabled(
     let enabled_retry =
         run_off_worker("Multi Roblox", platform::windows::enable_multi_roblox).await??;
     if enabled_retry {
-        return Ok(());
+        return Ok(None);
     }
 
     Err(

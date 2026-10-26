@@ -1,4 +1,4 @@
-import { Hourglass, UserX, WifiOff } from "lucide-react";
+import { Hourglass, UserX, WifiOff, ShieldAlert } from "lucide-react";
 import { useTr } from "../../i18n/text";
 import type { ClientHealth } from "../../types";
 import { clientHealthLabel, wrongAccountLabel } from "../../utils/clientHealth";
@@ -26,8 +26,8 @@ export function ClientHealthNote({
   const info = clientHealthLabel(health, t);
   if (!info) return null;
   const tooltip = info.detail ? `${info.label} — ${info.detail}` : info.label;
-  const Icon = info.tone === "hung" ? Hourglass : WifiOff;
-  const color = info.tone === "hung" ? "text-amber-400" : "text-red-400";
+  const Icon = info.tone === "hung" ? Hourglass : info.tone === "challenge" ? ShieldAlert : WifiOff;
+  const color = info.tone === "drop" ? "text-red-400" : "text-amber-400";
   return (
     <span
       data-testid="client-health-note"

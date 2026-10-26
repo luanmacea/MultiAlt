@@ -286,9 +286,8 @@ export function useRejoinController({
   const actionButtonsLocked = uiActionLocked;
 
   /** Por que o Start não liga — a primeira coisa que falta, na barra de estado. */
-  const startBlocker: string | null = !multiRbxEnabled
-    ? t("Auto Rejoin currently requires Multi Roblox to be enabled")
-    : candidates.length === 0
+  // Multi Roblox desligado não barra mais: o Start liga (o ciclo precisa dele).
+  const startBlocker: string | null = candidates.length === 0
       ? t("No Roblox client is open yet. Open the accounts first.")
       : picked.length === 0
         ? t("Select at least one account")
@@ -310,6 +309,7 @@ export function useRejoinController({
     setBottingStartError(null);
     setBusy(true);
     try {
+      if (!multiRbxEnabled) await store.updateSetting("General", "EnableMultiRbx", "true");
       if (serverMode === "current") {
         await saveDraft();
         // Nada fecha nem relança: as contas ficam no servidor em que estão até

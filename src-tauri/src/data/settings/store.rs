@@ -114,6 +114,11 @@ impl SettingsStore {
                 Some("Grid cells may be smaller than Roblox's minimum window (only clients MultiAlt launched)"),
             ),
             (
+                "GridAutoFit",
+                "false",
+                Some("Grid cells take the largest landscape size that fits every window on the grid monitors (replaces the window size and GridAllowSmallWindows)"),
+            ),
+            (
                 "GridBorderless",
                 "false",
                 Some("Grid windows lose their title bar and border; turning it off gives them back"),
@@ -425,7 +430,9 @@ impl SettingsStore {
         }
 
         let login_defaults: &[(&str, &str)] = &[
-            ("PersistentProfile", "true"),
+            // Anônimo por padrão (26/10/2026): cada uso do navegador começa num
+            // perfil limpo e não guarda nada para a próxima vez.
+            ("PersistentProfile", "false"),
             ("StealthMode", "true"),
             // Vazio = nada configurado; `IniSection::set` não grava valor em
             // branco, então esta chave só aparece no INI depois que o usuário
@@ -439,6 +446,13 @@ impl SettingsStore {
                 login.set(key, value, None);
             }
         }
+        // O padrão antigo era o perfil persistente, gravado no INI de quem já
+        // usava o app: desliga uma vez (pedido do dono, 26/10/2026) e depois
+        // respeita quem ligar de novo.
+        if !login.exists("PrivateBrowserDefaultV1") {
+            login.set("PersistentProfile", "false", None);
+            login.set("PrivateBrowserDefaultV1", "true", None);
+        }
 
         // AFK mode. `Key` nasce **vazia** de proposito: sem tecla escolhida pelo
         // usuario o modo nao liga, e chave vazia nao chega a ser gravada no INI
@@ -451,6 +465,7 @@ impl SettingsStore {
             ("IntervalSeconds", "0"),
             ("Key", ""),
             ("BeepOnCycle", "false"),
+            ("BeepBeforeCycle", "false"),
             ("Mode", "key"),
             ("ClickX", "50"),
             ("ClickY", "50"),

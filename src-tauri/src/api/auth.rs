@@ -97,6 +97,12 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
 /// Reserva do [`validate_cookie`] quando o site redireciona: a API de
 /// usuários diz id e nome sem passar pela página que a moderação bloqueia.
 /// `to_moderation` = o redirecionamento ia para `/not-approved`.
+/// O erro de `validate_cookie` para conta moderada: o cookie pode ser bom, mas
+/// o Roblox não diz de quem ele é pelas consultas de sempre.
+pub fn is_moderated_account_error(error: &str) -> bool {
+    error.contains("Roblox is restricting this account")
+}
+
 async fn validate_cookie_via_users_api(
     security_token: &str,
     to_moderation: bool,
@@ -380,11 +386,15 @@ pub async fn log_out_other_sessions(security_token: &str) -> Result<RefreshResul
 
     let client = build_client();
 
+    // O `www.roblox.com/authentication/signoutfromallsessionsandreauthenticate`
+    // saiu do ar (404, conferido em 25/10/2026): o "Atualizar cookies" falhava
+    // em toda conta, inclusive nas de sessão boa. O endereço atual é este.
     let request = client
-        .post(format!("{}/authentication/signoutfromallsessionsandreauthenticate", endpoints::host("www")))
+        .post(format!("{}/v1/logoutfromallsessionsandreauthenticate", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("Content-Type", "application/x-www-form-urlencoded");
+        .header("Content-Type", "application/json")
+        .body("{}");
     let response = send_with_csrf_retry(request, &csrf).await?;
 
     // Roblox may return redirects for this endpoint while still setting cookies.

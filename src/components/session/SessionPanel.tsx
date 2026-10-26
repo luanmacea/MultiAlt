@@ -233,7 +233,8 @@ function RunningState({
       </span>
     );
   }
-  if (health?.drop || health?.notResponding) return null;
+  // A queda, o "não responde" e a verificação do Roblox têm a linha própria.
+  if (health?.drop || health?.notResponding || health?.challenge) return null;
   if (session) {
     return (
       <span className="shrink-0 inline-flex items-center gap-1 text-emerald-400">
@@ -685,7 +686,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
       const before = previous.get(id);
       if (before === undefined || before === status) continue;
       const name = nameFor(id);
-      if (status === "dropped" || status === "notResponding") {
+      if (status === "dropped" || status === "notResponding" || status === "humanCheck") {
         const info = clientHealthLabel(store.clientHealth?.get(id), t);
         if (info) messages.push(`${name}: ${info.label}`);
       } else if (status === "reconnecting") {
@@ -859,7 +860,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
             )}
           </span>
           {health?.wrongAccountUserId != null && <WrongAccountNote health={health} />}
-          {(health?.drop || health?.notResponding) && <ClientHealthNote health={health} wrap />}
+          {(health?.drop || health?.notResponding || health?.challenge) && <ClientHealthNote health={health} wrap />}
           {reconnectInRow.has(userId) && renderReconnectLine(reconnectInRow.get(userId)!)}
           {session && context === "full" && <CurrentSessionLine session={session} server={health?.server} />}
         </span>

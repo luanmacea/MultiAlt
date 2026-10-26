@@ -42,6 +42,7 @@ export function StatusBar() {
       .map((a) => moderationBadge(store.moderationByUserId?.get(a.UserID)))
       .filter((kind): kind is "banned" | "warned" => kind !== null)
   );
+  const anyHumanCheck = store.accounts.some((a) => !!a.HumanCheckAt);
   const onlineCount = countPresence((p) => p === 1);
   const inGameCount = countPresence((p) => p >= 2 && p !== 3);
   const studioCount = countPresence((p) => p === 3);
@@ -217,6 +218,12 @@ export function StatusBar() {
         </span>
         {/* Moderação só entra na legenda quando alguma conta tem o selo: são
             estados raros, e a legenda fixa já é longa. */}
+        {anyHumanCheck && (
+          <span className="inline-flex items-center gap-1 shrink-0">
+            <StatusBadge kind="humancheck" label={t("human check")} decorative />
+            {t("human check")}
+          </span>
+        )}
         {moderationKinds.has("banned") && (
           <span className="inline-flex items-center gap-1 shrink-0">
             <StatusBadge kind="banned" label={t("banned")} decorative />

@@ -60,6 +60,11 @@ pub enum ClientLogEvent {
     ServerAddress { address: String },
     /// `Server Prefix: ..._<AAAAMMDDTHHMMSSZ>_RCC_...`: quando o servidor subiu.
     ServerStarted { started_at_ms: i64 },
+    /// A tela "confirme que é humano" do Roblox apareceu na janela
+    /// (`"feature":"challengeDisplayed"` do navegador embutido do cliente).
+    ChallengeShown,
+    /// A pessoa resolveu a verificação (`"feature":"challengeCompleted"`).
+    ChallengeCompleted,
 }
 
 /// Texto depois de `marker`, se houver.
@@ -145,6 +150,12 @@ fn kick_message(line: &str) -> Option<Option<String>> {
 /// Classifica uma linha do log do cliente. Puro: nada aqui guarda a linha
 /// (ela pode trazer ticket, IP e Job ID).
 pub fn classify_log_line(line: &str) -> Option<ClientLogEvent> {
+    if line.contains("\"feature\":\"challengeDisplayed\"") {
+        return Some(ClientLogEvent::ChallengeShown);
+    }
+    if line.contains("\"feature\":\"challengeCompleted\"") {
+        return Some(ClientLogEvent::ChallengeCompleted);
+    }
     if let Some(user_id) = crate::roblox_log::game_join_user_id(line) {
         return Some(ClientLogEvent::JoinedAs { user_id });
     }
@@ -277,6 +288,8 @@ pub struct ClientLogSession {
     destination: Option<JoinedDestination>,
     /// A conta com que o cliente entrou no jogo, pelo log (a última vista).
     logged_user_id: Option<i64>,
+    /// A verificação "confirme que é humano" está na tela, esperando a pessoa.
+    challenge: bool,
 }
 
 impl ClientLogSession {
@@ -291,6 +304,8 @@ impl ClientLogSession {
                 self.left = false;
                 self.joined = true;
                 self.last_teleport_ms = None;
+                // Entrou: a verificação (se havia) passou.
+                self.challenge = false;
                 match (place_id, self.destination.as_mut()) {
                     (Some(place_id), _) => {
                         self.destination = Some(JoinedDestination {
@@ -319,6 +334,8 @@ impl ClientLogSession {
                 }
             }
             ClientLogEvent::JoinedAs { user_id } => self.logged_user_id = Some(*user_id),
+            ClientLogEvent::ChallengeShown => self.challenge = true,
+            ClientLogEvent::ChallengeCompleted => self.challenge = false,
             ClientLogEvent::TeleportStarted => self.last_teleport_ms = Some(now_ms),
             ClientLogEvent::LeftVoluntarily => self.left = true,
             ClientLogEvent::Disconnected { code, reason } => self.note_drop(ClientDrop {
@@ -392,6 +409,12 @@ impl ClientLogSession {
     /// sinal que a fila de launch espera antes da próxima conta (launch.rs).
     pub fn in_game(&self) -> bool {
         self.joined && !self.left && self.drop.is_none() && self.pending.is_none()
+    }
+
+    /// A tela "confirme que é humano" está esperando a pessoa (apareceu, e
+    /// ainda não foi resolvida nem a conta entrou no jogo).
+    pub fn challenge_pending(&self) -> bool {
+        self.challenge
     }
 
     /// A conta com que o cliente entrou no jogo, se o log já disse.
@@ -566,6 +589,8 @@ struct ClientHealthEntry {
     not_responding: bool,
     /// A conta que o log mostrou, quando é outra (ver `wrong_account`).
     wrong_account: Option<i64>,
+    /// A verificação pendente que já virou aviso (para avisar uma vez só).
+    challenge_reported: bool,
 }
 
 impl ClientHealthEntry {
@@ -584,6 +609,7 @@ impl ClientHealthEntry {
             hung: HungWatch::default(),
             not_responding: false,
             wrong_account: None,
+            challenge_reported: false,
         }
     }
 
@@ -612,6 +638,8 @@ pub struct ClientHealthView {
     /// O servidor em que está: região (pelo IP público) e desde quando está no
     /// ar. `None` enquanto o log não disse nada do servidor.
     pub server: Option<ClientServerView>,
+    /// A tela "confirme que é humano" do Roblox está esperando a pessoa.
+    pub challenge: bool,
     /// Onde entrou por último — só para a reconexão, não vai para a tela.
     #[serde(skip)]
     pub destination: Option<JoinedDestination>,
@@ -778,6 +806,11 @@ pub enum HealthNotice {
     NotResponding { user_id: i64, not_responding: bool },
     /// O cliente aberto para `user_id` entrou como `logged_user_id`.
     WrongAccount { user_id: i64, logged_user_id: i64 },
+    /// A verificação "confirme que é humano" apareceu (`pending`) ou saiu da
+    /// tela (resolvida, entrou no jogo ou o cliente fechou).
+    /// `resolved`: saiu porque a pessoa resolveu (ou a conta entrou no jogo),
+    /// não porque o cliente fechou com ela na tela.
+    Challenge { user_id: i64, pending: bool, resolved: bool },
 }
 
 #[derive(Debug, Default)]
@@ -880,6 +913,18 @@ impl ClientHealthMonitor {
                 });
             }
             entry.wrong_account = wrong;
+
+            // Verificação do Roblox na tela: avisa quando aparece e quando sai.
+            let still_on_screen = entry.session.challenge_pending();
+            let challenge = !entry.exit_seen && still_on_screen;
+            if challenge != entry.challenge_reported {
+                notices.push(HealthNotice::Challenge {
+                    user_id: client.user_id,
+                    pending: challenge,
+                    resolved: !still_on_screen,
+                });
+                entry.challenge_reported = challenge;
+            }
 
             let window = alive
                 .contains(&entry.pid)
@@ -993,6 +1038,7 @@ impl ClientHealthMonitor {
                         in_game: !entry.exit_seen && entry.session.in_game(),
                         wrong_account_user_id: entry.wrong_account,
                         server: server_view_of(entry.session.destination()),
+                        challenge: !entry.exit_seen && entry.session.challenge_pending(),
                         destination: entry.session.destination().cloned(),
                         exited: entry.exit_seen,
                     },
@@ -1274,6 +1320,33 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 wrong_account_console_line(*logged_user_id, queue_stopped),
             );
         }
+        HealthNotice::Challenge { user_id, pending, resolved } => {
+            // A conta guarda a marca para a próxima vez que o app abrir.
+            if let Some(mark) = human_check_mark(*pending, *resolved) {
+                let store = app.state::<AccountStore>();
+                if store.set_human_check(*user_id, mark).unwrap_or(false) {
+                    let at = store
+                        .get_all()
+                        .ok()
+                        .and_then(|all| all.into_iter().find(|a| a.user_id == *user_id))
+                        .and_then(|a| a.human_check_at);
+                    let _ = app.emit("account-human-check", serde_json::json!({ "userId": user_id, "at": at }));
+                }
+            }
+            let _ = app.emit(
+                "roblox-client-health",
+                serde_json::json!({
+                    "userId": user_id,
+                    "challenge": pending,
+                }),
+            );
+            let line = if *pending {
+                "O Roblox pediu uma verificação (confirme que é humano): resolva na janela do jogo"
+            } else {
+                "A verificação do Roblox saiu da tela"
+            };
+            emit_launch_log(app, *user_id, if *pending { "warn" } else { "info" }, "client", String::from(line));
+        }
         HealthNotice::Recovered { user_id } => {
             let _ = app.emit(
                 "roblox-client-health",
@@ -1284,5 +1357,19 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
             );
             emit_launch_log(app, *user_id, "info", "client", String::from("Entrou num jogo de novo"));
         }
+    }
+}
+
+/// O que fazer com a marca de verificação humana da conta a cada aviso:
+/// `Some(true)` marca (apareceu), `Some(false)` limpa (resolvida, ou entrou no
+/// jogo), `None` deixa como está (o cliente fechou com ela na tela — a próxima
+/// abertura vai pedir de novo).
+fn human_check_mark(pending: bool, resolved: bool) -> Option<bool> {
+    if pending {
+        Some(true)
+    } else if resolved {
+        Some(false)
+    } else {
+        None
     }
 }

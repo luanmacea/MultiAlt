@@ -55,6 +55,11 @@ impl ChromiumManager {
         }
     }
 
+    /// O PID da janela rastreada desta conta, se houver.
+    pub fn pid_of(&self, user_id: i64) -> Option<u32> {
+        lock(&self.children).get(&user_id).map(Child::id)
+    }
+
     pub fn track(&self, user_id: i64, child: Child) {
         let mut children = lock(&self.children);
         if let Some(mut old) = children.insert(user_id, child) {
