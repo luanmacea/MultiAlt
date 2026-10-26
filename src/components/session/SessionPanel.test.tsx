@@ -1786,6 +1786,19 @@ describe("SessionPanel — sessão atual", () => {
     expect(row.queryByTestId("session-time-1")).not.toBeInTheDocument();
   });
 
+  /**
+   * Bateria de 25/10/2026, com Roblox de verdade: a conta foi para "Precisa de
+   * atenção" mas a linha dizia "Ainda fora de um jogo". Ela diz o que é.
+   */
+  it("an account waiting on Roblox's human check says so, not 'not in a game yet'", async () => {
+    renderRunning([], {
+      clientHealth: new Map([[1, { pid: 1, logFound: true, drop: null, inGame: false, challenge: true }]]),
+    });
+    const row = within(screen.getByTestId("session-running-1"));
+    expect(await row.findByText("Roblox human check")).toBeInTheDocument();
+    expect(row.queryByText("Not in a game yet")).not.toBeInTheDocument();
+  });
+
   it("a dropped account shows why, not Playing nor the time", async () => {
     renderRunning([], {
       clientHealth: new Map([
