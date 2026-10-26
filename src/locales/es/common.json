@@ -2838,5 +2838,8 @@
   "Waiting for you in the browser window": "Esperándote en la ventana del navegador",
   "Working": "En curso",
   "Working {{done}}/{{total}}...": "En curso {{done}}/{{total}}...",
-  "Working...": "En curso..."
+  "Working...": "En curso...",
+  "The login window was closed before the sign-in finished.": "La ventana de inicio de sesión se cerró antes de terminar.",
+  "The sign-in took too long. Try again.": "El inicio de sesión tardó demasiado. Inténtalo de nuevo.",
+  "You signed in as {{got}}, not {{expected}}. Nothing was changed.": "Iniciaste sesión como {{got}}, no como {{expected}}. No se cambió nada."
 }

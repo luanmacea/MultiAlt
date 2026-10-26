@@ -2838,5 +2838,8 @@
   "Waiting for you in the browser window": "Waiting for you in the browser window",
   "Working": "Working",
   "Working {{done}}/{{total}}...": "Working {{done}}/{{total}}...",
-  "Working...": "Working..."
+  "Working...": "Working...",
+  "The login window was closed before the sign-in finished.": "The login window was closed before the sign-in finished.",
+  "The sign-in took too long. Try again.": "The sign-in took too long. Try again.",
+  "You signed in as {{got}}, not {{expected}}. Nothing was changed.": "You signed in as {{got}}, not {{expected}}. Nothing was changed."
 }
