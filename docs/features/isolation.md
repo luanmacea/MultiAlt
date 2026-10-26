@@ -107,3 +107,14 @@ Seção `[Isolation]` do `RAMSettings.ini`:
 - Spoof de MAC corta a conexão brevemente; se rodar no meio de outras sessões, elas podem cair.
 - Auto Rejoin e web server não executam isolamento.
 - Dados apagados não vão para a lixeira (remoção direta com `remove_dir_all`/`RegDeleteTreeW`).
+
+## Relato do Discord: "a primeira conta abre no tamanho original" (26/10/2026)
+
+Um usuário atribuiu a janela da primeira conta fora da grade, no tamanho que quisesse, ao isolamento: o Medium/Full apaga a chave `HKCU/Software/ROBLOX Corporation`, o site passa a pedir para reinstalar o Roblox, o instalador abre o Roblox sozinho e — segundo ele — esse processo ficava em segundo plano depois de fechado, e a primeira conta aberta pelo MultiAlt herdava o tamanho de tela dele. Conferido no PC do dono, sem rodar o instalador (ele reinstalaria o Roblox):
+
+- **A parte do isolamento é real e já conhecida:** sem a chave, o Roblox se acha desinstalado ao abrir pelo site (ver "Não sobrescrever o canal do Roblox" no CLAUDE.md).
+- **Roblox aberto sem jogo não fica em segundo plano:** aberto direto (`RobloxPlayerBeta.exe` sem argumentos, como o instalador faz), ao fechar a janela o processo sai.
+- **Um Roblox já aberto não "pega" a primeira conta:** com o Roblox sem jogo aberto em tela cheia, a primeira conta aberta pelo MultiAlt subiu num processo **novo**, na primeira célula da grade (20,20, 816x638). O app fecha o handle de singleton dos clientes abertos antes de abrir (`close_roblox_singleton_handles`), e o processo antigo ficou como estava.
+
+O que não deu para testar: um processo deixado pelo próprio instalador. Se outro relato aparecer, pedir o Console do launch e a lista de processos do Roblox antes de abrir a primeira conta.
+

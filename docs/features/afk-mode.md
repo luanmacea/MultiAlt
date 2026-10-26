@@ -254,10 +254,11 @@ As falhas de envio por conta (`lastErrorCode` no `afk-status`) e a parada de eme
 | `Afk.IntervalSeconds` | `0` | Parte em segundos do mesmo intervalo (0–59). Total mínimo de 5 s, máximo de 120 min; contado do fim do ciclo. |
 | `Afk.Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada (inclusive os pares `Right+Left` e `Up+Down`). Vazio = o modo não liga (chave vazia não é gravada no INI). |
 | `Afk.BeepOnCycle` | `false` | Bipe curto quando um ciclo manda tecla. |
+| `Afk.BeepBeforeCycle` | `false` | Bipe de dois tons subindo 3 s antes de cada ciclo (qualquer modo), para dar tempo de soltar o mouse e o teclado. Ver [Bipe de aviso antes do ciclo](#bipe-de-aviso-antes-do-ciclo-afkbeepbeforecycle-26102026). |
+| `Afk.HideWindows` | ausente = ligado | "Keep Roblox windows out of sight": a janela que não estava à vista ganha o foco sem aparecer, em todo modo (tecla, clique e gravação). Só `"false"` desliga; a chave só entra no INI depois que a pessoa mexe. Ver [Janelas fora de vista](#janelas-fora-de-vista-afkhidewindows-24102026). |
 | `Afk.Mode` | `key` | `key` (tecla), `click` (clique) ou `recording` (a gravação de cada conta na vaga On anti-AFK, [recordings.md](recordings.md#as-duas-vagas)). Qualquer outro valor vira `key`. |
 | `Afk.ShakeToStop` | `false` | Chacoalhar o mouse para o Modo AFK e as gravações tocando. Ver [Parada de emergência](#parada-de-emergência-chacoalhar-o-mouse). |
 | `Afk.WaitForFullscreen` | `true` | Com uma janela em tela cheia de outro programa na frente, o ciclo espera (até 5 min além da hora). Ver [Tela cheia na frente](#tela-cheia-na-frente-ideia-25). |
-| `Afk.Mode` | `key` | `key` (tecla) ou `click` (clique). Qualquer outro valor vira `key`. |
 | `Afk.ClickX`, `Afk.ClickY` | `50`, `50` | Ponto padrão do clique, em % da área interna da janela. |
 | `AfkClickX`, `AfkClickY` (campos da conta) | ausentes | Ponto próprio da conta; ausente = usa o padrão. |
 

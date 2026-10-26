@@ -5,7 +5,7 @@
 Baixar e controlar uma cópia própria do Chromium (Chrome for Testing) para dois usos:
 
 - **Login**: abrir a página de login do Roblox, esperar o usuário (ou preencher usuário/senha por ele) e capturar o cookie `.ROBLOSECURITY` que sai do login, importando a conta sem que o usuário precise colar cookie na mão.
-- **Browser por conta**: abrir uma janela já autenticada com o cookie de uma conta salva, em um perfil separado por `UserID`.
+- **Browser por conta**: abrir uma janela já autenticada com o cookie de uma conta salva, em um perfil separado por `UserID` — que, por padrão (`Login.PersistentProfile` desligado), começa limpo e some quando a janela fecha.
 
 O controle é feito por **CDP** (Chrome DevTools Protocol) sobre WebSocket.
 
@@ -16,7 +16,8 @@ O controle é feito por **CDP** (Chrome DevTools Protocol) sobre WebSocket.
 | [chromium/download.rs](../../src-tauri/src/chromium/download.rs) | Resolve a build estável no catálogo Chrome for Testing, baixa, extrai e cacheia o binário (`ensure_chromium`, `is_installed`, `chromium_dir`); `resolve_browser_binary` decide entre caminho manual, download e navegador do sistema; `reinstall_chromium` apaga e baixa de novo |
 | [chromium/cdp.rs](../../src-tauri/src/chromium/cdp.rs) | `chrome_args` (linha de comando), `spawn_chrome` (processo + leitura do `DevToolsActivePort`), `CdpClient` (WebSocket CDP: `Network.*`, `Page.*`, `Runtime.evaluate`, `Browser.close`) |
 | [chromium/manager.rs](../../src-tauri/src/chromium/manager.rs) | `ChromiumManager`: processos vivos por conta (`LOGIN_KEY` = `i64::MIN` para a janela de login), cookie de login capturado, caminhos dos perfis |
-| [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) | Comandos Tauri: `is_browser_ready`, `ensure_browser`, `open_login_browser`, `extract_browser_cookie`, `close_login_browser`, `open_account_browser`, `import_userpass` |
+| [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) | Comandos Tauri: `is_browser_ready`, `ensure_browser`, `open_login_browser`, `extract_browser_cookie`, `close_login_browser`, `open_account_browser`, `import_userpass`, `run_browser_diagnostics` |
+| [chromium/diagnose.rs](../../src-tauri/src/chromium/diagnose.rs) | Checagem do navegador (`browserBinary`, `browserFolder`, `browserLoginOpen`, `browserStart`, `browserRoblox`) — ver "Checagem do navegador" abaixo |
 | [store.tsx](../../src/store.tsx) | `openLoginBrowser` / `openAccountBrowser` e o listener do evento `browser-login-detected` |
 | [ImportDialog.tsx](../../src/components/dialogs/ImportDialog.tsx) | Chama `import_userpass` (usuário + senha) |
 
@@ -40,7 +41,7 @@ Igual aos passos 1–5, mas depois espera o seletor `#login-username` e manda um
 
 ### Browser por conta (`open_account_browser`) — duas fases
 
-1. Normaliza o token da conta (`normalize_security_token`) e mata uma janela anterior da mesma conta (duas instâncias no mesmo perfil brigam pelo lock do Chromium).
+1. Normaliza o token da conta (`normalize_security_token`) e mata uma janela anterior da mesma conta (duas instâncias no mesmo perfil brigam pelo lock do Chromium). Com `Login.PersistentProfile` desligado (o padrão), o perfil da conta é apagado aqui, antes da fase 1, e um vigia o apaga de novo quando a janela da fase 2 fecha (ver "Anônimo por padrão em tudo").
 2. **Fase 1 — browser de setup**: sobe com a porta de debug, parado em `about:blank`, **sem nenhuma página do Roblox carregada**. Via CDP grava o `.ROBLOSECURITY` em `.roblox.com` e `www.roblox.com` **com validade de 1 ano** (`persistent_cookie_expiry`), o que faz o Chromium persistir o cookie no perfil em vez de mantê-lo só em memória.
 3. `close_browser` pede o encerramento gracioso (`Browser.close`, com `Page.close` como alternativa) — é o shutdown normal do Chromium que grava o cookie no disco. Esperamos a saída por até 10 s e, se travar, matamos o processo.
 4. **Fase 2 — a janela do usuário**: sobe de novo no mesmo perfil, direto em `https://www.roblox.com/home` — ou, com `groupId` (página Groups, depois de um captcha; ver [groups.md](groups.md)), em `https://www.roblox.com/communities/<groupId>`, montada no backend (`account_browser_start_url`) a partir só do id numérico —, **sem `--remote-debugging-port`**. É essa instância que o `ChromiumManager` rastreia.

@@ -137,7 +137,7 @@ src/                          - Frontend React/TypeScript
     accounts/                 - Lista de contas, linhas, chips, painel de UMA conta (DetailSidebar → SingleSelectSidebar). O painel de multi-seleção foi apagado: ação em lote fica na BottomActionBar e na Choose Game
     dialogs/                  - Modais: AddAccount, Import, Botting (Auto Rejoin), Afk, Backups, Generator, Versions, AccountUtils, AccountFields, Update
     pages/                    - Páginas da barra lateral (`activePage`): PageShell, Session, Afk, Avatars (+ `pages/avatars/`), Scripts, Theme, Nexus, Settings — ver docs/features/ui-layout.md
-    settings/                 - Seções da página Settings: Launch, Keep in game, Accounts, Privacy & security, Updates, App, Backups e, em Advanced, Developer, WebServer, Watcher, Account Generator, Isolation, Versions, Optimization
+    settings/                 - Seções da página Settings: Launch, Keep in game, Accounts, Privacy & security, Updates, App, Backups, Checks e, em Advanced, Developer, WebServer, Watcher, Account Generator, Isolation, Versions, Optimization
     server-list/              - Diálogo Server List: Games, Servers, Favorites, Recent
     servers/                  - Aba Servers da Choose Game (varredura, preferência de servidor, região)
     friends/                  - Aba Friends da Choose Game
@@ -193,7 +193,7 @@ src-tauri/src/                - Backend Rust
   platform/
     windows/                  - Windows-only: launch e canal (launch.rs), Multi Roblox (core.rs, singleton.rs), tracking de processo, isolation, registro, janelas, versões, otimização, SendInput do AFK — tecla e clique (input.rs — o único ponto)
     macos/                    - Implementação macOS (parcial)
-  chromium/                   - Chromium via CDP: manager, commands, cdp.rs, download de binário, criação de contas (signup.rs, signup_session.rs)
+  chromium/                   - Chromium via CDP: manager, commands, cdp.rs, download de binário, checagem do navegador (diagnose.rs), criação de contas (signup.rs, signup_session.rs)
   nexus/                      - Servidor WebSocket (feature `nexus`) para integração com Nexus.lua
 
 site/                         - Site de divulgação (HTML/CSS/JS puros, sem build), publicado no GitHub Pages pelo site.yml — ver site/README.md

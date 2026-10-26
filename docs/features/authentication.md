@@ -108,7 +108,7 @@ se r2 falha por sessão → "Roblox invalidated this session. Re-login required.
 ### Refresh de sessão — `refresh_account_session` / comando `refresh_cookie`
 
 1. `mark_refresh_attempt`: grava `LastAttemptedRefresh = agora` na conta (persistido).
-2. `log_out_other_sessions`: CSRF + `POST https://www.roblox.com/authentication/signoutfromallsessionsandreauthenticate`. Aceita 2xx **ou** 3xx.
+2. `log_out_other_sessions`: CSRF + `POST https://auth.roblox.com/v1/logoutfromallsessionsandreauthenticate` (corpo JSON `{}`). Aceita 2xx **ou** 3xx. O endereço antigo, `www.roblox.com/authentication/signoutfromallsessionsandreauthenticate`, passou a responder 404 (conferido em 25/10/2026) e fazia o refresh falhar em toda conta.
 3. Extrai o novo `.ROBLOSECURITY` dos headers `set-cookie`.
 4. Sem cookie novo (ou vazio) → `"Roblox invalidated this session. Re-login required."`.
 5. `persist_cookie_update`: grava o novo `SecurityToken` e `Valid = true`.
@@ -128,7 +128,7 @@ Travado por `cookie_rotation_tests` (parser), `account_token_swap_tests` (store)
 
 A cada **5 minutos**, se `General.AutoCookieRefresh != "false"` e o app está desbloqueado, para cada conta:
 - pula se `Fields.NoCookieRefresh == "true"`;
-- pula se `LastUse` tem menos de **20 dias** (e `LastUse` anda a cada launch bem-sucedido, então conta em uso nunca entra aqui — o que é o desejado: o refresh desloga todas as sessões da conta);
+- pula se `LastUse` tem menos de **20 dias** (e `LastUse` anda a cada launch bem-sucedido e também quando a conta joga fora do app — cliente aberto pelo site ou presença "em jogo", ver [accounts.md](accounts.md#usado-há-de-conta-jogada-fora-do-app-25102026) —, então conta em uso nunca entra aqui — o que é o desejado: o refresh desloga todas as sessões da conta);
 - pula se `LastAttemptedRefresh` tem menos de **7 dias**;
 - senão chama `refresh_cookie` e espera 5 s antes da próxima.
 
@@ -138,7 +138,7 @@ O "Refresh Cookies" manual da barra inferior faz o mesmo para as contas selecion
 
 - As **ações** que operam "como" uma conta (bloquear, avatar, privacidade, trocar senha/e-mail, PIN, quick login, compra, pedido de amizade avulso) e o auth ticket/private join do launch e do Auto Rejoin usam `run_with_session_retry` — no máximo **um** refresh e **uma** nova tentativa por chamada. **Leituras não** (regra logo abaixo), nem `make_selected_friends` (ver mais abaixo), nem a entrada em grupo (`join_group` e a página Groups, pelo navegador da conta — ver [groups.md](groups.md)).
 - **Regra: nunca use refresh de sessão (`run_with_session_retry` / `refresh_account_session`) em leituras ou ações não críticas.** Quem lê usa o helper `read_without_refresh` (pega o cookie e chama a API direto), e o teste estrutural `read_only_retry_tests` reprova se um comando da lista de leituras voltar a usar retry — `get_auth_ticket`, `get_csrf_token`, `check_pin`, `get_robux`, `get_blocked_users`, `get_private_server_invite_privacy` e `resolve_join_link` estão nessa lista. O refresh desloga a conta de **todas** as sessões e derruba clientes Roblox em execução. Para leituras tolerantes a falha, chame a API com `get_cookie` direto e trate o erro; para ações em lote, reporte a sessão inválida em vez de "consertá-la".
-- O refresh **desloga todas as outras sessões** da conta (é o endpoint `signoutfromallsessionsandreauthenticate`): clientes Roblox abertos com o cookie antigo podem cair.
+- O refresh **desloga todas as outras sessões** da conta (é o endpoint `auth.roblox.com/v1/logoutfromallsessionsandreauthenticate`): clientes Roblox abertos com o cookie antigo podem cair.
 - `LastAttemptedRefresh` é atualizado mesmo se o refresh falhar.
 - **`quick_login_validate_code` existe no backend ([api/auth.rs](../../src-tauri/src/api/auth.rs), com teste) e nada no frontend o chama**, de propósito registrado: o fluxo do Roblox que o app usa é `enterCode` + a confirmação que aparece no aparelho, e o frontend já barra código que não tenha 6 dígitos. A função fica disponível para quem quiser validar antes de enviar; se continuar sem uso, é candidata a remoção.
 - `change_password` também pode devolver um novo cookie; ele é persistido.
