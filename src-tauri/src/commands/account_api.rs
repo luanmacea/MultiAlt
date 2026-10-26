@@ -1330,6 +1330,28 @@ async fn presence_with_viewer_cookie(
     api::roblox::get_presence(user_ids).await
 }
 
+/// Presença "em jogo" (`userPresenceType` 2): a conta está jogando, onde
+/// quer que seja — pelo site, no celular, em outro PC.
+fn presence_means_in_use(presence_type: i32) -> bool {
+    presence_type == 2
+}
+
+/// Conta em jogo fora do app também está em uso: o "usado há" anda (de 10 em
+/// 10 min no máximo). Pedido do dono, 25/10/2026.
+fn mark_in_game_accounts_used(state: &AccountStore, presences: &[api::roblox::UserPresence]) -> Vec<i64> {
+    presences
+        .iter()
+        .filter(|p| presence_means_in_use(p.user_presence_type))
+        .filter(|p| state.mark_used_if_stale(p.user_id, IN_USE_MARK_EVERY).unwrap_or(false))
+        .map(|p| p.user_id)
+        .collect()
+}
+
+/// Avisa a tela que o "usado há" da conta andou (evento `account-used`).
+fn emit_account_used(app: &tauri::AppHandle, user_id: i64) {
+    let _ = app.emit("account-used", serde_json::json!({ "userId": user_id }));
+}
+
 /// Erro de presença que é rate limit (429). O formato vem de
 /// `social_presence::get_presence_as` ("Failed to get presence (status 429...)").
 fn is_presence_rate_limited(err: &str) -> bool {
@@ -1338,11 +1360,16 @@ fn is_presence_rate_limited(err: &str) -> bool {
 
 #[tauri::command]
 async fn get_presence(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AccountStore>,
     user_ids: Vec<i64>,
     viewer_user_id: Option<i64>,
 ) -> Result<Vec<api::roblox::UserPresence>, String> {
-    presence_with_viewer_cookie(state.inner(), &user_ids, viewer_user_id).await
+    let presences = presence_with_viewer_cookie(state.inner(), &user_ids, viewer_user_id).await?;
+    for user_id in mark_in_game_accounts_used(state.inner(), &presences) {
+        emit_account_used(&app, user_id);
+    }
+    Ok(presences)
 }
 
 /// Onde uma conta esta jogando agora.

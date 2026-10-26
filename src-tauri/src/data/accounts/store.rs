@@ -1479,6 +1479,24 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// `mark_used` para quem passa a toda hora (cliente aberto pelo site, presença
+    /// "em jogo"): só grava quando a última marca é mais velha que `min_age` —
+    /// conferir de 5 em 5 s não pode virar uma gravação do arquivo a cada vez.
+    /// Devolve `true` quando marcou.
+    pub fn mark_used_if_stale(&self, user_id: i64, min_age: chrono::Duration) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        let now = Utc::now();
+        if now - account.last_use < min_age {
+            return Ok(false);
+        }
+        account.last_use = now;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     pub fn reorder(&self, user_ids: &[i64]) -> Result<(), String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
 
