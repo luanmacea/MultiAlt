@@ -97,6 +97,12 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
 /// Reserva do [`validate_cookie`] quando o site redireciona: a API de
 /// usuários diz id e nome sem passar pela página que a moderação bloqueia.
 /// `to_moderation` = o redirecionamento ia para `/not-approved`.
+/// O erro de `validate_cookie` para conta moderada: o cookie pode ser bom, mas
+/// o Roblox não diz de quem ele é pelas consultas de sempre.
+pub fn is_moderated_account_error(error: &str) -> bool {
+    error.contains("Roblox is restricting this account")
+}
+
 async fn validate_cookie_via_users_api(
     security_token: &str,
     to_moderation: bool,
@@ -1086,6 +1092,9 @@ mod auth_http_tests {
             .await;
 
         let err = validate_cookie("locked-cookie").await.unwrap_err();
+        // É o erro que o "Fazer login de novo" reconhece como conta moderada.
+        assert!(is_moderated_account_error(&err), "{err}");
+        assert!(!is_moderated_account_error("Invalid cookie (status 401)"));
         assert!(err.contains("moderat"), "{err}");
         assert!(!err.contains("Invalid cookie"), "{err}");
     }

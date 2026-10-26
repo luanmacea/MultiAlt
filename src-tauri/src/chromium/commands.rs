@@ -95,6 +95,10 @@ fn kill_untracked(mut child: std::process::Child) {
 pub struct ImportedAccount {
     pub user_id: i64,
     pub name: String,
+    /// O login deu certo, mas o Roblox está restringindo a conta (banida,
+    /// advertida ou em análise).
+    #[serde(default)]
+    pub moderated: bool,
 }
 
 #[tauri::command]
@@ -629,6 +633,7 @@ pub async fn import_userpass(
     Ok(ImportedAccount {
         user_id: info.user_id,
         name: info.name,
+        moderated: false,
     })
 }
 
@@ -686,17 +691,33 @@ pub async fn relogin_account(
         }
     };
     log("info", "Sessão capturada no navegador; conferindo de quem é".to_string());
-    let info = match crate::api::auth::validate_cookie(&cookie).await {
-        Ok(info) => info,
+    // Conta moderada (relato de 26/10/2026): o login dá certo, mas as consultas
+    // de "de quem é" recusam. A moderação diz o ID da conta punida — com ele a
+    // sessão é conferida e gravada, em vez de jogada fora.
+    let (session_user_id, session_name, moderated) = match crate::api::auth::validate_cookie(&cookie).await {
+        Ok(info) => (info.user_id, info.name, false),
+        Err(e) if crate::api::auth::is_moderated_account_error(&e) => {
+            match crate::api::roblox::punished_user_id(&cookie, &crate::api::http_client::client()).await {
+                Ok(Some(id)) => (id, account.username.clone(), true),
+                Ok(None) => {
+                    log("warn", format!("O Roblox está restringindo a conta e não diz de quem é a sessão; nada foi gravado: {e}"));
+                    return Err(e);
+                }
+                Err(moderation_error) => {
+                    log("warn", format!("O Roblox está restringindo a conta e a consulta da moderação falhou ({moderation_error}); nada foi gravado"));
+                    return Err(e);
+                }
+            }
+        }
         Err(e) => {
             log("warn", format!("O Roblox não aceitou a sessão capturada: {e}"));
             return Err(e);
         }
     };
-    if let Err(e) = relogin_identity_check(user_id, &account.username, info.user_id, &info.name) {
+    if let Err(e) = relogin_identity_check(user_id, &account.username, session_user_id, &session_name) {
         log(
             "warn",
-            format!("A sessão capturada é de {} (ID {}), não desta conta; nada foi gravado", info.name, info.user_id),
+            format!("A sessão capturada é de {} (ID {}), não desta conta; nada foi gravado", session_name, session_user_id),
         );
         return Err(e);
     }
@@ -707,17 +728,18 @@ pub async fn relogin_account(
         return Err("This account is no longer in the list.".to_string());
     }
     log(
-        "info",
-        if password_changed {
-            "Login feito: sessão nova gravada e a senha guardada atualizada (a anterior ficou no histórico)".to_string()
-        } else {
-            "Login feito: sessão nova gravada".to_string()
+        if moderated { "warn" } else { "info" },
+        match (password_changed, moderated) {
+            (_, true) => "Login feito: sessão nova gravada, mas o Roblox está restringindo a conta (banida, advertida ou em análise). Veja em roblox.com/not-approved".to_string(),
+            (true, false) => "Login feito: sessão nova gravada e a senha guardada atualizada (a anterior ficou no histórico)".to_string(),
+            (false, false) => "Login feito: sessão nova gravada".to_string(),
         },
     );
 
     Ok(ImportedAccount {
-        user_id: info.user_id,
-        name: info.name,
+        user_id: session_user_id,
+        name: session_name,
+        moderated,
     })
 }
 

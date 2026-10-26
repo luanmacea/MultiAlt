@@ -3786,7 +3786,11 @@ describe("checkAccounts", () => {
     expect(result.current.accountCheckReport).toBeNull();
   });
 
-  it("keeps the plain counts toast for a single account", async () => {
+  /**
+   * Pedido do dono (26/10/2026): com uma conta só, o "Conferir contas" dava só
+   * o toast de contagem — a janela de resultados é o padrão para toda ação.
+   */
+  it("opens the results window for a single account too", async () => {
     results.set("check_accounts", {
       total: 1,
       ok: 0,
@@ -3802,10 +3806,7 @@ describe("checkAccounts", () => {
       await result.current.checkAccounts([2]);
     });
 
-    expect(result.current.accountCheckReport).toBeNull();
-    expect(result.current.toasts).toMatchObject([
-      { message: "0 ok, 0 invalid, 1 banned, 0 couldn't check", tone: "warn" },
-    ]);
+    expect(result.current.accountCheckReport?.results).toEqual([{ userId: 2, outcome: "banned" }]);
   });
 
   it("does not open the report when the check itself failed", async () => {
