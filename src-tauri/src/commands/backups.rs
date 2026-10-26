@@ -88,6 +88,8 @@ pub struct BackupEntry {
     /// arquivo continua na lista — o usuário precisa ver que ele existe.
     pub valid: bool,
     pub automatic: bool,
+    /// A versão do app que fez o backup ("v2.4.0"), quando o manifesto diz.
+    pub app_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -363,6 +365,26 @@ pub fn create_backup_in(
     automatic: bool,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<BackupEntry, String> {
+    create_backup_with_version_in(layout, label, automatic, now, None)
+}
+
+/// A versão que o backup grava: a que a tela mostra no título (vem do
+/// frontend), ou a do pacote (`tauri.conf.json`, que a release preenche).
+fn backup_app_version(from_screen: Option<String>, package_version: &str) -> String {
+    match from_screen.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+        Some(version) => version,
+        None => format!("v{package_version}"),
+    }
+}
+
+/// `create_backup_in` gravando a versão do app no manifesto (`app_version`).
+pub fn create_backup_with_version_in(
+    layout: &BackupLayout,
+    label: Option<&str>,
+    automatic: bool,
+    now: chrono::DateTime<chrono::Utc>,
+    app_version: Option<&str>,
+) -> Result<BackupEntry, String> {
     use std::io::Write;
 
     let dir = layout.backups_dir();
@@ -404,7 +426,7 @@ pub fn create_backup_in(
             created_at: now,
             label: label.and_then(display_backup_label),
             automatic,
-            app_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            app_version: app_version.map(str::to_string),
             files,
         };
         let json = serde_json::to_string_pretty(&manifest)
@@ -454,6 +476,7 @@ pub fn create_backup_in(
         files: manifest.files.iter().map(|f| f.name.clone()).collect(),
         valid: true,
         automatic,
+        app_version: manifest.app_version.clone(),
     })
 }
 
@@ -499,6 +522,7 @@ fn read_backup_entry(path: &std::path::Path) -> Option<BackupEntry> {
             files: manifest.files.into_iter().map(|f| f.name).collect(),
             valid: true,
             automatic: manifest.automatic,
+            app_version: manifest.app_version,
         }),
         Err(_) => {
             // Sem manifesto: data e rótulo saem do nome; se nem isso der, a data
@@ -522,6 +546,7 @@ fn read_backup_entry(path: &std::path::Path) -> Option<BackupEntry> {
                 valid: false,
                 // Não dá para afirmar que é automático → a retenção não encosta.
                 automatic: false,
+                app_version: None,
             })
         }
     }
@@ -741,10 +766,15 @@ fn list_backups() -> Result<Vec<BackupEntry>, String> {
 }
 
 #[tauri::command]
-fn create_backup(label: Option<String>) -> Result<BackupEntry, String> {
+fn create_backup(
+    app: tauri::AppHandle,
+    label: Option<String>,
+    app_version: Option<String>,
+) -> Result<BackupEntry, String> {
     let layout = runtime_backup_layout();
+    let version = backup_app_version(app_version, &app.package_info().version.to_string());
     // Backup pedido pelo usuário nunca é automático: a retenção não o apaga.
-    let entry = create_backup_in(&layout, label.as_deref(), false, chrono::Utc::now())?;
+    let entry = create_backup_with_version_in(&layout, label.as_deref(), false, chrono::Utc::now(), Some(&version))?;
     prune_automatic_backups(&layout.backups_dir(), MAX_AUTOMATIC_BACKUPS);
     Ok(entry)
 }
@@ -797,6 +827,7 @@ fn restore_backup(
     accounts: tauri::State<'_, AccountStore>,
     settings: tauri::State<'_, SettingsStore>,
     id: String,
+    app_version: Option<String>,
 ) -> Result<RestoreReport, String> {
     let layout = runtime_backup_layout();
     let dir = layout.backups_dir();
@@ -808,11 +839,13 @@ fn restore_backup(
     read_manifest_from(&path)
         .map_err(|e| format!("Backup inválido ({e}); nada foi alterado."))?;
 
-    let safety = create_backup_in(
+    let version = backup_app_version(app_version, &app.package_info().version.to_string());
+    let safety = create_backup_with_version_in(
         &layout,
         Some(SAFETY_BACKUP_LABEL),
         true,
         chrono::Utc::now(),
+        Some(&version),
     )
     .map_err(|e| {
         format!("Não foi possível criar o backup de segurança antes de restaurar ({e}); nada foi alterado.")
@@ -1058,6 +1091,40 @@ mod backups_tests {
         assert!(list_backups_in(&dir).iter().any(|e| e.id == entry.id));
         assert!(delete_backup_in(&dir, &entry.id).unwrap());
         assert!(list_backups_in(&dir).is_empty());
+    }
+
+    /// Pedido do dono (26/10/2026): a lista diz em que versão cada backup foi
+    /// feito. A versão vem da tela (a mesma do título: "v2.4.0" na release,
+    /// "v2.3.0-beta + test 41e0cba" no build de teste); `CARGO_PKG_VERSION`
+    /// ficava sempre "2.0.0", porque a release grava o número só no
+    /// tauri.conf.json.
+    #[test]
+    fn a_backup_remembers_the_app_version_it_was_made_with() {
+        let layout = temp_layout("app-version");
+        seed_data(&layout);
+        let dir = layout.backups_dir();
+        let entry = create_backup_with_version_in(
+            &layout,
+            Some("versao"),
+            false,
+            chrono::Utc::now(),
+            Some("v2.3.0-beta + test 41e0cba"),
+        )
+        .unwrap();
+        assert_eq!(entry.app_version.as_deref(), Some("v2.3.0-beta + test 41e0cba"));
+        let listed = list_backups_in(&dir).into_iter().find(|e| e.id == entry.id).unwrap();
+        assert_eq!(listed.app_version.as_deref(), Some("v2.3.0-beta + test 41e0cba"));
+
+        // Sem versão conhecida, o backup não inventa uma.
+        let unknown = create_backup_in(&layout, Some("sem"), false, chrono::Utc::now()).unwrap();
+        assert_eq!(unknown.app_version, None);
+    }
+
+    #[test]
+    fn the_version_shown_is_the_one_the_screen_sent_or_the_app_package_one() {
+        assert_eq!(backup_app_version(Some(" v2.4.0 ".into()), "2.4.0"), "v2.4.0");
+        assert_eq!(backup_app_version(Some("".into()), "2.4.0"), "v2.4.0");
+        assert_eq!(backup_app_version(None, "2.4.0"), "v2.4.0");
     }
 
     #[test]
@@ -1753,9 +1820,10 @@ mod backups_tests {
             files: vec!["AccountData.json".into()],
             valid: true,
             automatic: false,
+            app_version: Some("v2.4.0".into()),
         };
         let json = serde_json::to_value(&entry).unwrap();
-        for key in ["id", "fileName", "createdAt", "label", "sizeBytes", "files", "valid"] {
+        for key in ["id", "fileName", "createdAt", "label", "sizeBytes", "files", "valid", "appVersion"] {
             assert!(json.get(key).is_some(), "falta {key}: {json}");
         }
 

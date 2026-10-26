@@ -369,6 +369,8 @@ export interface BackupEntry {
   valid: boolean;
   /** `true` para backups criados pelo próprio app (segurança / retenção). */
   automatic?: boolean;
+  /** A versão do app que fez o backup ("v2.4.0"), quando o backup diz. */
+  appVersion?: string | null;
 }
 
 /** Resultado de `restore_backup`. */
