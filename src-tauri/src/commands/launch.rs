@@ -951,6 +951,34 @@ fn emit_launch_queue(app: &tauri::AppHandle, payload: &LaunchQueuePayload) {
     let _ = app.emit("launch-queue", payload);
 }
 
+/// O resultado de um lote que acabou de fechar, para o aviso no Discord:
+/// (abertas, falharam, canceladas). Só lote de 2 contas ou mais — o launch de
+/// uma conta não é "lote".
+fn launch_batch_result(entries: &[LaunchQueueEntry]) -> Option<(u32, u32, u32)> {
+    if entries.len() < 2 {
+        return None;
+    }
+    let count = |state: LaunchQueueState| entries.iter().filter(|e| e.state == state).count() as u32;
+    Some((
+        count(LaunchQueueState::Done),
+        count(LaunchQueueState::Failed),
+        count(LaunchQueueState::Cancelled),
+    ))
+}
+
+/// A fila acabou de fechar: avisa no Discord (se a caixa estiver ligada).
+fn webhook_after_launch_batch(app: &tauri::AppHandle, payload: &LaunchQueuePayload) {
+    if let Some((done, failed, cancelled)) = launch_batch_result(&payload.entries) {
+        notify_webhook(
+            app,
+            WebhookEventKind::BatchFinished,
+            0,
+            Some(WebhookReason::BatchResult { done, failed, cancelled }),
+            (payload.place_id > 0).then_some(payload.place_id),
+        );
+    }
+}
+
 /// Código devolvido quando o usuário dispara um launch com outro em andamento.
 /// É um código, não uma frase: quem traduz é o frontend
 /// (`isLaunchAlreadyActiveError` em `src/utils/robloxErrors.ts`).
@@ -1040,6 +1068,7 @@ impl LaunchSequenceGuard {
         });
         if closed {
             emit_launch_queue(&self.app, &payload);
+            webhook_after_launch_batch(&self.app, &payload);
         }
         next
     }
@@ -1056,6 +1085,7 @@ impl LaunchSequenceGuard {
         let (changed, payload) = with_launch_queue(|queue| queue.finish(self.generation));
         if changed {
             emit_launch_queue(&self.app, &payload);
+            webhook_after_launch_batch(&self.app, &payload);
         }
     }
 
@@ -3144,6 +3174,26 @@ mod launch_queue_tests {
                 "{state:?} não é uso: a conta pode nem ter aberto"
             );
         }
+    }
+
+    /// O aviso "lote terminou" do Discord conta cada estado, e o launch de uma
+    /// conta só não é lote.
+    #[test]
+    fn a_finished_batch_reports_how_many_opened_failed_and_were_cancelled() {
+        let entry = |user_id, state| LaunchQueueEntry {
+            state,
+            ..LaunchQueueEntry::queued(user_id, &LaunchRequest::default(), 0)
+        };
+        assert_eq!(launch_batch_result(&[entry(1, LaunchQueueState::Done)]), None);
+        assert_eq!(
+            launch_batch_result(&[
+                entry(1, LaunchQueueState::Done),
+                entry(2, LaunchQueueState::Done),
+                entry(3, LaunchQueueState::Failed),
+                entry(4, LaunchQueueState::Cancelled),
+            ]),
+            Some((2, 1, 1))
+        );
     }
 
     /// A geração do primeiro lote de uma fila nova. Os testes usam o número

@@ -79,6 +79,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_JobObjects",
     "Win32_System_Registry",
     "Win32_System_Memory",
+    # GlobalMemoryStatusEx: aviso "Windows quase sem memória" da página Discord
+    # (commands/discord_status.rs). Só leitura.
+    "Win32_System_SystemInformation",
     # SetThreadExecutionState: PC acordado (sem a tela) durante o Modo AFK, o
     # Auto Rejoin e a reconexão automática (platform/windows/power.rs).
     "Win32_System_Power",

@@ -43,6 +43,7 @@ include!("commands/launch.rs");
 include!("commands/launch_presets.rs");
 include!("commands/tray.rs");
 include!("commands/webhook.rs");
+include!("commands/discord_status.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
@@ -469,6 +470,9 @@ pub fn run() {
             // Avisos no Discord (desligados por padrão): a fila que manda —
             // ver commands/webhook.rs.
             start_webhook_dispatcher(app.handle().clone());
+            // Status ao vivo e resumo diário no mesmo webhook (desligados por
+            // padrão) — ver commands/discord_status.rs.
+            start_discord_status_loop(app.handle().clone());
             // Otimização que segue o foco: o laço só age com a opção ligada.
             #[cfg(target_os = "windows")]
             start_focus_follow_loop(app.handle().clone());
@@ -702,6 +706,8 @@ pub fn run() {
             close_preset_clients,
             set_app_locked,
             send_test_webhook,
+            send_discord_status_now,
+            send_discord_summary_now,
             get_session_history,
             get_current_sessions,
             save_history_export,

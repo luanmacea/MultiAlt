@@ -218,6 +218,13 @@ async fn start_watcher(
                                 );
                                 // O console e o historico geral: evento do Watcher tambem vira linha la.
                                 emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: memoria em {} MB, abaixo do minimo", mem));
+                                notify_webhook(
+                                    &app_handle,
+                                    WebhookEventKind::MemoryClosed,
+                                    inst.user_id,
+                                    Some(WebhookReason::MemoryBelowMinimum { memory_mb: mem, min_mb: cfg.memory_low_mb }),
+                                    webhook_place_of(inst.user_id),
+                                );
                                 disconnected_since.remove(&inst.user_id);
                                 startup_seen.remove(&inst.user_id);
                                 last_saved_positions.remove(&inst.user_id);
