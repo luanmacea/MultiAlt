@@ -5,6 +5,10 @@ name: Discord release announcement
 # uma falha aqui nunca derrubar a publicação. Sem o segredo
 # DISCORD_RELEASES_WEBHOOK (URL do webhook do canal #releases) ele só avisa no log.
 #
+# Layout do embed (autor, thumbnail, rodapé com ícone, botões de link
+# Download/Release notes/Star) desenhado no Discohook em 27/10/2026; só
+# botões de link funcionam direto no webhook, sem bot por trás.
+#
 # workflow_run só vale para o arquivo que está na branch padrão (main).
 
 on:
@@ -67,17 +71,28 @@ jobs:
             if (notes.length > 3500) notes = notes.slice(0, 3500).replace(/\n[^\n]*$/, "") + "\n…";
 
             const version = release.tag_name.replace(/^v/, "");
+            const icon = "https://multialt.pages.dev/assets/icon-192.png";
             const payload = {
               username: "MultiAlt",
-              content: `<@&${process.env.UPDATES_ROLE}> **MultiAlt ${version} is out!** Already have it? It updates itself.`,
+              content: `<@&${process.env.UPDATES_ROLE}>`,
               allowed_mentions: { roles: [process.env.UPDATES_ROLE] },
               embeds: [{
-                title: `MultiAlt ${version}`,
+                author: { name: "MultiAlt", icon_url: icon },
+                title: `MultiAlt ${version} is out!`,
                 url: release.html_url,
                 color: 0x5b8cff,
-                description: (notes ? `**What's new**\n${notes}\n\n` : "") +
-                  "📥 [Download](https://multialt.pages.dev) · 📝 [Release notes](" + release.html_url + ") · ⭐ [Star on GitHub](https://github.com/luanmacea/MultiAlt)",
+                description: (notes ? `**What's new**\n${notes}\n\n` : "") + "Already have it? MultiAlt updates itself.",
+                thumbnail: { url: icon },
+                footer: { text: "MultiAlt • free and open source", icon_url: icon },
                 timestamp: release.published_at,
+              }],
+              components: [{
+                type: 1,
+                components: [
+                  { type: 2, style: 5, label: "📥 Download", url: "https://multialt.pages.dev" },
+                  { type: 2, style: 5, label: "📝 Release notes", url: release.html_url },
+                  { type: 2, style: 5, label: "⭐ Star on GitHub", url: "https://github.com/luanmacea/MultiAlt" },
+                ],
               }],
             };
             const res = await fetch(webhook, {
