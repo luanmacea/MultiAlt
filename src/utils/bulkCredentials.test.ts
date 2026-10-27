@@ -15,6 +15,7 @@ const base: BulkCredentialsRequest = {
   changeEmail: false,
   newEmail: "",
   sharedCurrentPassword: "",
+  randomPassword: false,
 };
 
 describe("validateBulkRequest", () => {
@@ -28,6 +29,15 @@ describe("validateBulkRequest", () => {
       min: MIN_ROBLOX_PASSWORD,
     });
     expect(validateBulkRequest({ ...base, changePassword: true, newPassword: "longenough1" })).toBeNull();
+  });
+
+  it("a random password per account needs no typed password", () => {
+    expect(validateBulkRequest({ ...base, changePassword: true, randomPassword: true })).toBeNull();
+    // Desligado, a senha digitada continua obrigatória.
+    expect(validateBulkRequest({ ...base, changePassword: true, randomPassword: false })).toEqual({
+      kind: "weak-password",
+      min: MIN_ROBLOX_PASSWORD,
+    });
   });
 
   it("refuses an obviously bad email", () => {

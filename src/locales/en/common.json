@@ -2889,5 +2889,7 @@
   "Off by default: every login, account creation and account opened in the browser starts in a clean profile, and nothing is kept once the window closes. On, the browser keeps its profile so Roblox trusts this device more and asks for fewer captchas, but every account goes through the same profile.": "Off by default: every login, account creation and account opened in the browser starts in a clean profile, and nothing is kept once the window closes. On, the browser keeps its profile so Roblox trusts this device more and asks for fewer captchas, but every account goes through the same profile.",
   "Checks": "Checks",
   "Something does nothing? Run the matching check: it says what is in the way and what to do.": "Something does nothing? Run the matching check: it says what is in the way and what to do.",
-  "MultiAlt version that made this backup": "MultiAlt version that made this backup"
+  "MultiAlt version that made this backup": "MultiAlt version that made this backup",
+  "A different random password for each account": "A different random password for each account",
+  "Safer: 16 random letters and digits per account, saved in MultiAlt before Roblox is asked. Copy them from each account later.": "Safer: 16 random letters and digits per account, saved in MultiAlt before Roblox is asked. Copy them from each account later."
 }
