@@ -404,6 +404,13 @@ pub(crate) async fn memory_ceiling_tick(app: &tauri::AppHandle) {
                     }),
                 );
                 emit_launch_log(app, *user_id, "warn", "memory", memory_console_line(notice));
+                notify_webhook(
+                    app,
+                    WebhookEventKind::MemoryClosed,
+                    *user_id,
+                    Some(WebhookReason::MemoryOverLimit { memory_mb: *memory_mb, limit_mb: *limit_mb }),
+                    webhook_place_of(*user_id),
+                );
             }
         }
     }
