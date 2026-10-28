@@ -1294,9 +1294,8 @@ impl AccountStore {
             existing.username = account.username;
             existing.valid = account.valid;
             existing.last_use = account.last_use;
-            if !account.password.is_empty() {
-                existing.password = account.password;
-            }
+            // A anterior vai para o histórico; vazia não apaga a guardada.
+            existing.replace_password(&account.password);
         } else {
             accounts.push(account);
         }
@@ -1431,6 +1430,26 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// Novo login da conta cuja sessão morreu ("Fazer login de novo"): troca o
+    /// cookie pelo do login e marca a sessão válida, sem tocar no resto (grupo,
+    /// campos, senha). Quem chama garante que o cookie é **desta** conta. Devolve
+    /// `false` quando a conta não existe.
+    /// `typed_password`: a senha que estava no campo quando o login deu certo —
+    /// ela passa a ser a guardada (a anterior vai para o histórico).
+    pub fn relogin(&self, user_id: i64, new_token: &str, typed_password: Option<&str>) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        account.security_token = new_token.to_string();
+        account.valid = true;
+        if let Some(password) = typed_password {
+            account.replace_password(password);
+        }
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     /// Grava o `valid` da conta (o ponto vermelho de sessão inválida). Só
     /// regrava o arquivo quando o valor muda — conferir 50 contas boas não pode
     /// virar 50 gravações. Devolve `true` quando mudou.
@@ -1443,6 +1462,22 @@ impl AccountStore {
             return Ok(false);
         }
         account.valid = valid;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
+    /// Marca (`true`, com a hora) ou limpa (`false`) a verificação "confirme que
+    /// é humano" que o Roblox pediu na última sessão da conta. Devolve `true`
+    /// quando mudou algo.
+    pub fn set_human_check(&self, user_id: i64, pending: bool) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        if account.human_check_at.is_some() == pending {
+            return Ok(false);
+        }
+        account.human_check_at = pending.then(|| chrono::Utc::now().to_rfc3339());
         self.save_locked(&accounts)?;
         Ok(true)
     }
@@ -1460,6 +1495,24 @@ impl AccountStore {
         };
         account.last_use = Utc::now();
 
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
+    /// `mark_used` para quem passa a toda hora (cliente aberto pelo site, presença
+    /// "em jogo"): só grava quando a última marca é mais velha que `min_age` —
+    /// conferir de 5 em 5 s não pode virar uma gravação do arquivo a cada vez.
+    /// Devolve `true` quando marcou.
+    pub fn mark_used_if_stale(&self, user_id: i64, min_age: chrono::Duration) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        let now = Utc::now();
+        if now - account.last_use < min_age {
+            return Ok(false);
+        }
+        account.last_use = now;
         self.save_locked(&accounts)?;
         Ok(true)
     }

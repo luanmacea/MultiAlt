@@ -694,6 +694,64 @@ fn afk_should_put_back(is_foreground: bool, focus_returned: bool) -> bool {
 /// espera ainda deixam folga.
 const AFK_FULLSCREEN_MAX_WAIT_MS: i64 = 5 * 60_000;
 
+/// `Afk.HideWindows`: ligada por padrão (o ciclo dá o foco às janelas do
+/// Roblox sem elas aparecerem na tela — `platform/windows/hidden_focus.rs`);
+/// só `"false"` desliga. Vale em todo modo desde 26/10/2026: no clique e na
+/// gravação a janela fica na frente, invisível, só durante o envio
+/// (`afk_hidden_alpha`, `afk_tuck_before_action`).
+fn afk_hide_windows(raw: &str) -> bool {
+    raw.trim() != "false"
+}
+
+/// A transparência da janela escondida. Tecla: 0. Clique e gravação: 1 de
+/// 255 — com 0 o teste de acerto do Windows pula a janela e o clique cai na de
+/// baixo (medido com `WindowFromPoint`, 26/10/2026); com 1 ela recebe o clique
+/// e continua invisível a olho nu.
+fn afk_hidden_alpha(action_is_key: bool) -> u8 {
+    if action_is_key {
+        0
+    } else {
+        1
+    }
+}
+
+/// A janela volta para a profundidade de antes logo depois de ganhar o foco
+/// (tecla: vai para quem tem o foco) ou só depois do envio (clique e gravação:
+/// o clique cai na janela que estiver por cima do ponto).
+fn afk_tuck_before_action(action_is_key: bool) -> bool {
+    action_is_key
+}
+
+/// Quanto antes do ciclo o bipe de aviso toca (`Afk.BeepBeforeCycle`).
+const AFK_WARNING_LEAD_MS: i64 = 3_000;
+/// Aviso mais velho que isto não vale mais: o ciclo ficou segurado (tela cheia
+/// na frente) e avisa de novo antes de enviar.
+const AFK_WARNING_STALE_MS: i64 = 30_000;
+
+/// `Afk.BeepBeforeCycle`: desligada por padrão; só `"true"` liga.
+fn afk_beep_before_cycle_enabled(raw: &str) -> bool {
+    raw.trim() == "true"
+}
+
+/// O bipe de aviso a cada tique do laço: `(avisar agora, pode enviar)`.
+/// `next_due_ms`: quando vence a próxima conta; `warned_at_ms`: quando o aviso
+/// deste ciclo tocou. O ciclo só sai `AFK_WARNING_LEAD_MS` depois do aviso —
+/// com o tique de 1 s o aviso pode tocar com menos de 3 s pela frente, e o
+/// ciclo espera o resto.
+fn afk_warning_step(enabled: bool, next_due_ms: Option<i64>, now_ms: i64, warned_at_ms: Option<i64>) -> (bool, bool) {
+    if !enabled {
+        return (false, true);
+    }
+    let Some(due) = next_due_ms else {
+        return (false, true);
+    };
+    match warned_at_ms.filter(|at| now_ms.saturating_sub(*at) <= AFK_WARNING_STALE_MS) {
+        Some(at) => (false, now_ms.saturating_sub(at) >= AFK_WARNING_LEAD_MS),
+        None if now_ms >= due.saturating_sub(AFK_WARNING_LEAD_MS) => (true, false),
+        None => (false, true),
+    }
+}
+
 /// `Afk.WaitForFullscreen`: ligada por padrão (protege quem está vendo algo em
 /// tela cheia); só `"false"` desliga.
 fn afk_wait_for_fullscreen_enabled(raw: &str) -> bool {
@@ -1069,6 +1127,7 @@ fn run_afk_cycle_blocking(
     action: &AfkCycleAction,
     targets: &[i64],
     stop_flag: &AtomicBool,
+    hide_windows: bool,
 ) -> Result<Vec<(i64, Option<AfkSendError>)>, String> {
     use platform::windows;
 
@@ -1118,6 +1177,10 @@ fn run_afk_cycle_blocking(
     // Como cada janela que o ciclo trouxe volta ao lugar, no fim.
     let mut put_back: Vec<(isize, AfkPutBack)> = Vec::new();
     let mut outcome: Vec<(i64, Option<AfkSendError>)> = Vec::new();
+    // Janelas que o ciclo deixou transparentes: voltam a aparecer só depois
+    // de devolvidas ao lugar (minimizadas ou atrás), no fim.
+    let mut hidden: Vec<windows::HiddenWindow> = Vec::new();
+    let action_is_key = matches!(action, AfkCycleAction::Key(_));
 
     for &user_id in targets {
         let hwnd = window_of(user_id);
@@ -1153,7 +1216,26 @@ fn run_afk_cycle_blocking(
                 // Recusado (o usuário mexeu em outra janela), tenta de novo
                 // depois de um movimento de mouse de zero pixel — ver
                 // `bring_forward_for_cycle`.
+                // Foco sem aparecer (Afk.HideWindows): a janela que não estava à
+                // vista fica transparente enquanto tem o foco.
+                if windows::should_hide_during_focus(
+                    hide_windows,
+                    was_minimized,
+                    !was_minimized && windows::window_partly_visible(hwnd),
+                ) {
+                    if let Some(saved) = windows::make_window_invisible(hwnd, afk_hidden_alpha(action_is_key)) {
+                        hidden.push(saved);
+                    }
+                }
                 let requested = windows::bring_forward_for_cycle(hwnd);
+                if requested && hide_windows && afk_tuck_before_action(action_is_key) {
+                    // Volta na hora para a profundidade de antes; o foco fica.
+                    windows::tuck_window_after_focus(
+                        hwnd,
+                        was_minimized,
+                        above as windows_sys::Win32::Foundation::HWND,
+                    );
+                }
                 focus_taken = true;
                 cycle_windows.push(hwnd);
                 std::thread::sleep(std::time::Duration::from_millis(AFK_FOCUS_SETTLE_MS));
@@ -1196,6 +1278,15 @@ fn run_afk_cycle_blocking(
                     }
                 };
 
+                // Clique e gravação: só agora volta para trás (o clique precisava
+                // dela por cima do ponto). O foco continua com ela até o fim.
+                if requested && hide_windows && !afk_tuck_before_action(action_is_key) {
+                    windows::tuck_window_after_focus(
+                        hwnd,
+                        was_minimized,
+                        above as windows_sys::Win32::Foundation::HWND,
+                    );
+                }
                 outcome.push((user_id, result));
                 std::thread::sleep(std::time::Duration::from_millis(AFK_BETWEEN_WINDOWS_MS));
             }
@@ -1249,6 +1340,10 @@ fn run_afk_cycle_blocking(
             AfkPutBack::Leave => {}
         }
     }
+    // Já de volta ao lugar: agora podem aparecer de novo.
+    for saved in hidden {
+        windows::restore_window_visibility(saved);
+    }
 
     Ok(outcome)
 }
@@ -1289,6 +1384,8 @@ fn afk_cycle_action(app: &tauri::AppHandle, config: &AfkConfig, targets: &[i64])
 
 #[cfg(target_os = "windows")]
 async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
+    // Quando o bipe de aviso do próximo ciclo tocou (`Afk.BeepBeforeCycle`).
+    let mut warned_at: Option<i64> = None;
     loop {
         if session.stop_flag.load(Ordering::Relaxed) {
             break;
@@ -1329,6 +1426,21 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
                 .unwrap_or(now);
             afk_fullscreen_gate(enabled, in_front, due_since, now, AFK_FULLSCREEN_MAX_WAIT_MS)
         };
+        // Bipe de aviso 3 s antes (a tela toca o som no `afk-cycle-soon`).
+        let warning_enabled = afk_beep_before_cycle_enabled(
+            &app.state::<SettingsStore>().get_string("Afk", "BeepBeforeCycle"),
+        );
+        let next_due = session.accounts.lock().ok().and_then(|map| {
+            map.values()
+                .map(|entry| afk_next_send_at_ms(entry.last_send_at_ms, interval_ms))
+                .min()
+        });
+        let now = now_ms();
+        let (warn_now, may_send) = afk_warning_step(warning_enabled, next_due, now, warned_at);
+        if warn_now && gate == AfkGate::Send {
+            warned_at = Some(now);
+            let _ = app.emit("afk-cycle-soon", serde_json::json!({ "inMs": AFK_WARNING_LEAD_MS }));
+        }
         let waiting = gate == AfkGate::Wait;
         if session.waiting_fullscreen.swap(waiting, Ordering::Relaxed) != waiting {
             if waiting {
@@ -1342,14 +1454,16 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
             emit_afk_status(&app);
         }
 
-        if !targets.is_empty() && !waiting {
+        if !targets.is_empty() && !waiting && may_send {
+            warned_at = None;
             let action = afk_cycle_action(&app, &config, &targets);
+            let hide = afk_hide_windows(&app.state::<SettingsStore>().get_string("Afk", "HideWindows"));
             let stop = session.stop_flag.clone();
             let cycle_targets = targets.clone();
             let result = {
                 let _guard = AFK_CYCLE_LOCK.lock().await;
                 tokio::task::spawn_blocking(move || {
-                    run_afk_cycle_blocking(&action, &cycle_targets, &stop)
+                    run_afk_cycle_blocking(&action, &cycle_targets, &stop, hide)
                 })
                 .await
                 .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))
@@ -1536,13 +1650,14 @@ async fn afk_trigger_now(app: tauri::AppHandle, user_ids: Vec<i64>) -> Result<u3
     validate_afk_start(config.mode, &config.key, &user_ids)?;
 
     let action = afk_cycle_action(&app, &config, &user_ids);
+    let hide = afk_hide_windows(&app.state::<SettingsStore>().get_string("Afk", "HideWindows"));
     let cycle_targets = user_ids.clone();
     let outcome = {
         let _guard = AFK_CYCLE_LOCK.lock().await;
         // Sem stop_flag: este ciclo é o clique do usuário, não o agendador.
         let idle = AtomicBool::new(false);
         tokio::task::spawn_blocking(move || {
-            run_afk_cycle_blocking(&action, &cycle_targets, &idle)
+            run_afk_cycle_blocking(&action, &cycle_targets, &idle, hide)
         })
         .await
         .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))?

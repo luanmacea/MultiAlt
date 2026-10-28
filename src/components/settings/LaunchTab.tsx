@@ -4,9 +4,7 @@ import { NumberField } from "../ui/NumberField";
 import { Divider } from "../ui/Divider";
 import { SectionLabel } from "../ui/SectionLabel";
 import { WarningBadge } from "../ui/WarningBadge";
-import { useTr } from "../../i18n/text";
-import { useStore } from "../../store";
-import { ActionCard, isWindowsUserAgent } from "./settingsParts";
+import { isWindowsUserAgent } from "./settingsParts";
 
 /** Espelha `MIN_JOIN_GAP_SECS` em `commands/launch.rs`: abaixo disso nada muda. */
 const MIN_JOIN_DELAY_SECONDS = 8;
@@ -17,23 +15,11 @@ const MIN_JOIN_DELAY_SECONDS = 8;
  * em 11/10/2026 — ver docs/features/settings.md.
  */
 export function LaunchTab({ s }: { s: UseSettingsReturn }) {
-  const t = useTr();
-  const store = useStore();
   const serialLaunch = s.getBool("General", "AsyncJoin");
   const isWindows = isWindowsUserAgent();
 
   return (
     <div className="space-y-0">
-      {/* Ideia 16: a mesma checagem que a faixa de erro do launch abre. */}
-      <ActionCard
-        title={t("Launch does nothing?")}
-        description={t(
-          "Checks Roblox, folders, internet, stuck Roblox processes and Multi Roblox. It never closes anything."
-        )}
-        action={t("Run check")}
-        onAction={() => store.setDiagnosticsOpen(true)}
-      />
-
       <SectionLabel>Several accounts at once</SectionLabel>
       <Toggle
         checked={s.getBool("General", "EnableMultiRbx")}

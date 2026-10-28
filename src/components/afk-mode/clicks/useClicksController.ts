@@ -99,8 +99,11 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
   // Quem abriu pelo "Em jogo" já traz as contas marcadas.
   const [draftUserIds, setDraftUserIds] = useState<number[]>(() => targetUserIds ?? []);
   const [beepOnCycle, setBeepOnCycle] = useState(false);
+  const [beepBeforeCycle, setBeepBeforeCycle] = useState(false);
   // Ligado por padrão: só `"false"` no INI desliga (`afk_wait_for_fullscreen_enabled`).
   const [waitForFullscreen, setWaitForFullscreen] = useState(true);
+  // Ligado por padrão: só `"false"` no INI desliga (`afk_hide_windows`).
+  const [hideWindows, setHideWindows] = useState(true);
   const [busy, setBusy] = useState(false);
   const [sendingNow, setSendingNow] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -127,8 +130,10 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     setIntervalSecondsPart(interval.seconds);
     setKey(afk.Key || "");
     setBeepOnCycle(afk.BeepOnCycle === "true");
+    setBeepBeforeCycle(afk.BeepBeforeCycle === "true");
     setMode(parseAfkMode(afk.Mode));
     setWaitForFullscreen(afk.WaitForFullscreen !== "false");
+    setHideWindows(afk.HideWindows !== "false");
     setDefaultPoint(readAfkSettingsPoint(afk));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -474,6 +479,7 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     recordingMode,
     recordingNameFor,
     beepOnCycle,
+    beepBeforeCycle,
     waitForFullscreen,
     /** O ciclo está segurado por uma janela em tela cheia na frente. */
     waitingFullscreen: running && status?.waitingFullscreen === true,
@@ -502,9 +508,19 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
       persist("BeepOnCycle", v ? "true" : "false");
     },
     // O backend relê a cada tique: vale com o modo ligado, sem religar.
+    setBeepBeforeCycle: (v: boolean) => {
+      setBeepBeforeCycle(v);
+      persist("BeepBeforeCycle", v ? "true" : "false");
+    },
+    // O backend relê a cada tique: vale com o modo ligado, sem religar.
     setWaitForFullscreen: (v: boolean) => {
       setWaitForFullscreen(v);
       persist("WaitForFullscreen", v ? "true" : "false");
+    },
+    hideWindows,
+    setHideWindows: (v: boolean) => {
+      setHideWindows(v);
+      persist("HideWindows", v ? "true" : "false");
     },
     persist,
     sendErrorText,

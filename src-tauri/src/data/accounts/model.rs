@@ -23,6 +23,12 @@ pub struct Account {
     pub description: String,
     #[serde(rename = "Password", default, deserialize_with = "string_or_default")]
     pub password: String,
+    /// As senhas guardadas antes da atual, da mais nova para a mais velha (no
+    /// máximo `PASSWORD_HISTORY_MAX`). Rede contra perda: uma senha errada
+    /// gravada por cima da certa ainda deixa a certa aqui. Só se escreve por
+    /// `replace_password`. Ver CLAUDE.md, "Senha guardada nunca se perde".
+    #[serde(rename = "PasswordHistory", default, skip_serializing_if = "Vec::is_empty")]
+    pub password_history: Vec<String>,
     #[serde(
         default = "default_group",
         deserialize_with = "group_or_default",
@@ -46,6 +52,11 @@ pub struct Account {
         deserialize_with = "string_or_default"
     )]
     pub browser_tracker_id: String,
+    /// Quando o Roblox pediu a verificação "confirme que é humano" e ela não foi
+    /// resolvida (RFC 3339, com fuso). Some quando a pessoa resolve ou a conta
+    /// entra num jogo (`human_check_mark`). Sem marca, o campo nem é gravado.
+    #[serde(rename = "HumanCheckAt", default, skip_serializing_if = "Option::is_none")]
+    pub human_check_at: Option<String>,
 }
 
 fn default_group() -> String {
@@ -155,16 +166,69 @@ impl Default for Account {
             alias: String::new(),
             description: String::new(),
             password: String::new(),
+            password_history: Vec::new(),
             group: default_group(),
             user_id: 0,
             fields: HashMap::new(),
             last_attempted_refresh: Utc::now(),
             browser_tracker_id: String::new(),
+            human_check_at: None,
         }
     }
 }
 
+/// Quantas senhas antigas a conta guarda.
+pub const PASSWORD_HISTORY_MAX: usize = 5;
+
 impl Account {
+    /// O único jeito de trocar a senha **guardada** de uma conta que já existe:
+    /// a anterior vai para o histórico, e senha vazia nunca apaga a guardada.
+    pub fn replace_password(&mut self, new_password: &str) {
+        if new_password.is_empty() || new_password == self.password {
+            return;
+        }
+        let previous = std::mem::take(&mut self.password);
+        if !previous.is_empty() {
+            self.password_history.retain(|p| *p != previous && p != new_password);
+            self.password_history.insert(0, previous);
+            self.password_history.truncate(PASSWORD_HISTORY_MAX);
+        } else {
+            self.password_history.retain(|p| p != new_password);
+        }
+        self.password = new_password.to_string();
+    }
+
+    /// Guarda no histórico uma senha que **pode** ser a que vale no Roblox, sem
+    /// trocar a guardada: a troca para senha aleatória a põe aqui antes de pedir
+    /// ao Roblox, para uma resposta perdida (ou uma gravação que falhou depois)
+    /// não a apagar. Quando o Roblox confirma, `replace_password` a promove.
+    pub fn remember_possible_password(&mut self, password: &str) {
+        if password.is_empty() || password == self.password {
+            return;
+        }
+        self.password_history.retain(|p| p != password);
+        self.password_history.insert(0, password.to_string());
+        self.password_history.truncate(PASSWORD_HISTORY_MAX);
+    }
+
+    /// Tira do histórico uma senha que o Roblox recusou com certeza (nunca
+    /// valeu). Nunca mexe na guardada.
+    pub fn forget_refused_password(&mut self, password: &str) {
+        if password.is_empty() || password == self.password {
+            return;
+        }
+        self.password_history.retain(|p| p != password);
+    }
+
+    /// O cookie, a senha e o histórico de senhas vêm sempre do que está
+    /// guardado, nunca de uma cópia da tela (que pode estar velha ou sem o
+    /// histórico): editar apelido ou grupo não pode mexer em credencial.
+    pub fn keep_credentials_from(&mut self, stored: &Account) {
+        self.security_token = stored.security_token.clone();
+        self.password = stored.password.clone();
+        self.password_history = stored.password_history.clone();
+    }
+
     pub fn new(security_token: String, username: String, user_id: i64) -> Self {
         Self {
             valid: true,

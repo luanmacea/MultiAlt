@@ -29,6 +29,8 @@ import { ImportDialog } from "./components/dialogs/ImportDialog";
 import { AccountFieldsDialog } from "./components/dialogs/AccountFieldsDialog";
 import { AccountUtilsDialog } from "./components/dialogs/AccountUtilsDialog";
 import { BulkCredentialsDialog } from "./components/dialogs/BulkCredentialsDialog";
+import { AccountCheckResultsDialog } from "./components/dialogs/AccountCheckResultsDialog";
+import { ActionResultsDialog } from "./components/dialogs/ActionResultsDialog";
 import { MissingAssetsDialog } from "./components/dialogs/MissingAssetsDialog";
 import { UpdateDialog } from "./components/dialogs/UpdateDialog";
 import { AfkModeDialog } from "./components/afk-mode/AfkModeDialog";
@@ -38,9 +40,11 @@ import { DiagnosticsDialog } from "./components/dialogs/DiagnosticsDialog";
 import { QuickLoginDialog } from "./components/dialogs/QuickLoginDialog";
 import { PresetsDialog } from "./components/presets/PresetsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
+import { MultiRobloxConfirm } from "./components/MultiRobloxConfirm";
 import { SessionPage } from "./components/pages/SessionPage";
 import { ConsolePage } from "./components/pages/ConsolePage";
 import { AfkPage } from "./components/pages/AfkPage";
+import { DiscordPage } from "./components/pages/DiscordPage";
 import { AvatarsPage } from "./components/pages/AvatarsPage";
 import { GroupsPage } from "./components/pages/GroupsPage";
 import { ScriptsPage } from "./components/pages/ScriptsPage";
@@ -75,11 +79,14 @@ function AppContent() {
     store.accountFieldsOpen ||
     store.accountUtilsOpen ||
     store.bulkCredentialsOpen ||
+    !!store.accountCheckReport ||
+    !!store.actionReport ||
     !!store.missingAssets ||
     !!store.afkModeDialog ||
     store.generatorDialogOpen ||
     store.updateDialogOpen ||
     store.diagnosticsOpen ||
+    store.browserCheckOpen ||
     store.quickLoginOpen ||
     store.presetsDialog !== null ||
     store.firstRunWalkthroughOpen ||
@@ -271,6 +278,7 @@ function AppContent() {
           <SessionPage active={page === "session"} onLeave={leavePage} />
           <ConsolePage active={page === "console"} onLeave={leavePage} />
           <AfkPage active={page === "afk"} onLeave={leavePage} />
+          <DiscordPage active={page === "discord"} onLeave={leavePage} />
           <AvatarsPage active={page === "avatars"} onLeave={leavePage} />
           <GroupsPage active={page === "groups"} onLeave={leavePage} />
           <ScriptsPage active={page === "scripts"} onLeave={leavePage} />
@@ -349,6 +357,13 @@ function AppContent() {
         onClose={() => store.setBulkCredentialsOpen(false)}
       />
 
+      <AccountCheckResultsDialog
+        open={!!store.accountCheckReport}
+        onClose={() => store.setAccountCheckReport(null)}
+      />
+
+      <ActionResultsDialog open={!!store.actionReport} onClose={() => store.setActionReport(null)} />
+
       <MissingAssetsDialog />
 
       <AfkModeDialog />
@@ -365,12 +380,19 @@ function AppContent() {
       />
 
       <DiagnosticsDialog open={store.diagnosticsOpen} onClose={() => store.setDiagnosticsOpen(false)} />
+      <DiagnosticsDialog
+        kind="browser"
+        open={store.browserCheckOpen}
+        onClose={() => store.setBrowserCheckOpen(false)}
+      />
 
       <QuickLoginDialog open={store.quickLoginOpen} onClose={() => store.setQuickLoginOpen(false)} />
 
       <PresetsDialog />
 
       <IsolationProgressOverlay />
+
+      <MultiRobloxConfirm />
 
       <UpdateDialog />
 

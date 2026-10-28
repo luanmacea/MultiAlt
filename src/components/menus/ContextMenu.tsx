@@ -213,14 +213,14 @@ export function ContextMenu() {
   const moveToGroupSubmenu: MenuItem[] = [
     ...existingGroups.map((g) => ({
       label: g === "Default" ? t("Default") : g,
-      action: () => store.moveToGroup(userIds, g),
+      action: () => store.moveToGroup(userIds, g, { report: userIds.length > 1 }),
     })),
     { separator: true, label: "" },
     {
       label: t("New Group..."),
       action: async () => {
         const name = await prompt(t("Group name:"));
-        if (name?.trim()) store.moveToGroup(userIds, name.trim());
+        if (name?.trim()) store.moveToGroup(userIds, name.trim(), { report: userIds.length > 1 });
       },
     },
   ];
@@ -263,6 +263,20 @@ export function ContextMenu() {
     },
     { separator: true, label: "" },
     { label: t("Copy"), submenu: copySubmenu },
+    // Novo login de propósito (não só quando a sessão morreu): o navegador de
+    // login abre com usuário e senha preenchidos quando salvos.
+    {
+      label: t("Sign in again"),
+      action: async () => {
+        const ok = await confirm(
+          t(
+            "{{count}} account(s) need to sign in again. A browser window opens for each one, one at a time, with the username and password filled in when they are saved. You solve the CAPTCHA, and the new session goes into the same account.",
+            { count: userIds.length }
+          )
+        );
+        if (ok) await store.reloginAccounts(userIds);
+      },
+    },
     { separator: true, label: "" },
   ];
 
@@ -280,7 +294,7 @@ export function ContextMenu() {
           return;
         }
         try {
-          await store.addBottingAccounts(addableBottingIds);
+          await store.addBottingAccounts(addableBottingIds, { report: addableBottingIds.length > 1 });
         } catch (e) {
           store.addToast(t("Auto Rejoin account action failed: {{error}}", { error: String(e) }));
         }
@@ -313,7 +327,7 @@ export function ContextMenu() {
           ? t("Restart client")
           : t("Restart clients ({{count}})", { count: launchedSelectedIds.length }),
       action: async () => {
-        await store.restartRobloxClients(launchedSelectedIds);
+        await store.restartRobloxClients(launchedSelectedIds, { report: launchedSelectedIds.length > 1 });
       },
     });
 
@@ -373,7 +387,7 @@ export function ContextMenu() {
             ? t("Remove {{name}}?", { name: accountLabel(single, store) })
             : t("Remove {{count}} accounts?", { count: accounts.length });
         if (await confirm(msg, true)) {
-          store.removeAccounts(userIds);
+          store.removeAccounts(userIds, { report: userIds.length > 1 });
         }
       },
     },

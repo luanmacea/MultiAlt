@@ -92,6 +92,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_JobObjects",
     "Win32_System_Registry",
     "Win32_System_Memory",
+    # GlobalMemoryStatusEx: aviso "Windows quase sem memória" da página Discord
+    # (commands/discord_status.rs). Só leitura.
+    "Win32_System_SystemInformation",
     # SetThreadExecutionState: PC acordado (sem a tela) durante o Modo AFK, o
     # Auto Rejoin e a reconexão automática (platform/windows/power.rs).
     "Win32_System_Power",
@@ -101,6 +104,9 @@ windows-sys = { version = "0.59", features = [
     # GetAsyncKeyState: Shift segurado no boot liga o safe mode do WebView2.
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_Graphics_Gdi",
+    # AFK sem a janela aparecer (platform/windows/hidden_focus.rs): janela
+    # "fantasma" do DWM, retângulo visível e animação de restaurar/minimizar.
+    "Win32_Graphics_Dwm",
 ] }
 
 [dev-dependencies]
@@ -138,3 +144,14 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.poly1305]
 opt-level = 3
+
+# Executavel de TESTE do dono (`bun run build:test`): o release sem a parte
+# lenta. LTO + codegen-units 1 deixam a otimizacao final num nucleo so (~4 min
+# por edicao, a cada build); aqui ela e dividida e reaproveita o anterior. O exe
+# sai maior e NAO vale para o scan de antivirus — para publicar e para o scan,
+# so o `release` (docs/development.md, "Build rapido de teste").
+[profile.test-exe]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true

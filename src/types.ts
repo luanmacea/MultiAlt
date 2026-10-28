@@ -14,6 +14,11 @@ export interface Account {
   Fields: Record<string, string>;
   LastAttemptedRefresh: string;
   BrowserTrackerID: string;
+  /**
+   * Quando o Roblox pediu a verificação "confirme que é humano" e ela ficou sem
+   * resolver (RFC 3339). Ausente sem marca. Ver `human_check_mark` no backend.
+   */
+  HumanCheckAt?: string | null;
 }
 
 /**
@@ -285,9 +290,23 @@ export function orderGroupKeys(keys: Iterable<string>, manualOrder: string[]): s
   return [...manual, ...rest];
 }
 
+/**
+ * Data de uma conta (`LastUse`, `LastAttemptedRefresh`). O backend grava em UTC
+ * **sem** fuso (`csharp_datetime`, herdado do RAM: "2026-10-26T07:40:00.123");
+ * o `new Date` leria isso como hora local, e no Brasil (UTC-3) a conta jogada
+ * há menos de 3 h ficava no futuro — "just now" (26/10/2026). Sem fuso, vale
+ * UTC; com "Z" ou "±hh:mm", vale o que está escrito. Frações com mais de 3
+ * casas (o C# grava 7) são cortadas.
+ */
+export function parseAccountDate(value: string): Date {
+  const text = value.trim().replace(/(\.\d{3})\d+/, "$1");
+  const hasZone = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text);
+  return new Date(hasZone || !text.includes("T") ? text : `${text}Z`);
+}
+
 export function timeAgo(dateStr: string): string {
   if (!dateStr) return "never";
-  const date = new Date(dateStr);
+  const date = parseAccountDate(dateStr);
   const diff = Date.now() - date.getTime();
   if (diff < 0) return "just now";
   const minutes = Math.floor(diff / 60000);
@@ -325,7 +344,7 @@ export const AGED_COLOR_TO = `rgb(${AGED_TO.join(",")})`;
  */
 export function getFreshnessColor(lastUse: string): string | null {
   if (!lastUse) return null;
-  const days = (Date.now() - new Date(lastUse).getTime()) / 86400000;
+  const days = (Date.now() - parseAccountDate(lastUse).getTime()) / 86400000;
   if (days < AGED_AFTER_DAYS) return null;
   const t = Math.min((days - AGED_AFTER_DAYS) / AGED_RAMP_DAYS, 1);
   const [r, g, b] = AGED_FROM.map((from, i) => Math.round(from + (AGED_TO[i] - from) * t));
@@ -350,6 +369,8 @@ export interface BackupEntry {
   valid: boolean;
   /** `true` para backups criados pelo próprio app (segurança / retenção). */
   automatic?: boolean;
+  /** A versão do app que fez o backup ("v2.4.0"), quando o backup diz. */
+  appVersion?: string | null;
 }
 
 /** Resultado de `restore_backup`. */
@@ -531,6 +552,12 @@ export interface ClientHealth {
    * servidor subiu (`Server Prefix`). Ausente/`null` = o log não disse.
    */
   server?: ClientServer | null;
+  /**
+   * A tela "confirme que é humano" do Roblox está na janela, esperando a
+   * pessoa (lido do log do cliente: `challengeDisplayed` até `challengeCompleted`
+   * ou a entrada no jogo).
+   */
+  challenge?: boolean;
 }
 
 /** O servidor de um cliente (`ClientServerView`, commands/client_health.rs). */

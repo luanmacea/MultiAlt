@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
-import { Hourglass, PowerOff, RotateCcw, RotateCw, WifiOff, X } from "lucide-react";
+import { Hourglass, PowerOff, RotateCcw, RotateCw, WifiOff, X, ShieldAlert } from "lucide-react";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { useAccountLiveState } from "../../hooks/useAccountLiveState";
@@ -54,6 +54,11 @@ const STYLES: Record<Exclude<AccountLiveKind, "none">, { label: string; tone: st
     tone: "text-amber-400",
     mark: <Hourglass size={11} strokeWidth={1.75} aria-hidden="true" className="shrink-0" />,
   },
+  humanCheck: {
+    label: "Roblox human check",
+    tone: "text-amber-400",
+    mark: <ShieldAlert size={11} strokeWidth={1.75} aria-hidden="true" className="shrink-0" />,
+  },
   dropped: {
     // Chave própria: o "Dropped" da faixa de números da Session é plural no
     // português ("3 Caíram"); aqui é uma conta só ("Caiu").
@@ -91,7 +96,10 @@ export function AccountLiveSegment({ userId }: { userId: number }) {
   // Caiu, travou ou reconecta sem jogo conhecido (a queda fecha a sessão): o
   // motivo ocupa o lugar do jogo — "Caiu" sozinho não diz o que aconteceu.
   const health =
-    live.state === "dropped" || live.state === "notResponding" || live.state === "reconnecting"
+    live.state === "dropped" ||
+    live.state === "notResponding" ||
+    live.state === "reconnecting" ||
+    live.state === "humanCheck"
       ? clientHealthLabel(store.clientHealth?.get(userId), t)
       : null;
   const reason = health && health.label !== word ? health.label : null;

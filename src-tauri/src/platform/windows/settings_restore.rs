@@ -4,11 +4,13 @@
 // O launch grava FPS, volume, qualidade, janela e FastFlags nos arquivos do
 // Roblox (`GlobalBasicSettings_13.xml` e o `ClientAppSettings.json` da versão).
 // Esses arquivos são do Roblox, não do app: o jogo aberto pelo site lê os
-// mesmos. Com `General.RestoreRobloxSettingsOnExit` ligado, o app anota, por
-// propriedade, o valor que estava lá **antes** da primeira mudança e o que ele
-// escreveu por último. Ao fechar o app (sem cliente que ele abriu rodando), cada
-// propriedade que ainda tem o valor do app volta ao do usuário; a que mudou
-// depois (o jogador mexeu dentro do jogo) fica como está.
+// mesmos. O app anota **sempre** (com a opção ligada ou não), por propriedade,
+// o valor que estava lá **antes** da primeira mudança e o que ele escreveu por
+// último. Com `General.RestoreRobloxSettingsOnExit` ligado, assim que nenhum
+// Roblox estiver rodando, cada propriedade que ainda tem o valor do app volta à
+// do usuário; a que mudou depois (o jogador mexeu dentro do jogo) fica como
+// está. Desligada, a anotação espera: anotar só com ela ligada fazia o
+// "original" sair com os valores do app (26/10/2026).
 //
 // Além disso, antes da primeira mudança de cada arquivo, uma cópia inteira dele
 // vai para `RobloxSettingsBackup/` na pasta de dados — para recuperar à mão se
@@ -389,11 +391,6 @@ pub fn has_pending_roblox_settings_restore_in(dir: &std::path::Path) -> bool {
     !load_restore_journal(dir).is_empty()
 }
 
-/// Esquece o que estava anotado (a opção foi desligada).
-pub fn discard_roblox_settings_restore_in(dir: &std::path::Path) {
-    let _ = std::fs::remove_file(dir.join(RESTORE_JOURNAL_FILE));
-}
-
 /// Devolve as configurações do usuário. Devolve quantos arquivos mudaram. A
 /// anotação só sai depois de devolver tudo; arquivo que não pôde ser gravado
 /// fica anotado para a próxima vez.
@@ -435,11 +432,27 @@ fn settings_restore_dir() -> PathBuf {
 
 pub fn record_roblox_settings_change(snapshot: RobloxSettingsSnapshot) {
     LAST_SETTINGS_RECORD.store(unix_now_secs(), std::sync::atomic::Ordering::SeqCst);
+    ROBLOX_SEEN_SINCE_RECORD.store(false, std::sync::atomic::Ordering::SeqCst);
     record_roblox_settings_change_in(&settings_restore_dir(), snapshot);
 }
 
 /// Quando o launch escreveu nos arquivos pela última vez (segundos Unix).
 static LAST_SETTINGS_RECORD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Algum Roblox rodou depois da última escrita do launch (o cliente que ele
+/// abriu apareceu)? Aí a folga já cumpriu o papel.
+static ROBLOX_SEEN_SINCE_RECORD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// O laço de devolução avisa que viu Roblox rodando.
+pub fn note_roblox_running_for_restore(running: bool) {
+    if running {
+        ROBLOX_SEEN_SINCE_RECORD.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+pub fn roblox_seen_since_last_settings_record() -> bool {
+    ROBLOX_SEEN_SINCE_RECORD.load(std::sync::atomic::Ordering::SeqCst)
+}
 
 /// Folga depois da última escrita do launch: o patch é o último passo antes
 /// do spawn, mas o processo do cliente leva uns segundos para aparecer, e
@@ -466,18 +479,28 @@ pub fn secs_since_last_settings_record() -> u64 {
 /// **nenhum** Roblox rodando (nem o aberto pelo site: ele regravaria os valores
 /// que tem na memória ao fechar) e a folga do último launch vencida.
 ///
+/// A folga acaba antes se um Roblox já apareceu depois da escrita
+/// (`client_seen_since_record`): o cliente do launch já leu os arquivos.
+///
 /// Antes a devolução só acontecia ao fechar o app: quem fechava o jogo e
 /// abria pelo site com o MultiAlt aberto ficava com a otimização (13/10/2026).
-pub fn restore_watch_due(enabled: bool, pending: bool, roblox_running: bool, secs_since_record: u64) -> bool {
-    enabled && pending && !roblox_running && secs_since_record >= RESTORE_WATCH_GRACE_SECS
+/// Depois, a folga fixa de 60 s ainda pegava quem abria pelo site logo depois
+/// de fechar o cliente do app (26/10/2026).
+pub fn restore_watch_due(
+    enabled: bool,
+    pending: bool,
+    roblox_running: bool,
+    secs_since_record: u64,
+    client_seen_since_record: bool,
+) -> bool {
+    enabled
+        && pending
+        && !roblox_running
+        && (client_seen_since_record || secs_since_record >= RESTORE_WATCH_GRACE_SECS)
 }
 
 pub fn has_pending_roblox_settings_restore() -> bool {
     has_pending_roblox_settings_restore_in(&settings_restore_dir())
-}
-
-pub fn discard_roblox_settings_restore() {
-    discard_roblox_settings_restore_in(&settings_restore_dir());
 }
 
 pub fn restore_roblox_settings() -> usize {

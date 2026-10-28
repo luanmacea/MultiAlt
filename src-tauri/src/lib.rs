@@ -44,6 +44,7 @@ include!("commands/launch.rs");
 include!("commands/launch_presets.rs");
 include!("commands/tray.rs");
 include!("commands/webhook.rs");
+include!("commands/discord_status.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
@@ -111,16 +112,12 @@ enum SettingsOnExit {
     /// Roblox estiver rodando (`start_settings_restore_loop`). Nenhum cliente é
     /// fechado por isso.
     WaitForClients,
-    /// A opção foi desligada: esquece o anotado (sem mexer nos arquivos).
-    Discard,
 }
 
 fn settings_on_exit_plan(enabled: bool, pending: bool, roblox_running: bool) -> SettingsOnExit {
-    if !pending {
+    // Desligada, a anotação fica para quando a opção for ligada.
+    if !pending || !enabled {
         return SettingsOnExit::Nothing;
-    }
-    if !enabled {
-        return SettingsOnExit::Discard;
     }
     if roblox_running {
         return SettingsOnExit::WaitForClients;
@@ -152,7 +149,6 @@ fn restore_roblox_settings_on_exit(app: &AppHandle<Wry>) {
         SettingsOnExit::Restore => {
             windows::restore_roblox_settings();
         }
-        SettingsOnExit::Discard => windows::discard_roblox_settings_restore(),
     }
 }
 
@@ -170,7 +166,9 @@ fn roblox_running_for_settings(roblox_pids: &[u32]) -> bool {
 fn start_settings_restore_loop(app: AppHandle<Wry>) {
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            // 1 s: quem fecha o jogo do app e abre pelo site logo em seguida
+            // tem de pegar os arquivos já devolvidos.
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             let handle = app.clone();
             let _ = tokio::task::spawn_blocking(move || {
                 use platform::windows;
@@ -181,11 +179,13 @@ fn start_settings_restore_loop(app: AppHandle<Wry>) {
                     return;
                 }
                 let roblox_running = roblox_running_for_settings(&windows::get_roblox_pids());
+                windows::note_roblox_running_for_restore(roblox_running);
                 if windows::restore_watch_due(
                     enabled,
                     true,
                     roblox_running,
                     windows::secs_since_last_settings_record(),
+                    windows::roblox_seen_since_last_settings_record(),
                 ) {
                     windows::restore_roblox_settings();
                 }
@@ -398,9 +398,15 @@ pub fn run() {
             // Avisos no Discord (desligados por padrão): a fila que manda —
             // ver commands/webhook.rs.
             start_webhook_dispatcher(app.handle().clone());
+            // Status ao vivo e resumo diário no mesmo webhook (desligados por
+            // padrão) — ver commands/discord_status.rs.
+            start_discord_status_loop(app.handle().clone());
             // Otimização que segue o foco: o laço só age com a opção ligada.
             #[cfg(target_os = "windows")]
             start_focus_follow_loop(app.handle().clone());
+            // Grade: janela que volta de minimizada vai para a célula dela.
+            #[cfg(target_os = "windows")]
+            start_grid_snap_loop();
             // Devolver as configurações do Roblox sem esperar o app fechar.
             #[cfg(target_os = "windows")]
             start_settings_restore_loop(app.handle().clone());
@@ -408,6 +414,16 @@ pub fn run() {
             // do terminal (python/mod.rs).
             #[cfg(feature = "python-scripts")]
             python::on_app_start(app.handle());
+            // Navegador anônimo (o padrão): os perfis que sobraram de antes —
+            // de quando ele era persistente, ou de uma janela fechada com o app
+            // fora — somem ao abrir. Em segundo plano: pode haver muitos.
+            if !chromium::commands::keeps_browser_data(&app.state::<SettingsStore>()) {
+                if let Ok(login) = chromium::ChromiumManager::login_profile(app.handle()) {
+                    if let Some(root) = login.parent().map(std::path::Path::to_path_buf) {
+                        std::thread::spawn(move || chromium::commands::wipe_private_profiles(&root));
+                    }
+                }
+            }
 
             // Show, "Launch preset" (os presets, só pelo nome) e Quit — ver
             // commands/tray.rs. O submenu é refeito quando os presets mudam.
@@ -600,6 +616,7 @@ pub fn run() {
             get_asset_details,
             purchase_product,
             change_password,
+            change_password_random,
             change_email,
             set_display_name,
             quick_login_enter_code,
@@ -622,12 +639,15 @@ pub fn run() {
             close_preset_clients,
             set_app_locked,
             send_test_webhook,
+            send_discord_status_now,
+            send_discord_summary_now,
             get_session_history,
             get_current_sessions,
             save_history_export,
             cancel_launch,
             get_launch_queue,
             cancel_account_launch,
+            answer_multi_roblox_confirm,
             stop_launch_queue,
             next_account,
             start_botting_mode,
@@ -697,10 +717,13 @@ pub fn run() {
             get_closed_clients,
             dismiss_closed_client,
             chromium::commands::open_login_browser,
+            chromium::diagnose::run_browser_diagnostics,
             chromium::commands::extract_browser_cookie,
+            chromium::commands::extract_browser_login_password,
             chromium::commands::close_login_browser,
             chromium::commands::open_account_browser,
             chromium::commands::import_userpass,
+            chromium::commands::relogin_account,
             chromium::signup_session::start_signup_session,
             chromium::signup_session::stop_signup_session,
             chromium::signup_session::get_signup_status,

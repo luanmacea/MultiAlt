@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
+  BellRing,
   CircleHelp,
   Gamepad2,
   Keyboard,
   Layers,
-  MessageSquareText,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
@@ -23,7 +23,6 @@ import { useStore, type AppPage } from "../../store";
 import { useTr } from "../../i18n/text";
 import { ENABLE_GROUPS, ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
 import { Tooltip } from "../ui/Tooltip";
-import { FeedbackDialog } from "../dialogs/FeedbackDialog";
 import { StarPromptCard, openRepoForStar } from "./StarPromptCard";
 
 /**
@@ -86,6 +85,8 @@ const navGroups = (): NavItemDef[][] => [
     // O que o app fez (launch, Auto Rejoin, Watcher), ao lado do que roda agora.
     { page: "console", label: "Console", icon: ScrollText },
     { page: "afk", label: "AFK Mode", icon: Keyboard, tour: "nav-afk" },
+    // Avisos, status ao vivo e resumo no webhook do usuário (docs/features/webhook.md).
+    { page: "discord", label: "Discord alerts", icon: BellRing },
   ],
   [
     { page: "avatars", label: "Avatars", icon: Shirt },
@@ -110,7 +111,6 @@ export function NavSidebar() {
   const store = useStore();
   const narrow = useNarrowWindow();
   const [userCollapsed, setUserCollapsed] = useState(readCollapsed);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const collapsed = userCollapsed || narrow;
 
   const toggleCollapsed = useCallback(() => {
@@ -232,23 +232,6 @@ export function NavSidebar() {
     </button>
   );
 
-  // Reportar problema / sugerir ideia: abre o formulário do GitHub no navegador
-  // (FeedbackDialog). Fica no rodapé, junto do Help, porque é sobre o app.
-  const feedbackLabel = t("Send feedback");
-  const feedbackButton = (
-    <button
-      type="button"
-      onClick={() => setFeedbackOpen(true)}
-      aria-label={feedbackLabel}
-      className={`flex items-center rounded-lg text-[13px] text-[var(--panel-muted)] hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)] transition-colors outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] ${
-        collapsed ? "w-10 h-10 justify-center" : "w-full h-9 gap-3 px-2.5"
-      }`}
-    >
-      <MessageSquareText size={17} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />
-      <span className={collapsed ? "sr-only" : "truncate"}>{feedbackLabel}</span>
-    </button>
-  );
-
   // O servidor da comunidade no Discord: abre o convite no navegador. O
   // endereço mora no backend (`open_discord_invite`).
   const discordLabel = t("Discord");
@@ -319,15 +302,8 @@ export function NavSidebar() {
       <div className="shrink-0 border-t theme-border py-2 px-2.5">
         {collapsed ? null : <StarPromptCard />}
         <ul className="mb-0.5 space-y-0.5">
-          <li className={collapsed ? "flex justify-center" : undefined}>
-            {collapsed ? (
-              <Tooltip content={discordLabel} side="right" delayMs={200}>
-                {discordButton}
-              </Tooltip>
-            ) : (
-              discordButton
-            )}
-          </li>
+          {/* Pedido do dono (26/10/2026): o "Send feedback" saiu e o Discord
+              ficou no lugar dele, logo abaixo da estrela. */}
           <li className={collapsed ? "flex justify-center" : undefined}>
             {collapsed ? (
               <Tooltip content={starLabel} side="right" delayMs={200}>
@@ -339,11 +315,11 @@ export function NavSidebar() {
           </li>
           <li className={collapsed ? "flex justify-center" : undefined}>
             {collapsed ? (
-              <Tooltip content={feedbackLabel} side="right" delayMs={200}>
-                {feedbackButton}
+              <Tooltip content={discordLabel} side="right" delayMs={200}>
+                {discordButton}
               </Tooltip>
             ) : (
-              feedbackButton
+              discordButton
             )}
           </li>
           {ENABLE_HELP_BUTTON ? (
@@ -375,11 +351,6 @@ export function NavSidebar() {
           )}
         </div>
       </div>
-      <FeedbackDialog
-        open={feedbackOpen}
-        onClose={() => setFeedbackOpen(false)}
-        reportSource={() => ({ logs: store.launchLogs, accounts: store.accounts })}
-      />
     </nav>
   );
 }

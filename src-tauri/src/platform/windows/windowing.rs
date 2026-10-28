@@ -1,6 +1,9 @@
-use windows_sys::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
+use windows_sys::Win32::Graphics::Gdi::{
+    MonitorFromPoint, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AdjustWindowRectEx, GetWindow, GetWindowLongW, IsZoomed, SetWindowLongW, SetWindowPos,
+    AdjustWindowRectEx, GetWindow, GetWindowLongW, GetWindowPlacement, IsZoomed, SetWindowLongW,
+    SetWindowPlacement, SetWindowPos, WINDOWPLACEMENT,
     GWL_EXSTYLE, GWL_STYLE, GW_HWNDPREV, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
     SWP_NOOWNERZORDER, SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWMINNOACTIVE,
     SW_SHOWNOACTIVATE, WS_CAPTION, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME,
@@ -567,6 +570,24 @@ pub fn should_leave_fullscreen(requested: bool, mode: WindowMode, already_tried:
     requested && mode == WindowMode::Fullscreen && !already_tried
 }
 
+/// A grade vai pôr a janela numa célula, mas ela nasceu maximizada (o Roblox
+/// abre como foi fechado: quem joga maximizado pelo site tem
+/// `StartMaximized=true`). Sem isto a grade desistia dela (relato do Discord,
+/// reproduzido em 25/10/2026: as janelas ficavam maximizadas no monitor
+/// principal). Uma vez só: se maximizar de novo depois, o app não briga.
+pub fn should_leave_maximized(grid: bool, mode: WindowMode, already_tried: bool) -> bool {
+    grid && mode == WindowMode::Maximized && !already_tried
+}
+
+/// Tira a janela de maximizada sem ativá-la (volta ao tamanho normal dela).
+pub fn leave_maximized(hwnd: HWND) -> bool {
+    if hwnd.is_null() || unsafe { IsZoomed(hwnd) } == 0 {
+        return false;
+    }
+    unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+    (unsafe { IsZoomed(hwnd) }) == 0
+}
+
 /// O estilo da janela comum a partir do da tela cheia: sai o `WS_POPUP`, volta
 /// a moldura inteira (barra de título, borda, botões); o resto fica.
 fn windowed_style(style: u32) -> u32 {
@@ -968,6 +989,124 @@ unsafe extern "system" fn roblox_win_cb(hwnd: HWND, lparam: isize) -> i32 {
     1
 }
 
+/// Janelas de grade: as visíveis e as minimizadas (no retângulo que voltam a
+/// ter ao restaurar), em ordem de leitura. Só as visíveis contavam, então uma
+/// janela minimizada não ocupava célula nenhuma e as abertas depois caíam em
+/// cima dela.
+fn grid_windows(mut visible: Vec<RobloxWin>, minimized: Vec<RobloxWin>) -> Vec<RobloxWin> {
+    visible.extend(minimized);
+    visible.sort_by_key(|w| (w.y, w.x));
+    visible
+}
+
+/// O `GetWindowPlacement` dá `rcNormalPosition` em coordenadas da **área de
+/// trabalho**, cuja origem é o canto da área útil do monitor principal — não o
+/// da tela. Com a barra de tarefas no topo ou à esquerda, as duas diferem.
+/// `work` = canto da área útil, `monitor` = canto do monitor.
+fn workspace_offset(work: (i32, i32), monitor: (i32, i32)) -> (i32, i32) {
+    (work.0 - monitor.0, work.1 - monitor.1)
+}
+
+fn workspace_to_screen(rect: (i32, i32, i32, i32), offset: (i32, i32)) -> (i32, i32, i32, i32) {
+    (rect.0 + offset.0, rect.1 + offset.1, rect.2, rect.3)
+}
+
+fn screen_to_workspace(rect: (i32, i32, i32, i32), offset: (i32, i32)) -> (i32, i32, i32, i32) {
+    (rect.0 - offset.0, rect.1 - offset.1, rect.2, rect.3)
+}
+
+/// O deslocamento da área de trabalho do monitor principal.
+fn primary_workspace_offset() -> (i32, i32) {
+    unsafe {
+        let monitor = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return (0, 0);
+        }
+        workspace_offset(
+            (info.rcWork.left, info.rcWork.top),
+            (info.rcMonitor.left, info.rcMonitor.top),
+        )
+    }
+}
+
+struct MinimizedCollect {
+    pids: std::collections::HashSet<u32>,
+    offset: (i32, i32),
+    out: Vec<RobloxWin>,
+}
+
+unsafe extern "system" fn minimized_win_cb(hwnd: HWND, lparam: isize) -> i32 {
+    let data = &mut *(lparam as *mut MinimizedCollect);
+    if IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) == 0 {
+        return 1;
+    }
+    let mut pid: u32 = 0;
+    GetWindowThreadProcessId(hwnd, &mut pid);
+    if !data.pids.contains(&pid) {
+        return 1;
+    }
+    let mut placement: WINDOWPLACEMENT = std::mem::zeroed();
+    placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+    if GetWindowPlacement(hwnd, &mut placement) == 0 {
+        return 1;
+    }
+    let r = placement.rcNormalPosition;
+    let (x, y, w, h) =
+        workspace_to_screen((r.left, r.top, r.right - r.left, r.bottom - r.top), data.offset);
+    if w < 200 || h < 200 {
+        return 1;
+    }
+    data.out.push(RobloxWin {
+        hwnd: hwnd as isize,
+        pid,
+        x,
+        y,
+        w,
+        h,
+    });
+    1
+}
+
+/// Roblox windows that are minimized, at the rectangle they get back when
+/// restored (not the -32000 placeholder of a minimized window).
+pub fn list_minimized_roblox_windows() -> Vec<RobloxWin> {
+    let mut data = MinimizedCollect {
+        pids: get_roblox_pids().into_iter().collect(),
+        offset: primary_workspace_offset(),
+        out: Vec::new(),
+    };
+    unsafe {
+        EnumWindows(Some(minimized_win_cb), &mut data as *mut _ as isize);
+    }
+    data.out
+}
+
+/// Muda onde uma janela **minimizada** volta ao restaurar, sem restaurá-la nem
+/// roubar o foco. `rect` em coordenadas da tela.
+fn place_minimized_window(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
+    let (x, y, w, h) = screen_to_workspace(rect, primary_workspace_offset());
+    unsafe {
+        let mut placement: WINDOWPLACEMENT = std::mem::zeroed();
+        placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+        if GetWindowPlacement(hwnd, &mut placement) == 0 {
+            return false;
+        }
+        placement.rcNormalPosition = RECT {
+            left: x,
+            top: y,
+            right: x + w,
+            bottom: y + h,
+        };
+        placement.showCmd = SW_SHOWMINNOACTIVE as u32;
+        // Maximizada e depois minimizada: o Windows a restauraria maximizada,
+        // por cima da grade inteira. Organizar em grade a põe na célula.
+        placement.flags &= !windows_sys::Win32::UI::WindowsAndMessaging::WPF_RESTORETOMAXIMIZED;
+        SetWindowPlacement(hwnd, &placement) != 0
+    }
+}
+
 /// Visible, non-minimized Roblox windows, ordered top→bottom, left→right.
 pub fn list_roblox_windows() -> Vec<RobloxWin> {
     let pids: std::collections::HashSet<u32> = get_roblox_pids().into_iter().collect();
@@ -1053,19 +1192,13 @@ fn slot_overlaps(slot: &GridCell, cell: (i32, i32), rect: (i32, i32, i32, i32)) 
     slot.x < x + w && x < slot.x + cell.0 && slot.y < y + h && y < slot.y + cell.1
 }
 
-/// A célula para a janela nova: a menos ocupada, empate na de menor índice —
-/// ou seja, a primeira livre; com a grade cheia, dá a volta a partir da 0.
-/// `occupants`: retângulos `(x, y, w, h)` das janelas da grade já abertas; uma
-/// janela ocupa a célula em que está o centro dela.
-/// `blockers`: janelas fora da grade (contas com tamanho próprio, como a
-/// principal). Elas não se mexem, então toda célula que elas cobrem conta como
-/// ocupada — senão a alt nasce por cima da principal.
-fn pick_grid_slot(
+/// Quantas janelas ocupam cada célula (pelo centro) ou a cobrem por fora.
+fn slot_occupancy(
     slots: &[GridCell],
     cell: (i32, i32),
     occupants: &[(i32, i32, i32, i32)],
     blockers: &[(i32, i32, i32, i32)],
-) -> Option<usize> {
+) -> Vec<usize> {
     let mut counts = vec![0usize; slots.len()];
     for &(x, y, w, h) in occupants {
         let (cx, cy) = (x + w / 2, y + h / 2);
@@ -1081,6 +1214,129 @@ fn pick_grid_slot(
             counts[i] += 1;
         }
     }
+    counts
+}
+
+/// A grade não tem célula livre: a próxima janela cairia por cima de outra.
+fn grid_is_full(
+    slots: &[GridCell],
+    cell: (i32, i32),
+    occupants: &[(i32, i32, i32, i32)],
+    blockers: &[(i32, i32, i32, i32)],
+) -> bool {
+    !slot_occupancy(slots, cell, occupants, blockers).contains(&0)
+}
+
+/// A maior célula, na mesma proporção de `cell`, em que cabem `count` janelas
+/// sem dar a volta (fora as células cobertas por `blockers`). `cell` mesmo se
+/// já cabem; `None` se nem no piso (`MIN_SMALL_GRID_CELL`) cabem.
+///
+/// Relato do Discord (25/10/2026): com mais janelas do que cabem no monitor no
+/// tamanho mínimo do Roblox, a grade dava a volta e empilhava ("they come on
+/// top of one another"). Encolher a célula é o que faz todas caberem.
+fn cell_that_fits(
+    monitors: &[MonitorInfoDto],
+    cell: (i32, i32),
+    gap: i32,
+    count: usize,
+    blockers: &[(i32, i32, i32, i32)],
+) -> Option<(i32, i32)> {
+    let fits = |c: (i32, i32)| -> bool {
+        let slots = grid_slots(monitors, c.0, c.1, gap);
+        let free = slots.iter().filter(|s| !blockers.iter().any(|&b| slot_overlaps(s, c, b))).count();
+        free >= count
+    };
+    if count == 0 || cell.0 <= 0 || cell.1 <= 0 || fits(cell) {
+        return Some(cell);
+    }
+    let mut w = cell.0;
+    while w > MIN_SMALL_GRID_CELL.0 {
+        w -= 1;
+        let h = ((w as i64 * cell.1 as i64) / cell.0 as i64) as i32;
+        if h < MIN_SMALL_GRID_CELL.1 {
+            break;
+        }
+        if fits((w, h)) {
+            return Some((w, h));
+        }
+    }
+    None
+}
+
+/// Formatos aceitos no "melhor tamanho": deitado, de 4:3 a 16:9 — nem
+/// esticado para um lado, nem em pé.
+const AUTO_FIT_RATIOS: [(i64, i64); 4] = [(4, 3), (3, 2), (16, 10), (16, 9)];
+
+/// A maior célula, num dos `AUTO_FIT_RATIOS`, em que `count` janelas cabem nos
+/// `monitors` com o `gap` (fora as células cobertas por `blockers`). `None` sem
+/// nada a arrumar, sem monitor, ou se nem no piso (`MIN_SMALL_GRID_CELL`) cabem.
+///
+/// A melhor célula sempre encosta numa borda: ou a largura é a de `c` colunas
+/// num monitor, ou a altura é a de `r` linhas. Basta testar esses tamanhos, do
+/// maior para o menor, em vez de varrer pixel a pixel.
+fn best_fit_cell(
+    monitors: &[MonitorInfoDto],
+    gap: i32,
+    count: usize,
+    blockers: &[(i32, i32, i32, i32)],
+) -> Option<(i32, i32)> {
+    if count == 0 || monitors.is_empty() {
+        return None;
+    }
+    let gap = gap.max(0);
+    let fits = |c: (i32, i32)| -> bool {
+        grid_slots(monitors, c.0, c.1, gap)
+            .iter()
+            .filter(|s| !blockers.iter().any(|&b| slot_overlaps(s, c, b)))
+            .count()
+            >= count
+    };
+    let lines = count.min(MAX_GRID_SLOTS) as i32;
+    let mut best: Option<(i32, i32)> = None;
+    for &(a, b) in &AUTO_FIT_RATIOS {
+        let mut widths: Vec<i32> = Vec::new();
+        for m in monitors {
+            for n in 1..=lines {
+                // `n` colunas: gap + n*w + (n-1)*gap <= largura.
+                widths.push((m.width - n * gap) / n);
+                // `n` linhas, convertidas em largura pelo formato.
+                let h = (m.height - n * gap) / n;
+                widths.push(((h as i64 * a) / b) as i32);
+            }
+        }
+        widths.sort_unstable_by(|x, y| y.cmp(x));
+        widths.dedup();
+        for w in widths {
+            let h = ((w as i64 * b) / a) as i32;
+            if w < MIN_SMALL_GRID_CELL.0 || h < MIN_SMALL_GRID_CELL.1 {
+                break;
+            }
+            if fits((w, h)) {
+                let area = |c: (i32, i32)| c.0 as i64 * c.1 as i64;
+                if best.map_or(true, |cur| area((w, h)) > area(cur)) {
+                    best = Some((w, h));
+                }
+                break;
+            }
+        }
+    }
+    best
+}
+
+/// A célula para a janela nova: a menos ocupada, empate na de menor índice —
+/// ou seja, a primeira livre; com a grade cheia, dá a volta a partir da 0.
+/// `occupants`: retângulos `(x, y, w, h)` das janelas da grade já abertas; uma
+/// janela ocupa a célula em que está o centro dela.
+/// `blockers`: janelas fora da grade (contas com tamanho próprio, como a
+/// principal). Elas não se mexem, então toda célula que elas cobrem conta como
+/// ocupada — senão a alt nasce por cima da principal.
+fn pick_grid_slot(
+    slots: &[GridCell],
+    cell: (i32, i32),
+    occupants: &[(i32, i32, i32, i32)],
+    blockers: &[(i32, i32, i32, i32)],
+) -> Option<usize> {
+    let counts = slot_occupancy(slots, cell, occupants, blockers);
     counts
         .iter()
         .enumerate()
@@ -1147,6 +1403,17 @@ pub struct GridWindowStyle {
     pub allow_small: bool,
     /// `General.GridBorderless`.
     pub borderless: bool,
+    /// `General.GridAutoFit`: a célula é a maior em que todas as janelas cabem
+    /// nos monitores escolhidos (`best_fit_cell`), não o tamanho configurado.
+    pub auto_fit: bool,
+}
+
+impl GridWindowStyle {
+    /// Célula menor que o mínimo do Roblox: pedida, ou implícita no "melhor
+    /// tamanho" (sem ela a conta dá células que o Roblox cresce de volta).
+    pub fn small_cells(&self) -> bool {
+        self.allow_small || self.auto_fit
+    }
 }
 
 /// Os flags do `SetWindowPos` da grade: nunca rouba o foco nem mexe na ordem;
@@ -1267,6 +1534,132 @@ fn release_borderless_for(pids: &std::collections::HashSet<u32>) {
     }
 }
 
+/// A célula que a grade deu a cada janela de cliente aberto pelo app, e se a
+/// janela estava minimizada na última olhada. Ao restaurar uma minimizada o
+/// Roblox impõe o mínimo (~802x631) por cima da célula — quando a célula é
+/// menor que isso, as janelas voltavam umas por cima das outras (bateria de
+/// testes de 25/10/2026). Vale tanto para a que estava minimizada na hora de
+/// organizar quanto para a que a pessoa minimizou depois.
+#[derive(Debug, Clone, Copy)]
+struct GridCellMemory {
+    rect: (i32, i32, i32, i32),
+    was_minimized: bool,
+}
+
+static GRID_CELLS: std::sync::LazyLock<Mutex<HashMap<isize, GridCellMemory>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// `Some(rect)` anota a célula da janela (`minimized`: se ela está minimizada
+/// agora); `None` esquece (a grade a deixou fora).
+fn remember_grid_cell(hwnd: isize, rect: Option<(i32, i32, i32, i32)>, minimized: bool) {
+    let mut map = GRID_CELLS.lock().unwrap_or_else(|e| e.into_inner());
+    match rect {
+        Some(rect) => {
+            map.insert(hwnd, GridCellMemory { rect, was_minimized: minimized });
+        }
+        None => {
+            map.remove(&hwnd);
+        }
+    }
+}
+
+/// Janela em que o Windows impõe o tamanho mínimo (o `WM_GETMINMAXINFO` só vale
+/// para janela redimensionável): moldura normal, sem estar maximizada nem em
+/// tela cheia.
+fn window_enforces_min_size(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    frame_enforces_min_size(style) && unsafe { IsZoomed(hwnd) } == 0 && !window_is_fullscreen_like(hwnd, rect)
+}
+
+fn frame_enforces_min_size(style: u32) -> bool {
+    style & WS_THICKFRAME != 0 && style & WS_POPUP == 0
+}
+
+/// O que a olhada faz com uma janela anotada.
+#[derive(Debug, PartialEq, Eq)]
+enum GridCellStep {
+    /// Fechou: sai da lista.
+    Forget,
+    /// Minimizada: anota, para pegar a volta.
+    MarkMinimized,
+    /// Acabou de voltar de minimizada, na própria célula: vai para a célula
+    /// no tamanho dela.
+    Snap,
+    /// Nada a fazer (maximizada, em tela cheia, arrastada pela pessoa...).
+    Keep,
+}
+
+/// `at_cell`: o canto da janela está no canto da célula — é onde ela volta ao
+/// restaurar. Janela que a pessoa arrastou para outro lugar não é tocada, e
+/// janela que não estava minimizada também não: quem a redimensionou no canto
+/// foi a pessoa, e a olhada não briga com ela.
+fn grid_cell_step(exists: bool, minimized: bool, maximized: bool, was_minimized: bool, at_cell: bool) -> GridCellStep {
+    if !exists {
+        GridCellStep::Forget
+    } else if minimized {
+        GridCellStep::MarkMinimized
+    } else if was_minimized && !maximized && at_cell {
+        GridCellStep::Snap
+    } else {
+        GridCellStep::Keep
+    }
+}
+
+/// Tolerância do "no canto da célula", em pixels.
+const AT_CELL_TOLERANCE: i32 = 2;
+
+fn is_at_cell(current: Option<(i32, i32, i32, i32)>, cell: (i32, i32, i32, i32)) -> bool {
+    current.is_some_and(|r| (r.0 - cell.0).abs() <= AT_CELL_TOLERANCE && (r.1 - cell.1).abs() <= AT_CELL_TOLERANCE)
+}
+
+/// A olhada (a cada 250 ms, `start_grid_snap_loop`): a janela anotada que
+/// voltou de minimizada vai para a célula sem o aviso de tamanho, como as
+/// visíveis.
+pub fn snap_restored_small_windows() {
+    let entries: Vec<(isize, GridCellMemory)> = {
+        let map = GRID_CELLS.lock().unwrap_or_else(|e| e.into_inner());
+        if map.is_empty() {
+            return;
+        }
+        map.iter().map(|(h, m)| (*h, *m)).collect()
+    };
+    let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
+    for (raw, memory) in entries {
+        let hwnd = raw as HWND;
+        let (exists, minimized, maximized) = unsafe {
+            (
+                windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(hwnd) != 0,
+                IsIconic(hwnd) != 0,
+                IsZoomed(hwnd) != 0,
+            )
+        };
+        let at_cell = exists && !minimized && is_at_cell(get_window_position(hwnd), memory.rect);
+        let step = grid_cell_step(exists, minimized, maximized, memory.was_minimized, at_cell);
+        let mut map = GRID_CELLS.lock().unwrap_or_else(|e| e.into_inner());
+        match step {
+            GridCellStep::Forget => {
+                map.remove(&raw);
+            }
+            GridCellStep::MarkMinimized => {
+                if let Some(m) = map.get_mut(&raw) {
+                    m.was_minimized = true;
+                }
+            }
+            GridCellStep::Snap => {
+                let _ = place_window_with(hwnd, memory.rect, grid_swp_flags(true));
+                if let Some(m) = map.get_mut(&raw) {
+                    m.was_minimized = false;
+                }
+            }
+            GridCellStep::Keep => {
+                if let Some(m) = map.get_mut(&raw) {
+                    m.was_minimized = false;
+                }
+            }
+        }
+    }
+}
+
 /// A olhada de 1 s: cliente que saiu do rastreamento é esquecido; opção
 /// desligada devolve as molduras.
 pub fn grid_borders_tick(settings: &SettingsStore) {
@@ -1335,7 +1728,7 @@ pub fn place_in_grid(
     }
     // A grade só é chamada para clientes que o app abriu. A moldura sai antes
     // de medir: sem ela a janela inteira é área útil.
-    let small = request.style.allow_small;
+    let small = request.style.small_cells();
     let (current, client) = if request.style.borderless {
         make_borderless(hwnd, pid);
         match movable_window(hwnd) {
@@ -1354,21 +1747,115 @@ pub fn place_in_grid(
         ),
         None => (current.2, current.3),
     };
+    let others: Vec<RobloxWin> = grid_windows(list_roblox_windows(), list_minimized_roblox_windows())
+        .into_iter()
+        .filter(|w| w.pid != pid)
+        .collect();
+    let (blocker_wins, occupant_wins): (Vec<RobloxWin>, Vec<RobloxWin>) =
+        others.into_iter().partition(|w| request.excluded_pids.contains(&w.pid));
+    // A grade já foi encolhida para caber mais janelas (`cell_that_fits`): a
+    // nova entra no tamanho dela, não no mínimo do Roblox — senão as células
+    // não batem e ela cai por cima das outras.
+    let own = launched_client_pids();
+    let grid_pids: Vec<u32> = occupant_wins.iter().map(|w| w.pid).chain([pid]).collect();
+    // E vale também para célula maior: com a grade organizada em 1272x695 (a
+    // base era uma janela que a pessoa aumentou), a nova num 816x639 caía numa
+    // célula que só existe nesse tamanho, por cima das outras.
+    let all_own = !occupant_wins.is_empty() && grid_small_allowed(true, &grid_pids, &own);
+    if request.style.auto_fit {
+        let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
+        let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
+        let occupants: Vec<(i32, i32, i32, i32)> = occupant_wins.iter().map(rect).collect();
+        let blockers: Vec<(i32, i32, i32, i32)> = blocker_wins.iter().map(rect).collect();
+        if let Some(best) = best_fit_cell(&monitors, request.gap, occupants.len() + 1, &blockers) {
+            // Uma janela a mais muda o melhor tamanho: rearruma todas nele.
+            // Com o tamanho igual, a nova só pega a primeira célula livre e
+            // ninguém se mexe.
+            if !occupant_wins.is_empty() && grid_cell_in_use(&occupant_wins) != Some(best) {
+                let _ = arrange_roblox_grid_locked(
+                    &request.monitor_indices,
+                    request.gap,
+                    size,
+                    &request.excluded_pids,
+                    request.style,
+                    false,
+                );
+                return match get_window_position(hwnd) {
+                    Some(r) => WindowEnforcement::Placed(r),
+                    None => WindowEnforcement::Skipped,
+                };
+            }
+            let small = grid_small_allowed(true, &grid_pids, &own);
+            let slots = grid_slots(&monitors, best.0, best.1, request.gap);
+            let target = match pick_grid_slot(&slots, best, &occupants, &blockers) {
+                Some(i) => (slots[i].x, slots[i].y, best.0, best.1),
+                None => (current.0, current.1, best.0, best.1),
+            };
+            remember_grid_cell(hwnd as isize, Some(target), false);
+            return move_to_with(hwnd, current, target, small);
+        }
+    }
+    // Janela que já está no tamanho da grade (uma organização anterior a pegou,
+    // quando várias contas abrem quase juntas) também vai sem o mínimo do
+    // Roblox: medi-la de novo a fazia crescer até ele, por cima das outras
+    // (teste real `real_grid_scenario_launch_placement_with_more_windows_than_cells`,
+    // 26/10/2026). A célula é a que as outras já têm, então não há o que medir.
+    let (small, requested) = match grid_cell_in_use(&occupant_wins) {
+        Some(cell) if all_own => (small || cell == requested || grid_already_shrunk(cell, requested), cell),
+        _ => (small, requested),
+    };
     let (cell_w, cell_h) =
         grid_cell_size(requested, accepted_size(hwnd, current, requested, small), small);
     let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
     let slots = grid_slots(&monitors, cell_w, cell_h, request.gap);
-    let others: Vec<RobloxWin> = list_roblox_windows().into_iter().filter(|w| w.pid != pid).collect();
-    let (blockers, occupants): (Vec<RobloxWin>, Vec<RobloxWin>) =
-        others.into_iter().partition(|w| request.excluded_pids.contains(&w.pid));
     let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
-    let occupants: Vec<(i32, i32, i32, i32)> = occupants.iter().map(rect).collect();
-    let blockers: Vec<(i32, i32, i32, i32)> = blockers.iter().map(rect).collect();
+    let occupants: Vec<(i32, i32, i32, i32)> = occupant_wins.iter().map(rect).collect();
+    let blockers: Vec<(i32, i32, i32, i32)> = blocker_wins.iter().map(rect).collect();
+    // Grade lotada: em vez de pôr esta por cima de outra, rearruma todas num
+    // tamanho em que caibam (só com todas abertas pelo app).
+    if grid_is_full(&slots, (cell_w, cell_h), &occupants, &blockers)
+        && grid_small_allowed(true, &grid_pids, &own)
+        && cell_that_fits(&monitors, (cell_w, cell_h), request.gap, occupants.len() + 1, &blockers).is_some()
+    {
+        let _ = arrange_roblox_grid_locked(
+            &request.monitor_indices,
+            request.gap,
+            size,
+            &request.excluded_pids,
+            request.style,
+            false,
+        );
+        return match get_window_position(hwnd) {
+            Some(r) => WindowEnforcement::Placed(r),
+            None => WindowEnforcement::Skipped,
+        };
+    }
     let target = match pick_grid_slot(&slots, (cell_w, cell_h), &occupants, &blockers) {
         Some(i) => (slots[i].x, slots[i].y, cell_w, cell_h),
         None => (current.0, current.1, cell_w, cell_h),
     };
+    remember_grid_cell(hwnd as isize, Some(target), false);
     move_to_with(hwnd, current, target, small)
+}
+
+/// O tamanho de célula que a grade está usando: o das outras janelas, quando
+/// ele é de fato o da grade — de duas ou mais delas, ou da única aberta. Todas
+/// de tamanhos diferentes (arrastadas uma a uma) não dizem nada.
+fn grid_cell_in_use(occupants: &[RobloxWin]) -> Option<(i32, i32)> {
+    if occupants.len() == 1 {
+        return Some((occupants[0].w, occupants[0].h));
+    }
+    let common = most_common_size(occupants);
+    let holders = occupants.iter().filter(|w| (w.w, w.h) == common).count();
+    (holders >= 2).then_some(common)
+}
+
+/// A grade já foi encolhida (a célula das outras é menor que a da janela nova
+/// em **alguma** medida). Exigir as duas deixava passar a célula mais larga e
+/// mais baixa que o mínimo — que sai quando a base da grade era uma janela em
+/// tela cheia — e a nova caía numa célula de 816x639 por cima das outras.
+fn grid_already_shrunk(common: (i32, i32), requested: (i32, i32)) -> bool {
+    common.0 < requested.0 || common.1 < requested.1
 }
 
 /// O tamanho que a janela aceita de verdade: pede `requested` no lugar onde ela
@@ -1380,13 +1867,15 @@ fn accepted_size(
     requested: (i32, i32),
     allow_small: bool,
 ) -> (i32, i32) {
-    if (current.2, current.3) != requested {
-        place_window_with(
-            hwnd,
-            (current.0, current.1, requested.0, requested.1),
-            grid_swp_flags(allow_small),
-        );
-    }
+    // Pede sempre, mesmo já no tamanho: uma janela que a grade encolheu antes
+    // já está nele, e pular o pedido escondia o mínimo — na segunda
+    // "Organizar em grade" a célula parecia servir, as janelas iam sem
+    // `SWP_NOSENDCHANGING` e cresciam umas por cima das outras.
+    place_window_with(
+        hwnd,
+        (current.0, current.1, requested.0, requested.1),
+        grid_swp_flags(allow_small),
+    );
     get_window_position(hwnd).map(|r| (r.2, r.3)).unwrap_or(requested)
 }
 
@@ -1403,6 +1892,19 @@ pub fn arrange_roblox_grid(
     style: GridWindowStyle,
 ) -> Result<(usize, usize), String> {
     let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
+    arrange_roblox_grid_locked(monitor_indices, gap, size, excluded_pids, style, true)
+}
+
+/// `arrange_roblox_grid` com a trava da grade já tomada (a colocação do launch
+/// chama isto quando a grade lota).
+fn arrange_roblox_grid_locked(
+    monitor_indices: &[usize],
+    gap: i32,
+    size: Option<(u32, u32)>,
+    excluded_pids: &std::collections::HashSet<u32>,
+    style: GridWindowStyle,
+    restore_minimized: bool,
+) -> Result<(usize, usize), String> {
     // Moldura e célula pequena só nos clientes que o app abriu; o aberto pelo
     // site é arrumado como sempre foi.
     let own: std::collections::HashSet<u32> = launched_client_pids()
@@ -1416,11 +1918,17 @@ pub fn arrange_roblox_grid(
     } else {
         release_borderless_for(&own);
     }
-    let (excluded, wins): (Vec<RobloxWin>, Vec<RobloxWin>) = list_roblox_windows()
-        .into_iter()
-        .partition(|w| excluded_pids.contains(&w.pid));
+    // As minimizadas entram na grade e ganham a célula delas (ficam minimizadas,
+    // e voltam ao lugar certo ao restaurar): sem isso, as visíveis ocupavam as
+    // mesmas células e tudo se sobrepunha ao restaurar.
+    let minimized = list_minimized_roblox_windows();
+    let minimized_hwnds: std::collections::HashSet<isize> = minimized.iter().map(|w| w.hwnd).collect();
+    let (excluded, wins): (Vec<RobloxWin>, Vec<RobloxWin>) =
+        grid_windows(list_roblox_windows(), minimized)
+            .into_iter()
+            .partition(|w| excluded_pids.contains(&w.pid));
     let window_pids: Vec<u32> = wins.iter().map(|w| w.pid).collect();
-    let small = grid_small_allowed(style.allow_small, &window_pids, &own);
+    let mut small = grid_small_allowed(style.small_cells(), &window_pids, &own);
     let blockers: Vec<(i32, i32, i32, i32)> = excluded.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
     if wins.is_empty() {
         return Err("Nenhuma janela de Roblox aberta foi encontrada.".to_string());
@@ -1433,10 +1941,32 @@ pub fn arrange_roblox_grid(
     if monitors.is_empty() {
         return Err("Selecione ao menos um monitor válido.".to_string());
     }
-    let (cell_w, cell_h) = match size {
-        Some((tw, th)) => {
-            let first = wins[0];
-            let client = client_area_size(first.hwnd as HWND).unwrap_or((first.w, first.h));
+    // Medir e testar o tamanho só numa janela visível: numa minimizada o
+    // retângulo vivo não diz nada.
+    // E de preferência numa com moldura normal: em tela cheia (sem borda),
+    // maximizada ou sem moldura o Windows não impõe o mínimo, a medida dizia
+    // que a célula pequena servia e as outras cresciam por cima umas das outras.
+    let visible: Vec<RobloxWin> = wins.iter().filter(|w| !minimized_hwnds.contains(&w.hwnd)).copied().collect();
+    let probe = visible
+        .iter()
+        .find(|w| window_enforces_min_size(w.hwnd as HWND, (w.x, w.y, w.w, w.h)))
+        .or_else(|| visible.first())
+        .copied();
+    // "Melhor tamanho": a célula sai da conta, não do tamanho configurado.
+    let auto_cell = if style.auto_fit {
+        best_fit_cell(&monitors, gap, wins.len(), &blockers)
+    } else {
+        None
+    };
+    let (cell_w, cell_h) = match (auto_cell, size) {
+        (Some(best), _) => best,
+        (None, Some((tw, th))) => {
+            let first = probe.unwrap_or(wins[0]);
+            let client = if probe.is_some() {
+                client_area_size(first.hwnd as HWND).unwrap_or((first.w, first.h))
+            } else {
+                (first.w, first.h)
+            };
             outer_size_for_target(
                 (tw as i32, th as i32),
                 learned_size_semantics(),
@@ -1444,19 +1974,35 @@ pub fn arrange_roblox_grid(
                 client,
             )
         }
-        None => most_common_size(&wins),
+        (None, None) => most_common_size(&wins),
     };
-    let first = wins[0];
-    let (cell_w, cell_h) = grid_cell_size(
-        (cell_w, cell_h),
-        accepted_size(
-            first.hwnd as HWND,
-            (first.x, first.y, first.w, first.h),
+    let (cell_w, cell_h) = match probe {
+        // A célula do "melhor tamanho" já é a final: medir a janela aqui só
+        // traria o mínimo do Roblox de volta (fora os clientes do site, que
+        // `grid_small_allowed` já deixa crescer).
+        _ if auto_cell.is_some() => (cell_w, cell_h),
+        Some(first) => grid_cell_size(
             (cell_w, cell_h),
+            accepted_size(
+                first.hwnd as HWND,
+                (first.x, first.y, first.w, first.h),
+                (cell_w, cell_h),
+                small,
+            ),
             small,
         ),
-        small,
-    );
+        None => (cell_w, cell_h),
+    };
+    // Mais janelas do que cabem: encolhe a célula até caberem todas, em vez de
+    // dar a volta e empilhar. Só com todas abertas pelo app — a de um cliente
+    // aberto pelo site cresceria de volta até o mínimo do Roblox.
+    let (cell_w, cell_h) = match cell_that_fits(&monitors, (cell_w, cell_h), gap, wins.len(), &blockers) {
+        Some(fit) if fit != (cell_w, cell_h) && grid_small_allowed(true, &window_pids, &own) => {
+            small = true;
+            fit
+        }
+        _ => (cell_w, cell_h),
+    };
     let slots = unblocked_slots(&grid_slots(&monitors, cell_w, cell_h, gap), (cell_w, cell_h), &blockers);
     if slots.is_empty() {
         return Err("Nenhuma célula coube nos monitores (janelas grandes demais para o gap?).".to_string());
@@ -1465,6 +2011,36 @@ pub fn arrange_roblox_grid(
     for (i, w) in wins.iter().enumerate() {
         let cell = slots[manual_slot(i, slots.len())];
         let hwnd = w.hwnd as HWND;
+        if minimized_hwnds.contains(&w.hwnd) && restore_minimized {
+            // O botão traz a minimizada de volta, já na célula (pedido do dono,
+            // 26/10/2026: abria uma por uma). Antes de restaurar, a posição
+            // normal vira a célula e sai o "voltar maximizada"; restaura sem
+            // roubar o foco e põe no tamanho da célula como as visíveis.
+            let rect = (cell.x, cell.y, cell_w, cell_h);
+            let _ = place_minimized_window(hwnd, rect);
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            if place_window_with(hwnd, rect, grid_swp_flags(small)) {
+                arranged += 1;
+            }
+            remember_grid_cell(w.hwnd, (small || own.contains(&w.pid)).then_some(rect), false);
+            continue;
+        }
+        if minimized_hwnds.contains(&w.hwnd) {
+            let rect = (cell.x, cell.y, cell_w, cell_h);
+            if place_minimized_window(hwnd, rect) {
+                arranged += 1;
+            }
+            // Célula que pode ser menor que o mínimo: ao restaurar o Roblox a
+            // aumentaria de volta; a olhada de 1 s a põe na célula
+            // (`snap_restored_small_windows`). Vale para todo cliente aberto
+            // pelo app, não só quando a célula encolheu agora: na segunda
+            // organização o `rcNormalPosition` já é pequeno, a célula cabe sem
+            // encolher e `small` fica falso (bateria de 25/10/2026).
+            remember_grid_cell(w.hwnd, (small || own.contains(&w.pid)).then_some(rect), true);
+            continue;
+        }
         if unsafe { IsZoomed(hwnd) } != 0 {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -1473,6 +2049,12 @@ pub fn arrange_roblox_grid(
         if place_window_with(hwnd, (cell.x, cell.y, cell_w, cell_h), grid_swp_flags(small)) {
             arranged += 1;
         }
+        // A pessoa pode minimizá-la depois: ao voltar, ela volta para cá.
+        remember_grid_cell(
+            w.hwnd,
+            (small || own.contains(&w.pid)).then_some((cell.x, cell.y, cell_w, cell_h)),
+            false,
+        );
     }
     Ok((arranged, wins.len()))
 }
@@ -1577,4 +2159,19 @@ pub fn get_process_memory_mb(pid: u32) -> Option<u64> {
     let (private_ws, working_set) = read_process_memory_with(pid, PROCESS_QUERY_LIMITED_INFORMATION)
         .or_else(|| read_process_memory_with(pid, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ))?;
     Some(memory_reading_mb(private_ws, working_set))
+}
+
+/// Memória física livre e total do Windows, em MB (o aviso "Windows quase sem
+/// memória" da página Discord). Só leitura.
+pub fn system_memory_mb() -> Option<(u64, u64)> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    const MB: u64 = 1024 * 1024;
+    // SAFETY: MEMORYSTATUSEX é uma struct C simples; zerada e com o
+    // `dwLength` certo é o que a função pede.
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+        return None;
+    }
+    Some((status.ullAvailPhys / MB, status.ullTotalPhys / MB))
 }
