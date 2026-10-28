@@ -156,12 +156,10 @@ describe("RejoinTab — escolher as contas", () => {
     expect(startButton()).toBeDisabled();
   });
 
-  it("com uma conta só marcada, não liga", async () => {
+  it("com uma conta só marcada, liga (uma alt também é reaberta)", async () => {
     renderTab({}, { targetUserIds: [1] });
-    await waitFor(() =>
-      expect(screen.getByTestId("rejoin-status")).toHaveTextContent("Select at least 2 accounts")
-    );
-    expect(startButton()).toBeDisabled();
+    await waitFor(() => expect(startButton()).toBeEnabled());
+    expect(screen.getByTestId("rejoin-status")).not.toHaveTextContent("Select at least");
   });
 });
 
@@ -405,12 +403,16 @@ describe("RejoinTab — um jogo escolhido", () => {
 });
 
 describe("RejoinTab — start guards", () => {
-  it("explica e não liga com o Multi Roblox desligado", async () => {
-    renderTab({ settings: settings(false) });
-    expect(screen.getByTestId("rejoin-status")).toHaveTextContent(
-      "Auto Rejoin currently requires Multi Roblox to be enabled"
+  // Pedido do dono (23/10/2026): Multi Roblox desligado não barra o Start;
+  // o Start liga o Multi Roblox e segue.
+  it("com o Multi Roblox desligado, o Start liga e segue", async () => {
+    const { store } = renderTab({ settings: settings(false) });
+    expect(screen.getByTestId("rejoin-status")).not.toHaveTextContent("requires Multi Roblox");
+    await waitFor(() => expect(startButton()).toBeEnabled());
+    await userEvent.click(startButton());
+    await waitFor(() =>
+      expect(store.updateSetting).toHaveBeenCalledWith("General", "EnableMultiRbx", "true")
     );
-    expect(startButton()).toBeDisabled();
   });
 
   it("mostra a falha do Start", async () => {

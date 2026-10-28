@@ -252,6 +252,35 @@ describe("AccountRow", () => {
     expect(screen.getByLabelText(/Aged: 25 days/)).toHaveAttribute("data-status", "aged");
   });
 
+  /**
+   * Pedido do dono (26/10/2026): ao abrir o app, nada dizia quais contas tinham
+   * parado na verificação "confirme que é humano" na última vez.
+   */
+  it("marks an account whose last session stopped at a Roblox human check", () => {
+    renderRow({}, makeAccount({ UserID: 501, Username: "roboduck", HumanCheckAt: "2026-10-26T07:40:00Z" }));
+    expect(screen.getByLabelText(/Roblox asked for a human check/)).toHaveAttribute("data-status", "humancheck");
+  });
+
+  it("shows no human check mark for an account without one", () => {
+    renderRow();
+    expect(screen.queryByLabelText(/Roblox asked for a human check/)).toBeNull();
+  });
+
+  it("marks a client the app opened with the rocket", () => {
+    renderRow({ launchedByProgram: new Set([501]) });
+    expect(screen.getByLabelText("Launched by MultiAlt")).toHaveAttribute("data-status", "launched");
+  });
+
+  /**
+   * Relato de 26/10/2026: a principal jogada pelo site aparecia com o foguete
+   * laranja de "aberto pelo MultiAlt" — o dono leu como o aviso de conta
+   * parada. Cliente do site reconhecido pelo log não foi aberto pelo app.
+   */
+  it("does not mark a client opened from the website as launched by MultiAlt", () => {
+    renderRow({ launchedByProgram: new Set([501]), adoptedClients: new Set([501]) });
+    expect(screen.queryByLabelText("Launched by MultiAlt")).toBeNull();
+  });
+
   /** Ideia 8: a moderação lida do Roblox aparece na linha, com ícone próprio. */
   it("shows a banned account with its end date and the moderator note", () => {
     const until = new Date(Date.now() + 3 * 86400000);

@@ -101,6 +101,40 @@ fn normalize_date(value: &str) -> String {
         .unwrap_or_else(|| value.to_string())
 }
 
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PunishedUser {
+    #[serde(default)]
+    punished_user_id: Option<i64>,
+}
+
+/// De qual conta é a sessão, para conta moderada: as consultas de sempre
+/// (`my/account/json`, `users/authenticated`) recusam, e a moderação diz o ID da
+/// conta punida. `None` quando ela não diz (conta sem moderação, ou resposta
+/// sem o campo). Leitura pura, como [`get_moderation_status`].
+pub async fn punished_user_id(security_token: &str, client: &reqwest::Client) -> Result<Option<i64>, String> {
+    let response = client
+        .get(format!("{}/v1/not-approved", endpoints::host("usermoderation")))
+        .header(COOKIE, cookie_header(security_token))
+        .header("Accept", "application/json")
+        .send_noting()
+        .await
+        .map_err(|e| http_client::describe_error(&e))?;
+    if !response.status().is_success() {
+        return Err(format!("Moderation check failed (status {})", response.status().as_u16()));
+    }
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read the moderation status: {e}"))?;
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    let body: PunishedUser =
+        serde_json::from_str(&text).map_err(|_| "Unexpected moderation response".to_string())?;
+    Ok(body.punished_user_id.filter(|id| *id > 0))
+}
+
 /// Lê a moderação da conta. Leitura pura: não renova sessão, não aceita termos,
 /// não reativa conta.
 pub async fn get_moderation_status(
@@ -152,6 +186,31 @@ mod moderation_http_tests {
 
     async fn check(token: &str) -> Result<ModerationStatus, ModerationFailure> {
         get_moderation_status(token, &http_client::client()).await
+    }
+
+    /// "Fazer login de novo" numa conta moderada (relato de 26/10/2026): as
+    /// consultas de "de quem é esta sessão" recusam; a moderação diz o ID da
+    /// conta punida, e é com ele que o app confere que a sessão é desta conta.
+    #[tokio::test]
+    async fn the_moderation_says_which_account_was_punished() {
+        mount(
+            "mod-whose",
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "punishmentTypeDescription": "Warn",
+                "messageToUser": "Spam",
+                "punishedUserId": 4242
+            })),
+        )
+        .await;
+        assert_eq!(punished_user_id("mod-whose", &http_client::client()).await.unwrap(), Some(4242));
+    }
+
+    #[tokio::test]
+    async fn no_punished_id_means_it_cannot_say_whose_session_it_is() {
+        mount("mod-noid", ResponseTemplate::new(200).set_body_json(serde_json::json!({ "punishmentTypeDescription": "Warn" }))).await;
+        assert_eq!(punished_user_id("mod-noid", &http_client::client()).await.unwrap(), None);
+        mount("mod-empty", ResponseTemplate::new(200).set_body_json(serde_json::json!({}))).await;
+        assert_eq!(punished_user_id("mod-empty", &http_client::client()).await.unwrap(), None);
     }
 
     #[tokio::test]

@@ -5,7 +5,7 @@
 Baixar e controlar uma cópia própria do Chromium (Chrome for Testing) para dois usos:
 
 - **Login**: abrir a página de login do Roblox, esperar o usuário (ou preencher usuário/senha por ele) e capturar o cookie `.ROBLOSECURITY` que sai do login, importando a conta sem que o usuário precise colar cookie na mão.
-- **Browser por conta**: abrir uma janela já autenticada com o cookie de uma conta salva, em um perfil separado por `UserID`.
+- **Browser por conta**: abrir uma janela já autenticada com o cookie de uma conta salva, em um perfil separado por `UserID` — que, por padrão (`Login.PersistentProfile` desligado), começa limpo e some quando a janela fecha.
 
 O controle é feito por **CDP** (Chrome DevTools Protocol) sobre WebSocket.
 
@@ -16,7 +16,8 @@ O controle é feito por **CDP** (Chrome DevTools Protocol) sobre WebSocket.
 | [chromium/download.rs](../../src-tauri/src/chromium/download.rs) | Resolve a build estável no catálogo Chrome for Testing, baixa, extrai e cacheia o binário (`ensure_chromium`, `is_installed`, `chromium_dir`); `resolve_browser_binary` decide entre caminho manual, download e navegador do sistema; `reinstall_chromium` apaga e baixa de novo |
 | [chromium/cdp.rs](../../src-tauri/src/chromium/cdp.rs) | `chrome_args` (linha de comando), `spawn_chrome` (processo + leitura do `DevToolsActivePort`), `CdpClient` (WebSocket CDP: `Network.*`, `Page.*`, `Runtime.evaluate`, `Browser.close`) |
 | [chromium/manager.rs](../../src-tauri/src/chromium/manager.rs) | `ChromiumManager`: processos vivos por conta (`LOGIN_KEY` = `i64::MIN` para a janela de login), cookie de login capturado, caminhos dos perfis |
-| [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) | Comandos Tauri: `is_browser_ready`, `ensure_browser`, `open_login_browser`, `extract_browser_cookie`, `close_login_browser`, `open_account_browser`, `import_userpass` |
+| [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) | Comandos Tauri: `is_browser_ready`, `ensure_browser`, `open_login_browser`, `extract_browser_cookie`, `extract_browser_login_password`, `close_login_browser`, `open_account_browser`, `import_userpass`, `run_browser_diagnostics` |
+| [chromium/diagnose.rs](../../src-tauri/src/chromium/diagnose.rs) | Checagem do navegador (`browserBinary`, `browserFolder`, `browserLoginOpen`, `browserStart`, `browserRoblox`) — ver "Checagem do navegador" abaixo |
 | [store.tsx](../../src/store.tsx) | `openLoginBrowser` / `openAccountBrowser` e o listener do evento `browser-login-detected` |
 | [ImportDialog.tsx](../../src/components/dialogs/ImportDialog.tsx) | Chama `import_userpass` (usuário + senha) |
 
@@ -31,8 +32,8 @@ Perfis ficam em `<dir de dados>/chromium-profiles/<UserID>` e `<...>/chromium-pr
 3. `spawn_chrome(..., debug = true, ...)` sobe o browser com `--remote-debugging-port=0` e `--remote-debugging-address=127.0.0.1`. A porta real é lida da primeira linha do arquivo `DevToolsActivePort` dentro do perfil (polling de até 8 s).
 4. `CdpClient::connect(port)` busca em `http://127.0.0.1:<porta>/json` o primeiro alvo `page` e abre o WebSocket `webSocketDebuggerUrl`.
 5. `setup_login_session`: injeta o script de stealth (se ligado), apaga um `.ROBLOSECURITY` remanescente (perfil persistente) e navega para a página de login.
-6. Uma task de fundo pergunta `Network.getAllCookies` a cada 500 ms (até 4 min). Quando o `.ROBLOSECURITY` aparece: guarda em memória no `ChromiumManager`, **fecha a janela na hora** (`close_login_window`), apaga o perfil se ele não for persistente e emite `browser-login-detected`.
-7. O frontend busca o valor com `extract_browser_cookie` (só lê a memória do backend, não o browser), adiciona a conta e chama `close_login_browser`, que limpa o cookie em memória.
+6. Uma task de fundo pergunta `Network.getAllCookies` a cada 500 ms (até 4 min). Quando o `.ROBLOSECURITY` aparece: guarda em memória no `ChromiumManager`, **fecha a janela na hora** (`close_login_window`), apaga o perfil se ele não for persistente e emite `browser-login-detected`. Enquanto espera, lê o campo `#login-password`; quando o cookie aparece, guarda essa senha em memória só se a resposta do login (`LOGIN_USER_HOOK`) for da mesma conta do cookie (`browser_login_password`).
+7. O frontend busca o valor com `extract_browser_cookie` e a senha com `extract_browser_login_password` (que a entrega uma vez só; os dois só leem a memória do backend, não o browser), adiciona a conta e chama `close_login_browser`, que limpa o cookie em memória.
 
 ### Login com usuário e senha (`import_userpass`)
 
@@ -40,10 +41,42 @@ Igual aos passos 1–5, mas depois espera o seletor `#login-username` e manda um
 
 ### Browser por conta (`open_account_browser`) — duas fases
 
-1. Normaliza o token da conta (`normalize_security_token`) e mata uma janela anterior da mesma conta (duas instâncias no mesmo perfil brigam pelo lock do Chromium).
+1. Normaliza o token da conta (`normalize_security_token`) e mata uma janela anterior da mesma conta (duas instâncias no mesmo perfil brigam pelo lock do Chromium). Com `Login.PersistentProfile` desligado (o padrão), o perfil da conta é apagado aqui, antes da fase 1, e um vigia o apaga de novo quando a janela da fase 2 fecha (ver "Anônimo por padrão em tudo").
 2. **Fase 1 — browser de setup**: sobe com a porta de debug, parado em `about:blank`, **sem nenhuma página do Roblox carregada**. Via CDP grava o `.ROBLOSECURITY` em `.roblox.com` e `www.roblox.com` **com validade de 1 ano** (`persistent_cookie_expiry`), o que faz o Chromium persistir o cookie no perfil em vez de mantê-lo só em memória.
 3. `close_browser` pede o encerramento gracioso (`Browser.close`, com `Page.close` como alternativa) — é o shutdown normal do Chromium que grava o cookie no disco. Esperamos a saída por até 10 s e, se travar, matamos o processo.
 4. **Fase 2 — a janela do usuário**: sobe de novo no mesmo perfil, direto em `https://www.roblox.com/home` — ou, com `groupId` (página Groups, depois de um captcha; ver [groups.md](groups.md)), em `https://www.roblox.com/communities/<groupId>`, montada no backend (`account_browser_start_url`) a partir só do id numérico —, **sem `--remote-debugging-port`**. É essa instância que o `ChromiumManager` rastreia.
+
+## Sem abas antigas nem pop-ups (26/10/2026)
+
+Relato do dono: o navegador de login abria com as abas antigas e cheio de oferta (salvar senha, "Fazer login no Chromium?", a faixa "Chrome for Testing é destinado apenas a testes automatizados"). Toda abertura (login, criação de contas, browser por conta) passa por `spawn_chrome`, que agora:
+
+- **Prepara o perfil** (`prepare_profile`, [cdp.rs](../../src-tauri/src/chromium/cdp.rs)): apaga `Default/Sessions` (as abas da vez anterior) e grava em `Default/Preferences` as chaves de `PROFILE_PREFERENCES` — sem salvar senha, sem alerta de senha vazada, sem preenchimento de endereço/cartão, notificações bloqueadas e saída "Normal". A causa das abas antigas, reproduzida com uma cópia do perfil `_login` real: o app fecha a janela de login **matando** o processo, o perfil fica `exit_type: Crashed` e a abertura seguinte mostrava "Restaurar páginas? O Chromium não foi encerrado corretamente" — e o "Restaurar" trazia tudo de volta. Nenhuma chave das `Secure Preferences` (assinadas) é tocada: mexer nelas faz o Chrome avisar que as configurações foram alteradas. Preferências que não dão para ler ficam como estão. Cookie, cache e histórico ficam — é o perfil persistente funcionando.
+- **Teste real pelo app (26/10/2026, conta de teste Chorardeamanah, "Navegador" no painel):** ao abrir o build novo, os 20 perfis antigos sumiram; a conta abriu logada num perfil novo e, ao fechar a janela, o perfil sumiu e nenhum processo ficou. O mesmo teste achou mais dois avisos num perfil limpo: a extensão que o Google Drive do PC instala em todo Chrome ("Application Launcher For Drive... added" e "Action required") — saiu com `--disable-extensions` (o app não usa extensão) — e a oferta de tradução (navegador em inglês no stealth, Roblox em português), que o `--disable-features=Translate` já não segura no Chrome 154 — saiu com `translate.enabled: false` nas preferências. Conferido de novo depois das duas: nenhum aviso.
+- **Flags novas** (`chrome_args`), medidas com o Chrome for Testing 154: `--disable-infobars` tira a faixa do Chrome for Testing (`--test-type` **não** tira), `--disable-sync` tira o "Fazer login no Chromium?", e `--hide-crash-restore-bubble`, `--disable-search-engine-choice-screen` e `PasswordLeakDetection` em `--disable-features` fecham o resto.
+- Testes: `chromium_cdp_tests` (flags e preparação do perfil em pasta temporária) e o real `real_chromium_reopens_a_profile_without_the_old_tabs` (`#[ignore]`, `RAM_CHROME_BINARY=<chrome.exe>`; `RAM_CHROME_KILL=1` fecha matando, como o login).
+
+**Anônimo por padrão em tudo (26/10/2026, pedido do dono).** `Login.PersistentProfile` agora nasce **desligado** ("Keep browser data between uses", Settings › Accounts) e vale para **todo** uso do navegador (`keeps_browser_data`, [commands.rs](../../src-tauri/src/chromium/commands.rs)):
+- **Login:** o perfil `_login` é apagado antes e logo depois da captura do cookie (já era assim com a opção desligada).
+- **Criação de contas:** sempre começa num perfil apagado (com a opção ligada ou não).
+- **Abrir a conta no navegador** (`open_account_browser`) e as páginas automáticas (`AccountPageBrowser`, grupos/perfil): o perfil da conta é apagado antes da fase 1 e **some quando a janela fecha** — um vigia segue o PID da janela (`private_watch_step`: janela trocada por outra da mesma conta não apaga, quem abriu a nova já começou do zero) e a automática apaga no `close`.
+- **Ao abrir o app** com a opção desligada, os perfis que sobraram de antes (de quando era persistente, ou de janela fechada com o app fora) são apagados em segundo plano (`wipe_private_profiles`).
+- **Migração única** (`Login.PrivateBrowserDefaultV1`): quem já tinha o app vinha com `PersistentProfile=true` gravado (o padrão antigo); a primeira abertura da versão nova desliga, e depois respeita quem ligar de novo.
+
+Ligada, o perfil acumula confiança do Roblox e pede menos captcha, mas todas as contas passam pelo mesmo perfil. Testes: `the_private_browser_migration_turns_persistence_off_once`, `a_new_install_starts_with_the_private_browser` (settings), `a_closed_private_window_gets_its_profile_wiped_and_a_replaced_one_does_not` e `starting_private_wipes_every_profile_left_from_before` (`chromium_commands_tests`).
+
+## Checagem do navegador (`run_browser_diagnostics`, 26/10/2026)
+
+Um usuário relatou que o navegador "não fazia nada" ao criar contas e que reinstalar o Google Chrome resolveu: o download do Chromium próprio tinha falhado e o app estava usando o Chrome do PC (`find_system_chromium`). O cartão "Login browser does nothing?" (Settings › Checks, ao lado do checklist do launch) abre o mesmo diálogo do launch (`DiagnosticsDialog kind="browser"`), com as checagens de [chromium/diagnose.rs](../../src-tauri/src/chromium/diagnose.rs):
+
+| id | O que diz |
+|---|---|
+| `browserBinary` | Qual navegador o login usa: o escolhido em Settings (`manual` / `manualInvalid`), o próprio (`downloaded` / `damaged`, faltando arquivo) ou, sem ele, o do PC (`systemFallback`, aviso — o caso do relato) / nenhum (`notDownloaded`) |
+| `browserFolder` | A pasta dos perfis aceita escrita |
+| `browserLoginOpen` | Há uma janela de login aberta agora (só aparece nesse caso) |
+| `browserStart` | Abertura de teste num perfil só dela (`_diagnostic`, apagado no fim): `opened` (com os segundos), `spawnFailed` (o Windows não deixou começar — antivírus), `didNotOpen` (subiu e não respondeu em 30 s — o "não faz nada"), `skipped` |
+| `browserRoblox` | A página de login do Roblox carregou dentro do navegador de teste |
+
+Não baixa nada (o download fica no botão Reinstall/Download) e não toca no perfil de login nem nos das contas. Como no launch, só `id`/`reason`/`count` saem do backend; a frase é de [utils/diagnostics.ts](../../src/utils/diagnostics.ts). Testes: `browser_diagnose_tests` (inclui o real `real_browser_check_opens_reaches_roblox_and_cleans_up`, `#[ignore]`, `RAM_CHROME_BINARY`) e `DiagnosticsDialog.test.tsx`.
 
 ## Qual binário abre: manual, baixado ou navegador do sistema
 
@@ -61,6 +94,17 @@ Se nenhuma das três resolver, o erro do download original é devolvido (com a d
 - **Timeouts**: `fetch_version_list` usa `connect_timeout` de 10 s e `timeout` de 30 s. Sem isso um DNS ou proxy travado prendia o fluxo de login inteiro em vez de falhar rápido e cair no navegador do sistema. O **download do zip** (`download_archive`, cliente de `archive_client`) tem `connect_timeout` de 10 s e teto de **inatividade** de 30 s (`ARCHIVE_IDLE_TIMEOUT`: 30 s sem receber nenhum byte, desiste), mas **não** tem teto para o download inteiro — o zip tem ~150 MB e numa conexão lenta leva minutos de verdade. Antes era `reqwest::get`, sem teto nenhum, e um download parado no meio prendia o login e a criação de contas para sempre.
 - **Extração atômica**: a extração vai para `<chromium_dir>/<versão>.tmp`, nunca direto em `<chromium_dir>/<versão>` (o caminho que `cached_binary` lê do `version.json`). Só depois que a extração inteira termina com sucesso é que `finalize_extraction` troca os nomes (`remove_dir_all` se já existir algo ali, depois `rename`). **Se o processo morrer no meio da extração** (energia, antivírus, disco cheio), o que sobra é só o `.tmp` — o caminho final nunca existe pela metade, então a próxima abertura do app detecta que não há instalação válida e baixa de novo, em vez de aceitar um Chromium com `chrome.exe` presente mas DLLs/recursos faltando (o que aconteceria se o zip gravasse o executável antes dos outros arquivos e a extração fosse interrompida escrevendo direto no destino final).
 - **Reinstalar substitui**: `reinstall_chromium` apaga `chromium_dir` inteiro antes de chamar `ensure_chromium` de novo — é o que o botão "Reinstall" de Settings > Accounts usa (`ensure_browser` com `force: true`). Sem isso, trocar de versão deixava a pasta da versão antiga para trás, ocupando espaço à toa.
+
+## Navegador que abre e não responde (23/10/2026)
+
+Relato: no criador de contas o Chromium abria e ficava em `about:blank` para sempre, com o painel em "Inativo". Causas achadas no código e o que mudou:
+
+- **Instalação incompleta passava por boa.** `cached_binary` só olhava se o `chrome.exe` existia. Agora `installation_problem` confere também `chrome.dll`, `resources.pak`, `icudtl.dat` e `v8_context_snapshot.bin` (tamanho mínimo bem abaixo do real, medido numa instalação 154: `chrome.dll` ~300 MB). Faltando ou cortado (antivírus que apagou um arquivo depois da extração, extração interrompida), a instalação conta como ausente e `ensure_chromium` baixa de novo (antes o `binary.exists()` pulava o download). Só no Windows; nas outras plataformas confere só o executável.
+- **A espera pela porta de debug era de 8 s** e, estourando, o comando devolvia erro **sem fechar a janela** — ela ficava aberta em `about:blank` e o painel nunca saía de "Inativo". Agora espera 30 s (`ACTIVE_PORT_POLLS`), desiste na hora se o processo já saiu, e quem devolve o erro (criador de contas e os dois logins) fecha a janela do app (`close_login_session`) com a frase `BROWSER_DID_NOT_OPEN` (antivírus/firewall, "Reinstall" em Configurações › Contas), traduzida no frontend (`chromiumErrorText`).
+- **O CDP não tinha prazo de conexão:** `CdpClient::connect` usava `reqwest::get` (com proxy do sistema, e sem prazo) e `connect_async` sem timeout. Agora o cliente local ignora proxy, tem 3 s por tentativa, e o WebSocket 10 s.
+- **`Page.navigate` que falha** (DNS, proxy, firewall) respondia sucesso com `errorText` e o app seguia esperando o formulário; agora vira erro na hora (`navigation_error`).
+
+Não confirmado: por que o navegador do relato (Chrome for Testing 136, versão antiga: o app baixa a "stable" da hora e guarda para sempre) não respondia; as checagens acima cobrem as causas que o código permite, e o próximo relato mostra qual era pela mensagem.
 
 ## Segurança: a porta de debug
 
@@ -118,7 +162,7 @@ Ou seja: a mudança não torna o app resistente a um atacante já rodando como o
 
 | Chave (`RAMSettings.ini`) | Default | Efeito |
 |---|---|---|
-| `Login.PersistentProfile` | `true` | Mantém o perfil `_login` entre logins. Desligado, o perfil é apagado antes de subir e logo depois da captura do cookie |
+| `Login.PersistentProfile` | `false` | "Keep browser data between uses": ligado, os perfis (login e contas) ficam entre um uso e outro. Desligado (o padrão desde 26/10/2026), todo uso começa num perfil limpo e ele some ao fechar — ver "Anônimo por padrão em tudo" |
 | `Login.StealthMode` | `true` | `--lang=en-US` e injeção de `navigator.webdriver = undefined` antes do primeiro documento |
 | `Login.ManualBinaryPath` | `""` | Caminho de um Chrome/Edge/Chromium/Brave próprio, digitado pelo usuário. Vazio (default) segue para o download; preenchido, vence o download e o navegador do sistema no login **e** na criação de contas (ver "Qual binário abre" acima). Vazio nunca é gravado no INI (`EMPTY_STRING_DEFAULTS` em `data/settings/store.rs`) |
 

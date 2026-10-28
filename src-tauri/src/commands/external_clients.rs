@@ -11,6 +11,9 @@
 #[cfg(target_os = "windows")]
 const EXTERNAL_CLIENT_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// De quanto em quanto tempo o "usado há" de uma conta em jogo é regravado.
+pub(crate) const IN_USE_MARK_EVERY: chrono::Duration = chrono::Duration::minutes(10);
+
 /// Conta → browser tracker id salvo, que é o que o tracker guarda por conta.
 #[cfg(target_os = "windows")]
 fn saved_account_trackers(accounts: &AccountStore) -> HashMap<i64, String> {
@@ -35,6 +38,16 @@ pub(crate) fn start_external_client_scanner(app: tauri::AppHandle) {
             })
             .await
             .unwrap_or_default();
+
+            // Conta com cliente vivo está em uso, aberto pelo app ou pelo site
+            // (pedido do dono, 25/10/2026: a principal, jogada todo dia pelo
+            // site, aparecia "sem uso há 20+ dias"). Só grava de 10 em 10 min.
+            let store = app.state::<AccountStore>();
+            for process in platform::windows::tracker().get_all() {
+                if store.mark_used_if_stale(process.user_id, IN_USE_MARK_EVERY).unwrap_or(false) {
+                    emit_account_used(&app, process.user_id);
+                }
+            }
 
             for (pid, user_id) in adopted {
                 emit_launch_log(
@@ -129,6 +142,9 @@ fn identify_external_client(
         }
         tracker.track_adopted(user_id, pid, plan.browser_tracker_id);
         platform::windows::forget_unidentified_client(pid);
+        if state.mark_used(user_id).unwrap_or(false) {
+            emit_account_used(&app, user_id);
+        }
         emit_launch_log(
             &app,
             user_id,

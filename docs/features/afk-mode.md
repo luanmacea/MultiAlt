@@ -103,6 +103,29 @@ sequenceDiagram
 - **Config de sessão em andamento é derivada da sessão**, nunca copiada para o estado da tela: o efeito que relê o INI ao abrir corria contra a cópia e zerava a tecla escolhida (o botão de enviar ficava desabilitado com a sessão rodando).
 - **Parar não esquece quem estava no modo.** Com a sessão ligada, a seleção da tela acompanha as contas da sessão; quando a sessão acaba, continuam marcadas as que estavam nela — inclusive a que entrou com a sessão ligada, e também quando a tela abriu com uma sessão que já rodava —, e religar leva as mesmas. Intervalo e tecla só mudam com o modo parado, então "parar → mudar → ligar" é o caminho normal; antes a seleção voltava à de antes do start, e a conta acrescentada durante a sessão ficava de fora do próximo start sem aviso (e podia cair por inatividade). Desmarcar a última conta é a exceção: ela fica desmarcada, que é o que o usuário pediu.
 
+## Janelas fora de vista (`Afk.HideWindows`, 24/10/2026)
+
+Pedido de usuários no Discord: ver um filme enquanto o AFK roda, sem as 6 janelas do Roblox pulando na tela uma a uma. Não existe AFK sem foco — o Roblox só lê teclado da janela em primeiro plano (`input.rs`; mandar `WM_KEYDOWN` para a janela não move o personagem) —, mas a janela pode **ter o foco sem aparecer**. Técnica do Nudge Nest (MIT, só a ideia), em [hidden_focus.rs](../../src-tauri/src/platform/windows/hidden_focus.rs):
+
+1. A janela que **não estava à vista** — minimizada, ou sem nenhuma parte aparecendo (`window_partly_visible`: tira do retângulo dela o de cada janela visível por cima, ignorando as transparentes, as minimizadas e as "fantasma" do DWM, como apps suspensos e outras áreas de trabalho virtuais) — fica **100% transparente** (`WS_EX_LAYERED` + alpha 0) e sem animação de restaurar/minimizar enquanto tem o foco. Janela que aparece na tela **não** fica transparente: ela sumiria e voltaria (`should_hide_during_focus`).
+2. No mesmo instante em que ganha o foco, ela volta para a profundidade de antes (`tuck_window_after_focus`: embaixo de tudo se estava minimizada, sob a janela que estava acima dela se estava coberta). O foco fica com ela mesmo atrás das outras, e a tecla chega.
+3. No fim do ciclo, o caminho de sempre a devolve (`minimize_window_quietly`, `put_window_below`) e **só então** a transparência sai (`restore_window_visibility`). A ordem é travada por `a_hidden_window_stays_invisible_until_it_is_back_in_place`.
+
+**Em todo modo desde 26/10/2026** (`afk_hide_windows`; antes era só o modo tecla — pedido do dono: no modo clique as janelas ainda vinham para a frente). Ligado por padrão; desliga no cartão do AFK ("Keep Roblox windows out of sight"). O foco ainda sai por ~0,25 s por conta: uma tecla apertada nesse instante vai para o Roblox.
+
+- **Clique e gravação:** o clique cai na janela que estiver por cima do ponto, então a janela escondida fica **na frente** durante o envio e só volta para a profundidade de antes **depois** dele (`afk_tuck_before_action`). E fica com transparência **1 de 255**, não 0 (`afk_hidden_alpha`): com 0 o teste de acerto do Windows pula a janela e o clique atravessa para a de baixo — medido com `WindowFromPoint` numa janela de teste (alpha 1: acerta; alpha 0: atravessa). Com 1 ela é invisível a olho nu. O ponteiro do mouse ainda pula para o ponto e volta (o `SendInput` move o cursor de verdade), e um clique do usuário naquele ponto durante o envio vai para o Roblox.
+- **Validado com o Roblox de verdade (26/10/2026)**, conta de teste Chorardeamanah no 99 Noites, build de teste `0bf78de`+, modo clique, intervalo de 15 s: (1) janela **minimizada**, ponto no botão "JOGAR" da tela de entrada — o painel sumiu (o clique chegou) e a janela continuou minimizada; gravação da área da janela a 30 qps durante ciclos confirmados pelo contador de envios: nenhum quadro mudou; (2) janela **coberta** pelo Bloco de notas, 8 envios sem erro: nenhum quadro mostrou o Roblox (a única variação foi o Bloco de notas escurecendo ao perder o foco). No fim de cada ciclo a janela voltou sem `WS_EX_LAYERED`. Não coberto com o Roblox: o modo gravação (mesmo caminho do clique).
+
+**Validado com o Roblox de verdade (24/10/2026)**, conta de teste Stone_Wolf888 no 99 Noites, build `9850ef8`, tecla W: (1) janela **coberta** pelo MultiAlt, 10 envios — o personagem andou (cenário comparado antes/depois) e, na gravação da tela a 30 qps, a área da janela do Roblox não mudou em nenhum quadro durante os envios; no fim, a janela não estava transparente nem minimizada; (2) janela **minimizada**, 5 envios — o personagem andou de novo, nenhum quadro mostrou o Roblox, e no fim ela continuava minimizada e sem transparência. Não coberto: um piscar mais curto que um quadro (33 ms) e a barra de tarefas sobre um vídeo em **tela cheia** (o teste foi com janela maximizada).
+
+## Bipe de aviso antes do ciclo (`Afk.BeepBeforeCycle`, 26/10/2026)
+
+Pedido do dono: um bipe **diferente** 3 s antes de a automação rodar, para dar tempo de soltar o mouse e o teclado antes de o foco sair. Desligado por padrão; "Beep 3 seconds before a cycle" no cartão do AFK, logo abaixo do bipe do fim do ciclo. Vale em todo modo (tecla, clique, gravação); o "Click now"/"Send now" manual não avisa.
+
+- **Backend decide** ([afk.rs](../../src-tauri/src/commands/afk.rs), `afk_warning_step`): a cada tique, com a próxima conta vencendo em até `AFK_WARNING_LEAD_MS` (3 s), emite `afk-cycle-soon`; o ciclo só sai 3 s depois do aviso — com o tique de 1 s o aviso pode tocar com menos tempo pela frente, e o ciclo espera o resto (até ~1 s depois do vencimento). Aviso mais velho que 30 s (`AFK_WARNING_STALE_MS`: a tela cheia segurou o ciclo) não vale, e toca de novo antes do envio. Com a tela cheia segurando, não avisa.
+- **A tela toca** (`playAfkWarningBeep`, [afkBeep.ts](../../src/utils/afkBeep.ts)): dois tons subindo (523 → 784 Hz), para não confundir com o bipe único de 880 Hz do fim do ciclo.
+- Testes: `afk_warning_tests`, `afkBeep.test.ts`, `ClicksTab.test.tsx`.
+
 ## Tela cheia na frente (ideia 25)
 
 Com um vídeo ou outro jogo em **tela cheia** na frente, o ciclo **espera** em
@@ -231,10 +254,11 @@ As falhas de envio por conta (`lastErrorCode` no `afk-status`) e a parada de eme
 | `Afk.IntervalSeconds` | `0` | Parte em segundos do mesmo intervalo (0–59). Total mínimo de 5 s, máximo de 120 min; contado do fim do ciclo. |
 | `Afk.Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada (inclusive os pares `Right+Left` e `Up+Down`). Vazio = o modo não liga (chave vazia não é gravada no INI). |
 | `Afk.BeepOnCycle` | `false` | Bipe curto quando um ciclo manda tecla. |
+| `Afk.BeepBeforeCycle` | `false` | Bipe de dois tons subindo 3 s antes de cada ciclo (qualquer modo), para dar tempo de soltar o mouse e o teclado. Ver [Bipe de aviso antes do ciclo](#bipe-de-aviso-antes-do-ciclo-afkbeepbeforecycle-26102026). |
+| `Afk.HideWindows` | ausente = ligado | "Keep Roblox windows out of sight": a janela que não estava à vista ganha o foco sem aparecer, em todo modo (tecla, clique e gravação). Só `"false"` desliga; a chave só entra no INI depois que a pessoa mexe. Ver [Janelas fora de vista](#janelas-fora-de-vista-afkhidewindows-24102026). |
 | `Afk.Mode` | `key` | `key` (tecla), `click` (clique) ou `recording` (a gravação de cada conta na vaga On anti-AFK, [recordings.md](recordings.md#as-duas-vagas)). Qualquer outro valor vira `key`. |
 | `Afk.ShakeToStop` | `false` | Chacoalhar o mouse para o Modo AFK e as gravações tocando. Ver [Parada de emergência](#parada-de-emergência-chacoalhar-o-mouse). |
 | `Afk.WaitForFullscreen` | `true` | Com uma janela em tela cheia de outro programa na frente, o ciclo espera (até 5 min além da hora). Ver [Tela cheia na frente](#tela-cheia-na-frente-ideia-25). |
-| `Afk.Mode` | `key` | `key` (tecla) ou `click` (clique). Qualquer outro valor vira `key`. |
 | `Afk.ClickX`, `Afk.ClickY` | `50`, `50` | Ponto padrão do clique, em % da área interna da janela. |
 | `AfkClickX`, `AfkClickY` (campos da conta) | ausentes | Ponto próprio da conta; ausente = usa o padrão. |
 

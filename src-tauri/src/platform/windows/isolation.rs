@@ -1009,6 +1009,31 @@ pub fn dry_run(opts: &IsolationOptions) -> Result<IsolationDryRunReport, String>
     })
 }
 
+/// Por que o isolamento não roda agora, ou `None` se pode rodar. Conta
+/// **clientes** (`RobloxPlayerBeta.exe`), não processos: cada cliente tem um
+/// `RobloxCrashHandler.exe`, e a conta antiga dobrava o número ("6 processos"
+/// com 3 clientes). Um crash handler sozinho é sobra, não barra; o launcher
+/// barra porque pode estar instalando a build.
+fn isolation_skip_reason(clients: usize, launchers: usize) -> Option<String> {
+    if clients > 0 {
+        let open = if clients == 1 {
+            "1 Roblox client is open".to_string()
+        } else {
+            format!("{clients} Roblox clients are open")
+        };
+        return Some(format!(
+            "{open}. Isolation only runs with no client open, so it was skipped to keep them playing."
+        ));
+    }
+    if launchers > 0 {
+        return Some(
+            "The Roblox launcher is running. Isolation was skipped so it is not interrupted."
+                .to_string(),
+        );
+    }
+    None
+}
+
 pub fn apply_pre_launch(
     app: &tauri::AppHandle,
     opts: &IsolationOptions,
@@ -1019,17 +1044,15 @@ pub fn apply_pre_launch(
         return Ok(report);
     }
 
-    emit_isolation_progress(app, "starting", "Preparing pre-launch isolation", &report, false);
-
     // Never close running clients to isolate a new launch: that kills every
     // other account the user is multi-boxing. Wiping caches/registry under a
     // live client would corrupt it, so isolation is simply skipped instead.
-    let running = find_roblox_pids_all();
-    if !running.is_empty() {
-        report.skipped_reason = Some(format!(
-            "{} Roblox process(es) already running. Isolation skipped so the open clients are not closed.",
-            running.len()
-        ));
+    // Checked before "starting": a skipped run should not flash a progress card.
+    if let Some(reason) = isolation_skip_reason(
+        get_roblox_pids().len(),
+        find_pids_for_exes(&["RobloxPlayerLauncher.exe"]).len(),
+    ) {
+        report.skipped_reason = Some(reason);
         emit_isolation_progress(
             app,
             "skipped",
@@ -1039,6 +1062,8 @@ pub fn apply_pre_launch(
         );
         return Ok(report);
     }
+
+    emit_isolation_progress(app, "starting", "Preparing pre-launch isolation", &report, false);
 
     let preserved_fast_flags = if opts.preserve_fast_flags
         && matches!(opts.mode, IsolationMode::Full)
@@ -1253,6 +1278,35 @@ pub fn write_machine_guid_unelevated(value: &str) -> bool {
 #[cfg(test)]
 mod win_isolation_tests {
     use super::*;
+
+    // ── isolation_skip_reason ──────────────────────────────────────────────
+    //
+    // Ticket (21/10/2026): "6 Roblox process(es) already running" com 3
+    // clientes abertos — cada cliente tem um RobloxCrashHandler.exe, e a conta
+    // somava os dois. E um crash handler que sobrou sozinho barrava o
+    // isolamento sem cliente nenhum aberto.
+
+    #[test]
+    fn the_skip_reason_counts_clients_not_processes() {
+        let reason = isolation_skip_reason(3, 0).expect("skipped");
+        assert!(reason.starts_with("3 Roblox clients are open"), "{reason}");
+        let one = isolation_skip_reason(1, 0).expect("skipped");
+        assert!(one.starts_with("1 Roblox client is open"), "{one}");
+    }
+
+    #[test]
+    fn a_leftover_crash_handler_does_not_block_isolation() {
+        // Só PlayerBeta e Launcher entram na conta: sem eles, roda.
+        assert_eq!(isolation_skip_reason(0, 0), None);
+    }
+
+    #[test]
+    fn the_roblox_launcher_still_blocks_isolation() {
+        // O launcher pode estar instalando a build: apagar por baixo dele
+        // quebraria o launch em andamento.
+        let reason = isolation_skip_reason(0, 1).expect("skipped");
+        assert!(reason.contains("launcher"), "{reason}");
+    }
 
     // ── helpers ────────────────────────────────────────────────────────────
     //

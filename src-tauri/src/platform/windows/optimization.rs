@@ -21,22 +21,33 @@ const MEMORY_PRIORITY_VERY_LOW: u32 = 1;
 const MEMORY_PRIORITY_LOW: u32 = 3;
 const MEMORY_PRIORITY_NORMAL: u32 = 5;
 
+/// As FastFlags que o cliente do Roblox ainda lê do `ClientAppSettings.json`:
+/// a lista oficial ("Allowlist for local client configuration via Fast Flags",
+/// DevForum, 29/09/2025). Qualquer outra o Roblox ignora (o log do cliente diz
+/// "Denied local configuration for: <flag>"). O Roblox pode mudar a lista; ver
+/// docs/features/performance.md ("FastFlags").
 pub(crate) const WINDOWS_FASTFLAG_ALLOWLIST: &[&str] = &[
+    // Geometria: distância em que as peças trocam para um modelo mais simples.
+    "DFIntCSGLevelOfDetailSwitchingDistance",
+    "DFIntCSGLevelOfDetailSwitchingDistanceL12",
+    "DFIntCSGLevelOfDetailSwitchingDistanceL23",
+    "DFIntCSGLevelOfDetailSwitchingDistanceL34",
+    // Renderização.
+    "FFlagHandleAltEnterFullscreenManually",
     "DFFlagTextureQualityOverrideEnabled",
     "DFIntTextureQualityOverride",
-    "DFFlagDebugRenderForceTechnologyVoxel",
-    "DFFlagDebugRenderForceTechnologyFuture",
-    "DFFlagRenderForceLowQualityLightmaps",
-    "DFFlagDisableDPIScale",
-    "FFlagDebugGraphicsDisableDirect3D11",
-    "FFlagDebugGraphicsPreferD3D11FL10",
     "FIntDebugForceMSAASamples",
+    "DFFlagDisableDPIScale",
+    "FFlagDebugGraphicsPreferD3D11",
     "FFlagDebugSkyGray",
     "DFFlagDebugPauseVoxelizer",
-    "DFFlagDebugRenderForceMoonAngularSize",
-    "DFIntDebugRenderForceMoonTextureSize",
     "DFIntDebugFRMQualityLevelOverride",
-    "DFIntRenderShadowIntensity",
+    "FIntFRMMaxGrassDistance",
+    "FIntFRMMinGrassDistance",
+    "FFlagDebugGraphicsPreferVulkan",
+    "FFlagDebugGraphicsPreferOpenGL",
+    // Interface: movimento da grama no modo de movimento reduzido.
+    "FIntGrassMovementReducedMotionFactor",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,34 +245,32 @@ pub(crate) fn load_optimization_profile(
     }
 }
 
-pub(crate) fn parse_allowlisted_fast_flags_json(
+/// O JSON do launch: as chaves da lista valem, as de fora saem (e voltam em
+/// `ignored`, para o log). Nenhuma chave fora da lista chega ao cliente. Só
+/// JSON quebrado (ou que não é objeto) é erro — aí nada é aplicado.
+pub(crate) fn split_allowlisted_fast_flags_json(
     payload: &str,
-) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+) -> Result<(serde_json::Map<String, serde_json::Value>, Vec<String>), String> {
     let trimmed = payload.trim();
     if trimmed.is_empty() {
         return Err("Allowlisted fast flags JSON cannot be empty while enabled".into());
     }
-
     let value: serde_json::Value = serde_json::from_str(trimmed)
         .map_err(|e| format!("Invalid allowlisted fast flags JSON: {}", e))?;
     let object = value
         .as_object()
         .ok_or_else(|| "Allowlisted fast flags JSON must be a JSON object".to_string())?;
-
-    let invalid_keys: Vec<String> = object
-        .keys()
-        .filter(|key| !WINDOWS_FASTFLAG_ALLOWLIST.contains(&key.as_str()))
-        .cloned()
-        .collect();
-
-    if !invalid_keys.is_empty() {
-        return Err(format!(
-            "Only Roblox allowlisted keys are accepted: {}",
-            invalid_keys.join(", ")
-        ));
+    let mut flags = serde_json::Map::new();
+    let mut ignored = Vec::new();
+    for (key, value) in object {
+        if WINDOWS_FASTFLAG_ALLOWLIST.contains(&key.as_str()) {
+            flags.insert(key.clone(), value.clone());
+        } else {
+            ignored.push(key.clone());
+        }
     }
-
-    Ok(object.clone())
+    ignored.sort();
+    Ok((flags, ignored))
 }
 
 fn power_throttling_mask(profile: &WindowsProcessPolicy) -> u32 {
@@ -905,6 +914,53 @@ mod win_optimization_tests {
 
     // ── fast flag allowlist ────────────────────────────────────────────────
 
+    /// A lista oficial do Roblox ("Allowlist for local client configuration
+    /// via Fast Flags", DevForum, 29/09/2025). Até 28/10/2026 o app aceitava
+    /// oito chaves que o cliente ignora e recusava nove das oficiais.
+    #[test]
+    fn the_fastflag_allowlist_is_roblox_official_list() {
+        let mut ours: Vec<&str> = WINDOWS_FASTFLAG_ALLOWLIST.to_vec();
+        ours.sort();
+        let mut official = vec![
+            "DFIntCSGLevelOfDetailSwitchingDistance",
+            "DFIntCSGLevelOfDetailSwitchingDistanceL12",
+            "DFIntCSGLevelOfDetailSwitchingDistanceL23",
+            "DFIntCSGLevelOfDetailSwitchingDistanceL34",
+            "FFlagHandleAltEnterFullscreenManually",
+            "DFFlagTextureQualityOverrideEnabled",
+            "DFIntTextureQualityOverride",
+            "FIntDebugForceMSAASamples",
+            "DFFlagDisableDPIScale",
+            "FFlagDebugGraphicsPreferD3D11",
+            "FFlagDebugSkyGray",
+            "DFFlagDebugPauseVoxelizer",
+            "DFIntDebugFRMQualityLevelOverride",
+            "FIntFRMMaxGrassDistance",
+            "FIntFRMMinGrassDistance",
+            "FFlagDebugGraphicsPreferVulkan",
+            "FFlagDebugGraphicsPreferOpenGL",
+            "FIntGrassMovementReducedMotionFactor",
+        ];
+        official.sort();
+        assert_eq!(ours, official);
+    }
+
+    /// No launch, chave fora da lista sai e as outras valem (antes uma chave
+    /// errada derrubava o JSON inteiro em silêncio). Nenhuma chave de fora
+    /// chega ao cliente.
+    #[test]
+    fn at_launch_unlisted_keys_are_dropped_and_the_rest_still_applies() {
+        let (flags, ignored) = split_allowlisted_fast_flags_json(
+            r#"{"FFlagDebugSkyGray":true,"DFIntTaskSchedulerTargetFps":999,"DFIntRenderShadowIntensity":0}"#,
+        )
+        .unwrap();
+        assert_eq!(flags.len(), 1);
+        assert_eq!(flags["FFlagDebugSkyGray"], true);
+        assert_eq!(ignored, vec!["DFIntRenderShadowIntensity".to_string(), "DFIntTaskSchedulerTargetFps".to_string()]);
+        // JSON quebrado continua sendo erro (nada é aplicado).
+        assert!(split_allowlisted_fast_flags_json("{not json").is_err());
+    }
+
     #[test]
     fn the_fastflag_allowlist_has_no_duplicates() {
         let unique: std::collections::HashSet<&&str> =
@@ -913,42 +969,43 @@ mod win_optimization_tests {
     }
 
     #[test]
-    fn parse_allowlisted_fast_flags_json_accepts_every_allowlisted_key() {
+    fn split_allowlisted_fast_flags_json_accepts_every_allowlisted_key() {
         let object: serde_json::Map<String, serde_json::Value> = WINDOWS_FASTFLAG_ALLOWLIST
             .iter()
             .map(|k| ((*k).to_string(), serde_json::json!("True")))
             .collect();
         let payload = serde_json::to_string(&object).unwrap();
 
-        let parsed = parse_allowlisted_fast_flags_json(&payload).expect("allowlisted payload");
+        let (parsed, ignored) = split_allowlisted_fast_flags_json(&payload).expect("allowlisted payload");
         assert_eq!(parsed.len(), WINDOWS_FASTFLAG_ALLOWLIST.len());
+        assert!(ignored.is_empty());
     }
 
     #[test]
-    fn parse_allowlisted_fast_flags_json_accepts_surrounding_whitespace() {
-        let parsed =
-            parse_allowlisted_fast_flags_json("  \n {\"FFlagDebugSkyGray\": \"True\"} \t ")
+    fn split_allowlisted_fast_flags_json_accepts_surrounding_whitespace() {
+        let (parsed, _) =
+            split_allowlisted_fast_flags_json("  \n {\"FFlagDebugSkyGray\": \"True\"} \t ")
                 .expect("valid payload");
         assert_eq!(parsed["FFlagDebugSkyGray"], "True");
     }
 
     #[test]
-    fn parse_allowlisted_fast_flags_json_accepts_an_empty_object() {
-        let parsed = parse_allowlisted_fast_flags_json("{}").expect("empty object is valid");
+    fn split_allowlisted_fast_flags_json_accepts_an_empty_object() {
+        let (parsed, _) = split_allowlisted_fast_flags_json("{}").expect("empty object is valid");
         assert!(parsed.is_empty());
     }
 
     #[test]
-    fn parse_allowlisted_fast_flags_json_rejects_an_empty_payload() {
+    fn split_allowlisted_fast_flags_json_rejects_an_empty_payload() {
         for payload in ["", "   ", "\n\t"] {
-            let err = parse_allowlisted_fast_flags_json(payload).unwrap_err();
+            let err = split_allowlisted_fast_flags_json(payload).unwrap_err();
             assert_eq!(err, "Allowlisted fast flags JSON cannot be empty while enabled");
         }
     }
 
     #[test]
-    fn parse_allowlisted_fast_flags_json_rejects_malformed_json() {
-        let err = parse_allowlisted_fast_flags_json("{not json").unwrap_err();
+    fn split_allowlisted_fast_flags_json_rejects_malformed_json() {
+        let err = split_allowlisted_fast_flags_json("{not json").unwrap_err();
         assert!(
             err.starts_with("Invalid allowlisted fast flags JSON"),
             "got {}",
@@ -957,9 +1014,9 @@ mod win_optimization_tests {
     }
 
     #[test]
-    fn parse_allowlisted_fast_flags_json_rejects_a_non_object_document() {
+    fn split_allowlisted_fast_flags_json_rejects_a_non_object_document() {
         for payload in ["[]", "\"a string\"", "42", "null", "true"] {
-            let err = parse_allowlisted_fast_flags_json(payload).unwrap_err();
+            let err = split_allowlisted_fast_flags_json(payload).unwrap_err();
             assert_eq!(
                 err, "Allowlisted fast flags JSON must be a JSON object",
                 "payload {}",
@@ -993,28 +1050,21 @@ mod win_optimization_tests {
     }
 
     #[test]
-    fn parse_allowlisted_fast_flags_json_rejects_keys_outside_the_allowlist() {
+    fn keys_outside_the_allowlist_never_reach_the_client() {
         // Security boundary: arbitrary fast flags must not reach the client.
-        let err = parse_allowlisted_fast_flags_json(
-            r#"{"FFlagDebugSkyGray":"True","FFlagArbitraryThing":"True"}"#,
+        let (flags, ignored) = split_allowlisted_fast_flags_json(
+            r#"{"FFlagDebugSkyGray":"True","FFlagArbitraryThing":"True","BadTwo":"2"}"#,
         )
-        .unwrap_err();
-        assert!(err.starts_with("Only Roblox allowlisted keys are accepted:"));
-        assert!(err.contains("FFlagArbitraryThing"));
-        assert!(!err.contains("FFlagDebugSkyGray"));
+        .unwrap();
+        assert!(!flags.contains_key("FFlagArbitraryThing"));
+        assert!(flags.contains_key("FFlagDebugSkyGray"));
+        assert_eq!(ignored, vec!["BadTwo".to_string(), "FFlagArbitraryThing".to_string()]);
     }
 
     #[test]
-    fn parse_allowlisted_fast_flags_json_lists_every_rejected_key() {
-        let err =
-            parse_allowlisted_fast_flags_json(r#"{"BadOne":"1","BadTwo":"2"}"#).unwrap_err();
-        assert!(err.contains("BadOne"), "got {}", err);
-        assert!(err.contains("BadTwo"), "got {}", err);
-    }
-
-    #[test]
-    fn parse_allowlisted_fast_flags_json_is_case_sensitive_about_key_names() {
-        let err = parse_allowlisted_fast_flags_json(r#"{"fflagdebugskygray":"True"}"#).unwrap_err();
-        assert!(err.contains("fflagdebugskygray"), "got {}", err);
+    fn split_allowlisted_fast_flags_json_is_case_sensitive_about_key_names() {
+        let (flags, ignored) = split_allowlisted_fast_flags_json(r#"{"fflagdebugskygray":"True"}"#).unwrap();
+        assert!(flags.is_empty());
+        assert_eq!(ignored, vec!["fflagdebugskygray".to_string()]);
     }
 }

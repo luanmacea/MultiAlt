@@ -97,6 +97,12 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
 /// Reserva do [`validate_cookie`] quando o site redireciona: a API de
 /// usuários diz id e nome sem passar pela página que a moderação bloqueia.
 /// `to_moderation` = o redirecionamento ia para `/not-approved`.
+/// O erro de `validate_cookie` para conta moderada: o cookie pode ser bom, mas
+/// o Roblox não diz de quem ele é pelas consultas de sempre.
+pub fn is_moderated_account_error(error: &str) -> bool {
+    error.contains("Roblox is restricting this account")
+}
+
 async fn validate_cookie_via_users_api(
     security_token: &str,
     to_moderation: bool,
@@ -380,11 +386,15 @@ pub async fn log_out_other_sessions(security_token: &str) -> Result<RefreshResul
 
     let client = build_client();
 
+    // O `www.roblox.com/authentication/signoutfromallsessionsandreauthenticate`
+    // saiu do ar (404, conferido em 25/10/2026): o "Atualizar cookies" falhava
+    // em toda conta, inclusive nas de sessão boa. O endereço atual é este.
     let request = client
-        .post(format!("{}/authentication/signoutfromallsessionsandreauthenticate", endpoints::host("www")))
+        .post(format!("{}/v1/logoutfromallsessionsandreauthenticate", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("Content-Type", "application/x-www-form-urlencoded");
+        .header("Content-Type", "application/json")
+        .body("{}");
     let response = send_with_csrf_retry(request, &csrf).await?;
 
     // Roblox may return redirects for this endpoint while still setting cookies.
@@ -510,7 +520,31 @@ pub async fn change_password(
     current_password: &str,
     new_password: &str,
 ) -> Result<Option<String>, String> {
-    let csrf = get_csrf_token(security_token).await?;
+    change_password_attempt(security_token, current_password, new_password)
+        .await
+        .map_err(|failure| failure.message)
+}
+
+/// Uma troca de senha que não deu certo, e se ela **pode** ter trocado mesmo
+/// assim: a resposta não chegou (rede, teto de tempo) ou veio um erro do
+/// servidor (5xx). `maybe_changed: false` = o Roblox recusou com certeza
+/// (respondeu 4xx) ou o pedido nem saiu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasswordChangeFailure {
+    pub message: String,
+    pub maybe_changed: bool,
+}
+
+/// O mesmo que `change_password`, dizendo se a senha pode ter trocado numa
+/// falha. A troca para senha aleatória precisa disso: a senha nova não é
+/// digitada pelo dono, e uma resposta perdida não pode apagá-la.
+pub async fn change_password_attempt(
+    security_token: &str,
+    current_password: &str,
+    new_password: &str,
+) -> Result<Option<String>, PasswordChangeFailure> {
+    let not_sent = |message: String| PasswordChangeFailure { message, maybe_changed: false };
+    let csrf = get_csrf_token(security_token).await.map_err(not_sent)?;
 
     let client = build_client();
 
@@ -524,10 +558,14 @@ pub async fn change_password(
             urlencoding::encode(current_password),
             urlencoding::encode(new_password)
         ));
-    let response = send_with_csrf_retry(request, &csrf).await?;
+    // Sem resposta: o pedido pode ter chegado e trocado a senha.
+    let response = send_with_csrf_retry(request, &csrf)
+        .await
+        .map_err(|message| PasswordChangeFailure { message, maybe_changed: true })?;
 
     if !response.status().is_success() {
-        return Err(credential_failure(response).await);
+        let maybe_changed = response.status().is_server_error();
+        return Err(PasswordChangeFailure { message: credential_failure(response).await, maybe_changed });
     }
 
     let new_cookie = response
@@ -1082,6 +1120,9 @@ mod auth_http_tests {
             .await;
 
         let err = validate_cookie("locked-cookie").await.unwrap_err();
+        // É o erro que o "Fazer login de novo" reconhece como conta moderada.
+        assert!(is_moderated_account_error(&err), "{err}");
+        assert!(!is_moderated_account_error("Invalid cookie (status 401)"));
         assert!(err.contains("moderat"), "{err}");
         assert!(!err.contains("Invalid cookie"), "{err}");
     }
@@ -1727,8 +1768,8 @@ mod auth_extra_tests {
 
         Mock::given(method("POST"))
             .and(path(mock_path(
-                "www",
-                "/authentication/signoutfromallsessionsandreauthenticate",
+                "auth",
+                "/v1/logoutfromallsessionsandreauthenticate",
             )))
             .and(header("cookie", cookie_of("signout-ok")))
             .respond_with(
@@ -1754,8 +1795,8 @@ mod auth_extra_tests {
 
         Mock::given(method("POST"))
             .and(path(mock_path(
-                "www",
-                "/authentication/signoutfromallsessionsandreauthenticate",
+                "auth",
+                "/v1/logoutfromallsessionsandreauthenticate",
             )))
             .and(header("cookie", cookie_of("signout-nocookie")))
             .respond_with(ResponseTemplate::new(200))
@@ -1776,8 +1817,8 @@ mod auth_extra_tests {
 
         Mock::given(method("POST"))
             .and(path(mock_path(
-                "www",
-                "/authentication/signoutfromallsessionsandreauthenticate",
+                "auth",
+                "/v1/logoutfromallsessionsandreauthenticate",
             )))
             .and(header("cookie", cookie_of("signout-fail")))
             .respond_with(ResponseTemplate::new(400).set_body_string("nope"))

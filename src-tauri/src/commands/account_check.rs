@@ -80,6 +80,16 @@ impl AccountCheckSummary {
     }
 }
 
+/// Sessão morta: sem ela a moderação não responde, e a conta banida de vez
+/// aparecia só como "inválida" (relato do dono, 26/10/2026). A página pública
+/// do usuário (sem cookie) diz `isBanned`; qualquer falha nela deixa "inválida".
+async fn invalid_or_terminated(user_id: i64) -> AccountCheckOutcome {
+    match api::roblox::get_user_info(None, user_id).await {
+        Ok(info) if info.is_banned => AccountCheckOutcome::Banned,
+        _ => AccountCheckOutcome::Invalid,
+    }
+}
+
 /// Uma conta: moderação primeiro (conta banida pode ter a sessão recusada em
 /// `users/authenticated` sem que o cookie esteja morto), depois a sessão.
 async fn check_one_account(
@@ -92,7 +102,7 @@ async fn check_one_account(
         Ok(token) if token.trim().is_empty() => {
             // Sem cookie não há sessão: o mesmo ponto vermelho da linha.
             let _ = state.set_valid(user_id, false);
-            return AccountCheckOutcome::Invalid;
+            return invalid_or_terminated(user_id).await;
         }
         Ok(_) => {}
         Err(_) => return AccountCheckOutcome::Unknown,
@@ -116,7 +126,7 @@ async fn check_one_account(
         }
         Ok(SessionCheck::Invalid) => {
             let _ = state.set_valid(user_id, false);
-            return AccountCheckOutcome::Invalid;
+            return invalid_or_terminated(user_id).await;
         }
         _ => return AccountCheckOutcome::Unknown,
     }
@@ -318,6 +328,43 @@ mod account_check_tests {
         assert!(!valid_of(&store, 8102), "401 marks the account invalid");
         assert!(valid_of(&store, 8104), "a 429 never marks the account invalid");
         assert!(valid_of(&store, 8103), "a ban is not a dead cookie");
+    }
+
+    /// Relato do dono (26/10/2026): conta banida aparecia "inválida" — sem
+    /// sessão a moderação não responde. A página pública do usuário diz se a
+    /// conta foi banida de vez (`isBanned`), sem cookie nenhum.
+    #[tokio::test]
+    async fn a_dead_session_of_a_terminated_account_is_banned_not_invalid() {
+        mount_moderation("chk-gone", ResponseTemplate::new(401)).await;
+        mount_session("chk-gone", ResponseTemplate::new(401)).await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("users", "/v1/users/8301")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 8301,
+                "name": "gone",
+                "displayName": "gone",
+                "description": "",
+                "created": "2020-01-01T00:00:00Z",
+                "isBanned": true
+            })))
+            .mount(mock_server().await)
+            .await;
+        let store = temp_store("terminated");
+        store.add(crate::data::accounts::Account::new("chk-gone".into(), "gone".into(), 8301)).unwrap();
+
+        let summary = run_account_checks(
+            &store,
+            None,
+            vec![8301],
+            api::http_client::client(),
+            std::time::Duration::ZERO,
+            std::time::Duration::ZERO,
+            |_, _| {},
+        )
+        .await;
+
+        assert_eq!(summary.banned, 1, "{summary:?}");
+        assert_eq!(summary.invalid, 0);
     }
 
     /// Conta marcada inválida que volta a responder 200 perde o ponto vermelho.

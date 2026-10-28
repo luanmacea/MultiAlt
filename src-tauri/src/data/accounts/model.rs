@@ -23,6 +23,12 @@ pub struct Account {
     pub description: String,
     #[serde(rename = "Password", default, deserialize_with = "string_or_default")]
     pub password: String,
+    /// As senhas guardadas antes da atual, da mais nova para a mais velha (no
+    /// máximo `PASSWORD_HISTORY_MAX`). Rede contra perda: uma senha errada
+    /// gravada por cima da certa ainda deixa a certa aqui. Só se escreve por
+    /// `replace_password`. Ver CLAUDE.md, "Senha guardada nunca se perde".
+    #[serde(rename = "PasswordHistory", default, skip_serializing_if = "Vec::is_empty")]
+    pub password_history: Vec<String>,
     #[serde(
         default = "default_group",
         deserialize_with = "group_or_default",
@@ -46,6 +52,11 @@ pub struct Account {
         deserialize_with = "string_or_default"
     )]
     pub browser_tracker_id: String,
+    /// Quando o Roblox pediu a verificação "confirme que é humano" e ela não foi
+    /// resolvida (RFC 3339, com fuso). Some quando a pessoa resolve ou a conta
+    /// entra num jogo (`human_check_mark`). Sem marca, o campo nem é gravado.
+    #[serde(rename = "HumanCheckAt", default, skip_serializing_if = "Option::is_none")]
+    pub human_check_at: Option<String>,
 }
 
 fn default_group() -> String {
@@ -155,16 +166,69 @@ impl Default for Account {
             alias: String::new(),
             description: String::new(),
             password: String::new(),
+            password_history: Vec::new(),
             group: default_group(),
             user_id: 0,
             fields: HashMap::new(),
             last_attempted_refresh: Utc::now(),
             browser_tracker_id: String::new(),
+            human_check_at: None,
         }
     }
 }
 
+/// Quantas senhas antigas a conta guarda.
+pub const PASSWORD_HISTORY_MAX: usize = 5;
+
 impl Account {
+    /// O único jeito de trocar a senha **guardada** de uma conta que já existe:
+    /// a anterior vai para o histórico, e senha vazia nunca apaga a guardada.
+    pub fn replace_password(&mut self, new_password: &str) {
+        if new_password.is_empty() || new_password == self.password {
+            return;
+        }
+        let previous = std::mem::take(&mut self.password);
+        if !previous.is_empty() {
+            self.password_history.retain(|p| *p != previous && p != new_password);
+            self.password_history.insert(0, previous);
+            self.password_history.truncate(PASSWORD_HISTORY_MAX);
+        } else {
+            self.password_history.retain(|p| p != new_password);
+        }
+        self.password = new_password.to_string();
+    }
+
+    /// Guarda no histórico uma senha que **pode** ser a que vale no Roblox, sem
+    /// trocar a guardada: a troca para senha aleatória a põe aqui antes de pedir
+    /// ao Roblox, para uma resposta perdida (ou uma gravação que falhou depois)
+    /// não a apagar. Quando o Roblox confirma, `replace_password` a promove.
+    pub fn remember_possible_password(&mut self, password: &str) {
+        if password.is_empty() || password == self.password {
+            return;
+        }
+        self.password_history.retain(|p| p != password);
+        self.password_history.insert(0, password.to_string());
+        self.password_history.truncate(PASSWORD_HISTORY_MAX);
+    }
+
+    /// Tira do histórico uma senha que o Roblox recusou com certeza (nunca
+    /// valeu). Nunca mexe na guardada.
+    pub fn forget_refused_password(&mut self, password: &str) {
+        if password.is_empty() || password == self.password {
+            return;
+        }
+        self.password_history.retain(|p| p != password);
+    }
+
+    /// O cookie, a senha e o histórico de senhas vêm sempre do que está
+    /// guardado, nunca de uma cópia da tela (que pode estar velha ou sem o
+    /// histórico): editar apelido ou grupo não pode mexer em credencial.
+    pub fn keep_credentials_from(&mut self, stored: &Account) {
+        self.security_token = stored.security_token.clone();
+        self.password = stored.password.clone();
+        self.password_history = stored.password_history.clone();
+    }
+
     pub fn new(security_token: String, username: String, user_id: i64) -> Self {
         Self {
             valid: true,
@@ -193,6 +257,164 @@ impl Account {
 #[cfg(test)]
 mod model_tests {
     use super::*;
+
+    // ── senha guardada nunca se perde (25/10/2026) ──────────────────────────
+    //
+    // Duas perdas de senha reais: a troca de senha de uma conta só não gravava
+    // a nova (até a v2.1.0), e o criador de contas gravava a senha de outra
+    // identidade por cima da conta anterior (até a v2.3.0). Toda troca da
+    // senha guardada passa por `replace_password`, que guarda a anterior.
+
+    /// A troca para senha aleatória (27/10/2026): a nova entra no histórico
+    /// antes de ir ao Roblox, sem trocar a guardada; recusada, sai; aceita,
+    /// vira a guardada e não fica repetida no histórico.
+    #[test]
+    fn a_possible_password_waits_in_the_history_without_touching_the_saved_one() {
+        let mut a = Account::new("c".into(), "ann".into(), 1);
+        a.replace_password("saved");
+        a.remember_possible_password("random-1");
+        assert_eq!(a.password, "saved");
+        assert_eq!(a.password_history, vec!["random-1".to_string()]);
+
+        a.forget_refused_password("random-1");
+        assert_eq!(a.password, "saved");
+        assert!(a.password_history.is_empty());
+        // Nunca apaga a guardada, nem guarda vazia ou repetida.
+        a.forget_refused_password("saved");
+        a.remember_possible_password("");
+        a.remember_possible_password("saved");
+        assert_eq!(a.password, "saved");
+        assert!(a.password_history.is_empty());
+
+        a.remember_possible_password("random-2");
+        a.replace_password("random-2");
+        assert_eq!(a.password, "random-2");
+        assert_eq!(a.password_history, vec!["saved".to_string()]);
+    }
+
+    #[test]
+    fn replacing_a_password_keeps_the_previous_one_in_the_history() {
+        let mut a = Account::new("c".into(), "ann".into(), 1);
+        a.replace_password("first");
+        a.replace_password("second");
+        a.replace_password("third");
+        assert_eq!(a.password, "third");
+        assert_eq!(a.password_history, vec!["second".to_string(), "first".to_string()]);
+    }
+
+    /// A tela manda a conta sem o histórico (ou com cookie velho): o que vale é
+    /// o guardado.
+    #[test]
+    fn editing_from_the_screen_keeps_the_stored_credentials_and_history() {
+        let mut stored = Account::new("stored-cookie".into(), "ann".into(), 1);
+        stored.replace_password("old");
+        stored.replace_password("current");
+        let mut from_screen = Account::new("stale-cookie".into(), "ann".into(), 1);
+        from_screen.alias = "Main".into();
+        from_screen.keep_credentials_from(&stored);
+        assert_eq!(from_screen.security_token, "stored-cookie");
+        assert_eq!(from_screen.password, "current");
+        assert_eq!(from_screen.password_history, vec!["old".to_string()]);
+        assert_eq!(from_screen.alias, "Main");
+    }
+
+    #[test]
+    fn an_empty_password_never_erases_the_saved_one() {
+        let mut a = Account::new("c".into(), "ann".into(), 1);
+        a.replace_password("kept");
+        a.replace_password("");
+        assert_eq!(a.password, "kept");
+        assert!(a.password_history.is_empty());
+    }
+
+    #[test]
+    fn the_same_password_again_changes_nothing_and_the_history_has_no_repeats() {
+        let mut a = Account::new("c".into(), "ann".into(), 1);
+        a.replace_password("one");
+        a.replace_password("one");
+        assert!(a.password_history.is_empty());
+        a.replace_password("two");
+        a.replace_password("one");
+        a.replace_password("two");
+        assert_eq!(a.password, "two");
+        assert_eq!(a.password_history, vec!["one".to_string()]);
+    }
+
+    #[test]
+    fn the_history_keeps_only_the_latest_passwords() {
+        let mut a = Account::new("c".into(), "ann".into(), 1);
+        for i in 0..20 {
+            a.replace_password(&format!("p{i}"));
+        }
+        assert_eq!(a.password_history.len(), PASSWORD_HISTORY_MAX);
+        assert_eq!(a.password_history[0], "p18");
+    }
+
+    #[test]
+    fn the_history_survives_a_save_and_old_files_without_it_still_load() {
+        let mut a = Account::new("c".into(), "ann".into(), 1);
+        a.replace_password("old");
+        a.replace_password("new");
+        let json = serde_json::to_string(&a).unwrap();
+        let back = parse(&json);
+        assert_eq!(back.password_history, vec!["old".to_string()]);
+        let legacy = parse(r#"{"Username":"ann","UserID":1,"Password":"x"}"#);
+        assert!(legacy.password_history.is_empty());
+        assert!(!serde_json::to_string(&legacy).unwrap().contains("PasswordHistory"), "vazio não vai para o arquivo");
+    }
+
+    /// Trava: toda escrita da senha guardada fora do construtor de conta nova
+    /// passa por `replace_password`. Escrever `.password =` direto num ponto
+    /// novo do código falha aqui — leia a regra "Senha guardada nunca se perde"
+    /// do CLAUDE.md antes de mexer nesta lista.
+    #[test]
+    fn every_write_of_a_saved_password_goes_through_replace_password() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found: Vec<String> = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                // Só o código de produção: os testes montam contas à vontade.
+                let production = text.split("#[cfg(test)]").next().unwrap_or("");
+                for line in production.lines() {
+                    let trimmed = line.trim_start();
+                    if trimmed.starts_with("//") {
+                        continue;
+                    }
+                    if trimmed.contains(".password = ") {
+                        let rel = path.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
+                        found.push(format!("{rel}: {}", trimmed.trim()));
+                    }
+                }
+            }
+        }
+        found.sort();
+        // Contas **novas** (nenhuma senha guardada antes para perder) e o
+        // próprio `replace_password`.
+        let allowed = [
+            "chromium/commands.rs: account.password = password;",
+            "chromium/signup_session.rs: account.password = password_to_save(typed_password, &identity.password);",
+            "commands/generators.rs: model.password = account.password.clone();",
+            "data/accounts/commands.rs: account.password = password;",
+            "data/accounts/model.rs: self.password = new_password.to_string();",
+            // Cópia do que já está guardado (editar pela tela não mexe em credencial).
+            "data/accounts/model.rs: self.password = stored.password.clone();",
+        ];
+        let unexpected: Vec<&String> = found.iter().filter(|f| !allowed.contains(&f.as_str())).collect();
+        assert!(
+            unexpected.is_empty(),
+            "escrita nova da senha guardada fora de `replace_password`:\n{unexpected:#?}"
+        );
+    }
 
     fn parse(json: &str) -> Account {
         serde_json::from_str::<Account>(json).expect("account should deserialize")

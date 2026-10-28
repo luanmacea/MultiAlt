@@ -308,6 +308,59 @@ fn shuffle_server_index(nanos: u128, server_count: usize) -> usize {
     (nanos as usize) % server_count
 }
 
+/// Escolhe o servidor do sorteio: só os que têm vaga e, entre eles, os que
+/// nenhuma outra conta recebeu (`taken`). Quando todos com vaga já foram dados
+/// (jogo com poucos servidores), repete um em vez de desistir.
+fn pick_shuffle_server(
+    servers: &[api::roblox::ServerData],
+    taken: &std::collections::HashSet<String>,
+    nanos: u128,
+) -> Option<String> {
+    let open: Vec<&api::roblox::ServerData> = servers
+        .iter()
+        .filter(|s| s.max_players > 0 && s.playing < s.max_players)
+        .collect();
+    let fresh: Vec<&api::roblox::ServerData> =
+        open.iter().copied().filter(|s| !taken.contains(&s.id)).collect();
+    let pool = if fresh.is_empty() { open } else { fresh };
+    if pool.is_empty() {
+        return None;
+    }
+    Some(pool[shuffle_server_index(nanos, pool.len())].id.clone())
+}
+
+/// Por quanto tempo um servidor sorteado fica reservado para a conta que o
+/// recebeu: cobre um lote inteiro de launches (com o espaçamento entre contas)
+/// sem prender o servidor para sempre.
+const SHUFFLE_ASSIGNMENT_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Servidores já sorteados por jogo. Antes cada conta sorteava sozinha, sem
+/// saber das outras, e num lote duas ou mais caíam no mesmo servidor.
+#[derive(Default)]
+struct ShuffleAssignments {
+    by_place: std::collections::HashMap<i64, Vec<(String, std::time::Instant)>>,
+}
+
+impl ShuffleAssignments {
+    fn pick(
+        &mut self,
+        place_id: i64,
+        servers: &[api::roblox::ServerData],
+        nanos: u128,
+        now: std::time::Instant,
+    ) -> Option<String> {
+        let given = self.by_place.entry(place_id).or_default();
+        given.retain(|(_, at)| now.saturating_duration_since(*at) < SHUFFLE_ASSIGNMENT_TTL);
+        let taken = given.iter().map(|(id, _)| id.clone()).collect();
+        let job = pick_shuffle_server(servers, &taken, nanos)?;
+        given.push((job.clone(), now));
+        Some(job)
+    }
+}
+
+static SHUFFLE_ASSIGNMENTS: std::sync::LazyLock<std::sync::Mutex<ShuffleAssignments>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(ShuffleAssignments::default()));
+
 /// Did the frontend ask for `shuffleJob`? The argument is optional so older
 /// callers (and any `invoke` that omits the field) keep working — a missing
 /// value means "don't shuffle".
@@ -321,8 +374,21 @@ fn should_shuffle_server(shuffle_job: bool, follow_user: bool, job_id: &str) -> 
     shuffle_job && !follow_user && job_id.trim().is_empty()
 }
 
+/// O retângulo é de uma janela de verdade? O Windows põe a janela minimizada em
+/// (-32000, -32000) com ~160x28, e é isso que `GetWindowRect` devolve: gravar
+/// isso como "a posição da conta" mandava a janela do launch seguinte para fora
+/// da tela, no tamanho mínimo. Coordenadas negativas comuns (um monitor à
+/// esquerda ou acima do principal) são válidas.
+fn window_rect_is_usable(x: i32, y: i32, w: i32, h: i32) -> bool {
+    const MINIMIZED_AXIS: i32 = -30000;
+    const MAX_SIDE: i32 = 30000;
+    x > MINIMIZED_AXIS && y > MINIMIZED_AXIS && (1..=MAX_SIDE).contains(&w) && (1..=MAX_SIDE).contains(&h)
+}
+
 /// The saved window rectangle of an account, or `None` when any part is
-/// missing or unparsable (a half-applied rectangle would misplace the window).
+/// missing or unparsable (a half-applied rectangle would misplace the window),
+/// or when it is the placeholder of a minimized window (`window_rect_is_usable`
+/// — dado já gravado por versões antigas, ignorado em vez de aplicado).
 fn window_rect_from_fields(
     fields: &std::collections::HashMap<String, String>,
 ) -> Option<(i32, i32, i32, i32)> {
@@ -330,7 +396,7 @@ fn window_rect_from_fields(
     let y = fields.get("Window_Position_Y")?.parse::<i32>().ok()?;
     let w = fields.get("Window_Width")?.parse::<i32>().ok()?;
     let h = fields.get("Window_Height")?.parse::<i32>().ok()?;
-    Some((x, y, w, h))
+    window_rect_is_usable(x, y, w, h).then_some((x, y, w, h))
 }
 
 // ---------------------------------------------------------------------------
@@ -885,6 +951,34 @@ fn emit_launch_queue(app: &tauri::AppHandle, payload: &LaunchQueuePayload) {
     let _ = app.emit("launch-queue", payload);
 }
 
+/// O resultado de um lote que acabou de fechar, para o aviso no Discord:
+/// (abertas, falharam, canceladas). Só lote de 2 contas ou mais — o launch de
+/// uma conta não é "lote".
+fn launch_batch_result(entries: &[LaunchQueueEntry]) -> Option<(u32, u32, u32)> {
+    if entries.len() < 2 {
+        return None;
+    }
+    let count = |state: LaunchQueueState| entries.iter().filter(|e| e.state == state).count() as u32;
+    Some((
+        count(LaunchQueueState::Done),
+        count(LaunchQueueState::Failed),
+        count(LaunchQueueState::Cancelled),
+    ))
+}
+
+/// A fila acabou de fechar: avisa no Discord (se a caixa estiver ligada).
+fn webhook_after_launch_batch(app: &tauri::AppHandle, payload: &LaunchQueuePayload) {
+    if let Some((done, failed, cancelled)) = launch_batch_result(&payload.entries) {
+        notify_webhook(
+            app,
+            WebhookEventKind::BatchFinished,
+            0,
+            Some(WebhookReason::BatchResult { done, failed, cancelled }),
+            (payload.place_id > 0).then_some(payload.place_id),
+        );
+    }
+}
+
 /// Código devolvido quando o usuário dispara um launch com outro em andamento.
 /// É um código, não uma frase: quem traduz é o frontend
 /// (`isLaunchAlreadyActiveError` em `src/utils/robloxErrors.ts`).
@@ -974,6 +1068,7 @@ impl LaunchSequenceGuard {
         });
         if closed {
             emit_launch_queue(&self.app, &payload);
+            webhook_after_launch_batch(&self.app, &payload);
         }
         next
     }
@@ -990,6 +1085,7 @@ impl LaunchSequenceGuard {
         let (changed, payload) = with_launch_queue(|queue| queue.finish(self.generation));
         if changed {
             emit_launch_queue(&self.app, &payload);
+            webhook_after_launch_batch(&self.app, &payload);
         }
     }
 
@@ -1071,6 +1167,14 @@ enum Admitted {
 /// — o "Close All Roblox" com o laço preso esperando um PID —, recusa como antes.
 const LAUNCH_CLOSING_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// Quanto o Play espera uma sequência que não aceita contas no fim (a
+/// reconexão automática) terminar, antes de desistir.
+const LAUNCH_BUSY_WAIT: std::time::Duration = std::time::Duration::from_secs(90);
+
+fn keep_waiting_for_busy_launch(waited: std::time::Duration) -> bool {
+    waited < LAUNCH_BUSY_WAIT
+}
+
 /// O cliente desta conta ainda está aberto (rastreado pelo app)? Alimenta a
 /// trava do duplo clique (`admit_guarded`). Fora do Windows não há rastreador:
 /// vale só a janela de tempo.
@@ -1117,6 +1221,12 @@ async fn launch_queue_admit(
                     emit_launch_queue(app, &payload);
                 }
                 return Ok(Admitted::Appended(added));
+            }
+            // Uma reconexão automática está abrindo uma conta: espera ela
+            // terminar em vez de recusar o Play (antes: "A launch is already in
+            // progress" e nada abria).
+            Admission::Busy if keep_waiting_for_busy_launch(waiting_since.elapsed()) => {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
             }
             Admission::Busy => return Err(LAUNCH_ALREADY_ACTIVE.to_string()),
             Admission::Closing if waiting_since.elapsed() < LAUNCH_CLOSING_GRACE => {
@@ -1344,7 +1454,17 @@ async fn launch_roblox_windows(
         .unwrap_or_else(|| settings.get_bool("General", "StartRobloxMinimized"));
 
     let (resolved_base_path, resolved_version_id) =
-        windows::resolve_roblox_install_path(account_version_override.as_deref(), &settings, &versions)?;
+        {
+            let (path, id, notice) = windows::resolve_roblox_install_path_with_notice(
+                account_version_override.as_deref(),
+                &settings,
+                &versions,
+            );
+            if let Some(notice) = notice {
+                emit_launch_log(&app, user_id, "warn", "version", notice);
+            }
+            (path, id)
+        };
     let isolation_will_wipe_install = isolation_wipes_install(
         &settings.get_string("Isolation", "Mode"),
         resolved_version_id.as_deref(),
@@ -1355,7 +1475,15 @@ async fn launch_roblox_windows(
         resolved_version_id.as_deref(),
     );
 
-    if let Some(report) = run_pre_launch_isolation(&app, &settings).await? {
+    // Isolamento é opcional: se falhar, o launch segue e o log diz por quê.
+    let isolation_report = match run_pre_launch_isolation(&app, &settings).await {
+        Ok(report) => report,
+        Err(err) => {
+            emit_launch_log(&app, user_id, "warn", "isolation", format!("Isolation skipped: {err}"));
+            None
+        }
+    };
+    if let Some(report) = isolation_report {
         let _ = app.emit("isolation-report", &report);
         emit_launch_log(&app, user_id, "info", "isolation", "Isolamento pré-launch aplicado");
         if windows::has_pending_fast_flags() {
@@ -1379,7 +1507,11 @@ async fn launch_roblox_windows(
 
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
     if multi_rbx {
-        ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await?;
+        if let Some(notice) =
+            ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event, Some(&app)).await?
+        {
+            emit_launch_log(&app, user_id, "warn", "multi-roblox", notice);
+        }
     } else {
         let _ = windows::disable_multi_roblox();
     }
@@ -1434,6 +1566,7 @@ async fn launch_roblox_windows(
         }
         Err(e) => {
             emit_launch_log(&app, user_id, "error", "auth", format!("Falha no auth ticket: {e}"));
+            mark_account_session_dead(state.inner(), &app, user_id, &e);
             notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WebhookReason::AuthTicketFailed), None);
             if is_moderated_error(&e) {
                 mark_account_moderated(state.inner(), &app, user_id);
@@ -1758,7 +1891,11 @@ async fn launch_roblox_other(
         let ticket = run_with_session_retry(state.inner(), user_id, |cookie| async move {
             api::auth::get_auth_ticket(&cookie).await
         })
-        .await?;
+        .await
+        .map_err(|e| {
+            mark_account_session_dead(state.inner(), &app, user_id, &e);
+            e
+        })?;
         let private_join = run_with_session_retry(state.inner(), user_id, |cookie| {
             let resolved_launch = resolved_launch.clone();
             async move { resolve_private_join(&cookie, place_id, &resolved_launch).await }
@@ -1885,11 +2022,14 @@ async fn launch_multiple(
     let tracker = windows::tracker();
     tracker.reset_launch_cancelled();
 
+    // Isolamento é opcional: se falhar, a fila segue (antes abortava o lote).
     let isolation_report = match run_pre_launch_isolation(&app, &settings).await {
         Ok(value) => value,
         Err(err) => {
-            sequence.abort(None, &err);
-            return Err(err);
+            if let Some(first) = user_ids.first() {
+                emit_launch_log(&app, *first, "warn", "isolation", format!("Isolation skipped: {err}"));
+            }
+            None
         }
     };
     if let Some(report) = isolation_report {
@@ -2103,27 +2243,16 @@ async fn run_launch_queue_windows(
             continue;
         }
 
-        let (acct_base_path, acct_version_id) = match windows::resolve_roblox_install_path(
-            acct_version_override.as_deref(),
-            &settings,
-            &versions,
-        ) {
-            Ok(value) => value,
-            Err(err) => {
-                sequence.mark(uid, LaunchQueueState::Failed, Some(err.clone()));
-                let _ = app.emit(
-                    "launch-progress",
-                    serde_json::json!({
-                        "userId": uid,
-                        "index": i,
-                        "total": total,
-                        "error": "version-resolve-failed",
-                        "message": err,
-                    }),
-                );
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                continue;
+        let (acct_base_path, acct_version_id) = {
+            let (path, id, notice) = windows::resolve_roblox_install_path_with_notice(
+                acct_version_override.as_deref(),
+                &settings,
+                &versions,
+            );
+            if let Some(notice) = notice {
+                emit_launch_log(app, uid, "warn", "version", notice);
             }
+            (path, id)
         };
         let acct_isolation_wipes_install = isolation_wipes_install(
             &settings.get_string("Isolation", "Mode"),
@@ -2199,9 +2328,13 @@ async fn run_launch_queue_windows(
         if multi_rbx {
             // Falha de Multi Roblox aborta a fila inteira (diferente dos erros
             // por conta): sem o mutex, todo cliente novo derruba o anterior.
-            if let Err(err) = ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await {
-                sequence.abort(Some(uid), &err);
-                return Err(err);
+            match ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event, Some(app)).await {
+                Ok(Some(notice)) => emit_launch_log(app, uid, "warn", "multi-roblox", notice),
+                Ok(None) => {}
+                Err(err) => {
+                    sequence.abort(Some(uid), &err);
+                    return Err(err);
+                }
             }
         } else {
             let _ = windows::disable_multi_roblox();
@@ -2249,6 +2382,7 @@ async fn run_launch_queue_windows(
             }
             Err(e) => {
                 emit_launch_log(app, uid, "error", "auth", format!("Falha no auth ticket: {e}"));
+                mark_account_session_dead(state.inner(), app, uid, &e);
                 notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WebhookReason::AuthTicketFailed), None);
                 if is_moderated_error(&e) {
                     mark_account_moderated(state.inner(), app, uid);
@@ -2639,6 +2773,7 @@ async fn run_launch_queue_macos(
         {
             Ok(t) => t,
             Err(err) => {
+                mark_account_session_dead(state.inner(), &app, uid, &err);
                 sequence.mark(uid, LaunchQueueState::Failed, Some(err));
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;
@@ -2984,20 +3119,14 @@ fn cmd_get_roblox_path() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn cmd_apply_fps_unlock(
-    settings: tauri::State<'_, SettingsStore>,
-    max_fps: u32,
-) -> Result<(), String> {
+fn cmd_apply_fps_unlock(max_fps: u32) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use platform::windows;
-        // Também entra no que é devolvido ao fechar (ideia 21).
-        let snapshot = restore_roblox_settings_enabled(settings.inner())
-            .then(|| windows::snapshot_roblox_settings(windows::roblox_settings_files(None)));
+        // Também entra no que é devolvido (ideia 21), com a opção ligada ou não.
+        let snapshot = windows::snapshot_roblox_settings(windows::roblox_settings_files(None));
         let result = windows::apply_fps_unlock(max_fps);
-        if let Some(snapshot) = snapshot {
-            windows::record_roblox_settings_change(snapshot);
-        }
+        windows::record_roblox_settings_change(snapshot);
         return result;
     }
     #[cfg(not(target_os = "windows"))]
@@ -3020,6 +3149,15 @@ fn cmd_apply_fps_unlock(
 mod launch_queue_tests {
     use super::*;
 
+    /// Pedido do dono (23/10/2026): com uma reconexão automática abrindo uma
+    /// conta, o Play recusava na hora. Agora espera ela terminar.
+    #[test]
+    fn play_waits_for_an_automatic_reconnect_instead_of_refusing() {
+        assert!(keep_waiting_for_busy_launch(std::time::Duration::from_secs(0)));
+        assert!(keep_waiting_for_busy_launch(std::time::Duration::from_secs(60)));
+        assert!(!keep_waiting_for_busy_launch(std::time::Duration::from_secs(91)));
+    }
+
     /// `last_use` alimenta a coluna "3d"/"2mo" e a bolinha de envelhecimento: só
     /// pode andar quando o cliente subiu de fato, nunca na tentativa.
     #[test]
@@ -3036,6 +3174,26 @@ mod launch_queue_tests {
                 "{state:?} não é uso: a conta pode nem ter aberto"
             );
         }
+    }
+
+    /// O aviso "lote terminou" do Discord conta cada estado, e o launch de uma
+    /// conta só não é lote.
+    #[test]
+    fn a_finished_batch_reports_how_many_opened_failed_and_were_cancelled() {
+        let entry = |user_id, state| LaunchQueueEntry {
+            state,
+            ..LaunchQueueEntry::queued(user_id, &LaunchRequest::default(), 0)
+        };
+        assert_eq!(launch_batch_result(&[entry(1, LaunchQueueState::Done)]), None);
+        assert_eq!(
+            launch_batch_result(&[
+                entry(1, LaunchQueueState::Done),
+                entry(2, LaunchQueueState::Done),
+                entry(3, LaunchQueueState::Failed),
+                entry(4, LaunchQueueState::Cancelled),
+            ]),
+            Some((2, 1, 1))
+        );
     }
 
     /// A geração do primeiro lote de uma fila nova. Os testes usam o número
@@ -4435,6 +4593,84 @@ mod launch_command_tests {
         assert_eq!(shuffle_server_index(u128::MAX, 1), 0);
     }
 
+    // ---- pick_shuffle_server / ShuffleAssignments ---------------------------
+
+    fn shuffle_server(id: &str, playing: i32, max_players: i32) -> api::roblox::ServerData {
+        api::roblox::ServerData {
+            id: id.to_string(),
+            max_players,
+            playing,
+            player_tokens: Vec::new(),
+            fps: 60.0,
+            ping: None,
+            name: None,
+            vip_server_id: None,
+            access_code: None,
+        }
+    }
+
+    #[test]
+    fn pick_shuffle_server_skips_servers_another_account_already_got() {
+        // O bug: cada conta sorteava sozinha e duas caíam no mesmo servidor.
+        let servers = vec![shuffle_server("a", 1, 10), shuffle_server("b", 1, 10)];
+        let taken: std::collections::HashSet<String> = ["a".to_string()].into();
+        for nanos in [0_u128, 1, 2, 3, 99] {
+            assert_eq!(pick_shuffle_server(&servers, &taken, nanos).as_deref(), Some("b"));
+        }
+    }
+
+    #[test]
+    fn pick_shuffle_server_never_picks_a_full_server() {
+        let servers = vec![shuffle_server("full", 10, 10), shuffle_server("ok", 3, 10)];
+        let none = std::collections::HashSet::new();
+        for nanos in [0_u128, 1, 7] {
+            assert_eq!(pick_shuffle_server(&servers, &none, nanos).as_deref(), Some("ok"));
+        }
+    }
+
+    #[test]
+    fn pick_shuffle_server_reuses_a_server_only_when_every_one_was_taken() {
+        // Jogo com poucos servidores: melhor repetir um do que cair no
+        // servidor público que o Roblox escolher.
+        let servers = vec![shuffle_server("a", 1, 10)];
+        let taken: std::collections::HashSet<String> = ["a".to_string()].into();
+        assert_eq!(pick_shuffle_server(&servers, &taken, 5).as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn pick_shuffle_server_gives_up_without_a_free_seat() {
+        let servers = vec![shuffle_server("full", 10, 10), shuffle_server("bad", 0, 0)];
+        let none = std::collections::HashSet::new();
+        assert_eq!(pick_shuffle_server(&servers, &none, 0), None);
+        assert_eq!(pick_shuffle_server(&[], &none, 0), None);
+    }
+
+    #[test]
+    fn shuffle_assignments_spread_a_batch_over_different_servers() {
+        let servers: Vec<_> = (0..5).map(|i| shuffle_server(&format!("s{i}"), 1, 10)).collect();
+        let mut book = ShuffleAssignments::default();
+        let now = std::time::Instant::now();
+        let mut picked = std::collections::HashSet::new();
+        for _ in 0..5 {
+            // Mesmo "relógio" para todas: sem o livro, todas cairiam no mesmo.
+            let job = book.pick(1, &servers, 0, now).expect("server");
+            assert!(picked.insert(job), "two accounts got the same server");
+        }
+    }
+
+    #[test]
+    fn shuffle_assignments_are_per_game_and_expire() {
+        let servers = vec![shuffle_server("a", 1, 10), shuffle_server("b", 1, 10)];
+        let mut book = ShuffleAssignments::default();
+        let now = std::time::Instant::now();
+        assert_eq!(book.pick(1, &servers, 0, now).as_deref(), Some("a"));
+        // Outro jogo não herda o que foi dado no primeiro.
+        assert_eq!(book.pick(2, &servers, 0, now).as_deref(), Some("a"));
+        // Passado o prazo, o servidor volta para o sorteio.
+        let later = now + SHUFFLE_ASSIGNMENT_TTL + std::time::Duration::from_secs(1);
+        assert_eq!(book.pick(1, &servers, 0, later).as_deref(), Some("a"));
+    }
+
     // ---- window_rect_from_fields --------------------------------------------
 
     fn rect_fields(x: &str, y: &str, w: &str, h: &str) -> std::collections::HashMap<String, String> {
@@ -4460,6 +4696,35 @@ mod launch_command_tests {
             window_rect_from_fields(&rect_fields("-1920", "-50", "800", "600")),
             Some((-1920, -50, 800, 600))
         );
+    }
+
+    // Relato (23/10/2026): com as janelas organizadas, "minimizar tudo" e abrir
+    // duas contas à mão devolvia o tamanho pequeno padrão do Roblox. Uma janela
+    // minimizada reporta (-32000, -32000, ~160x28) e o Watcher gravava isso como
+    // o retângulo da conta; no launch seguinte a janela ia para -32000.
+
+    #[test]
+    fn window_rect_from_fields_ignores_a_minimized_placeholder() {
+        assert_eq!(
+            window_rect_from_fields(&rect_fields("-32000", "-32000", "160", "28")),
+            None,
+            "o retângulo de uma janela minimizada já gravado tem que ser ignorado"
+        );
+        assert_eq!(window_rect_from_fields(&rect_fields("-32000", "50", "800", "600")), None);
+        assert_eq!(window_rect_from_fields(&rect_fields("50", "-32000", "800", "600")), None);
+    }
+
+    #[test]
+    fn window_rect_is_usable_rejects_placeholders_and_nonsense_sizes() {
+        assert!(window_rect_is_usable(100, 200, 1280, 720));
+        // Monitor à esquerda e acima do principal: coordenadas negativas de verdade.
+        assert!(window_rect_is_usable(-1920, -1080, 800, 600));
+        assert!(window_rect_is_usable(-3840, 0, 1000, 700));
+        assert!(!window_rect_is_usable(-32000, -32000, 160, 28));
+        assert!(!window_rect_is_usable(-30000, 0, 800, 600));
+        assert!(!window_rect_is_usable(0, 0, 0, 600));
+        assert!(!window_rect_is_usable(0, 0, 800, -5));
+        assert!(!window_rect_is_usable(0, 0, 100_000, 600));
     }
 
     #[test]
@@ -4568,6 +4833,7 @@ mod launch_command_tests {
                 in_game: false,
                 wrong_account_user_id: None,
                 server: None,
+                challenge: false,
                 destination: Some(JoinedDestination {
                     place_id: 1,
                     job_id: Some("job".into()),
@@ -4673,6 +4939,7 @@ mod launch_join_wait_tests {
             in_game,
             wrong_account_user_id: None,
             server: None,
+            challenge: false,
             destination: None,
             exited,
         }

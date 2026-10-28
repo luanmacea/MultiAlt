@@ -30,6 +30,12 @@ export interface BulkCredentialsRequest {
   newEmail: string;
   /** Senha atual compartilhada (fonte 2); vazia = só usar a guardada. */
   sharedCurrentPassword: string;
+  /**
+   * Uma senha aleatória diferente para cada conta (pedido do dono,
+   * 27/10/2026), gerada pelo backend (`change_password_random`). Ligado, a
+   * `newPassword` não é usada.
+   */
+  randomPassword: boolean;
 }
 
 export type BulkCredentialsError =
@@ -40,7 +46,7 @@ export type BulkCredentialsError =
 /** Valida o pedido antes de rodar. `null` = pode seguir. */
 export function validateBulkRequest(req: BulkCredentialsRequest): BulkCredentialsError | null {
   if (!req.changePassword && !req.changeEmail) return { kind: "nothing-selected" };
-  if (req.changePassword && req.newPassword.trim().length < MIN_ROBLOX_PASSWORD) {
+  if (req.changePassword && !req.randomPassword && req.newPassword.trim().length < MIN_ROBLOX_PASSWORD) {
     return { kind: "weak-password", min: MIN_ROBLOX_PASSWORD };
   }
   if (req.changeEmail && !looksLikeEmail(req.newEmail)) return { kind: "bad-email" };

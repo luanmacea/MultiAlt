@@ -17,7 +17,7 @@ Antes de lançar, apagar rastros locais do Roblox (cache, logs, prefetch, regist
 1. `launch_roblox` / `launch_multiple` chamam `run_pre_launch_isolation`. Se `does_anything()` é falso (`Mode = Off` e sem spoof) → nada acontece.
 2. `apply_pre_launch` roda em `spawn_blocking`, emitindo `isolation-progress {stage, message, pathsCleaned, bytesFreed, finished}`:
    1. `starting`.
-   2. Verificação de clientes abertos (`find_roblox_pids_all`): se houver qualquer `RobloxPlayerBeta.exe`, `RobloxPlayerLauncher.exe` ou `RobloxCrashHandler.exe` rodando, **nada é fechado**: grava `skipped_reason` ("N Roblox process(es) already running. Isolation skipped so the open clients are not closed."), emite `skipped` (com `finished = true`) e retorna o relatório sem limpar nem fazer spoof. O launch continua normalmente.
+   2. Verificação de clientes abertos (`isolation_skip_reason`), **antes** do `starting` (um isolamento pulado não pisca o cartão de progresso): se houver `RobloxPlayerBeta.exe` (cliente) ou `RobloxPlayerLauncher.exe` (pode estar instalando a build) rodando, **nada é fechado**: grava `skipped_reason` ("N Roblox clients are open. Isolation only runs with no client open…"), emite `skipped` (com `finished = true`) e retorna o relatório sem limpar nem fazer spoof. O launch continua normalmente. Conta **clientes**, não processos: até 21/10/2026 o `RobloxCrashHandler.exe` de cada cliente entrava na conta ("6 processos" com 3 clientes, ticket do Discord) e um crash handler que sobrou sozinho barrava o isolamento. Na tela, `skipped` é **informação** ("Isolation skipped", cinza) e aparece **uma vez** até um isolamento rodar de verdade — antes era "Isolation issue" em vermelho a cada launch de quem joga com várias contas ou com a main aberta num executor.
    3. `preserving` (só Full): backup de fast flags e de `GlobalBasicSettings_13.xml` (conforme opções).
    4. `wiping-cache` (Light/Medium/Full), `wiping-registry` (Medium/Full), `wiping-versions` (Full).
    5. `restoring`: grava backups de fast flags e o XML de basic settings.
@@ -107,3 +107,14 @@ Seção `[Isolation]` do `RAMSettings.ini`:
 - Spoof de MAC corta a conexão brevemente; se rodar no meio de outras sessões, elas podem cair.
 - Auto Rejoin e web server não executam isolamento.
 - Dados apagados não vão para a lixeira (remoção direta com `remove_dir_all`/`RegDeleteTreeW`).
+
+## Relato do Discord: "a primeira conta abre no tamanho original" (26/10/2026)
+
+Um usuário atribuiu a janela da primeira conta fora da grade, no tamanho que quisesse, ao isolamento: o Medium/Full apaga a chave `HKCU/Software/ROBLOX Corporation`, o site passa a pedir para reinstalar o Roblox, o instalador abre o Roblox sozinho e — segundo ele — esse processo ficava em segundo plano depois de fechado, e a primeira conta aberta pelo MultiAlt herdava o tamanho de tela dele. Conferido no PC do dono, sem rodar o instalador (ele reinstalaria o Roblox):
+
+- **A parte do isolamento é real e já conhecida:** sem a chave, o Roblox se acha desinstalado ao abrir pelo site (ver "Não sobrescrever o canal do Roblox" no CLAUDE.md).
+- **Roblox aberto sem jogo não fica em segundo plano:** aberto direto (`RobloxPlayerBeta.exe` sem argumentos, como o instalador faz), ao fechar a janela o processo sai.
+- **Um Roblox já aberto não "pega" a primeira conta:** com o Roblox sem jogo aberto em tela cheia, a primeira conta aberta pelo MultiAlt subiu num processo **novo**, na primeira célula da grade (20,20, 816x638). O app fecha o handle de singleton dos clientes abertos antes de abrir (`close_roblox_singleton_handles`), e o processo antigo ficou como estava.
+
+O que não deu para testar: um processo deixado pelo próprio instalador. Se outro relato aparecer, pedir o Console do launch e a lista de processos do Roblox antes de abrir a primeira conta.
+

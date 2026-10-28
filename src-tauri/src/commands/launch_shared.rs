@@ -64,8 +64,36 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
                     serde_json::json!({ "userId": user_id, "group": MODERATED_GROUP }),
                 );
                 record_moderated_history(app, user_id);
+                // Só na primeira vez (a conta acabou de ir para o grupo): o
+                // aviso não se repete a cada launch recusado.
+                notify_webhook(
+                    app,
+                    WebhookEventKind::Moderated,
+                    user_id,
+                    Some(WebhookReason::Banned),
+                    webhook_place_of(user_id),
+                );
             }
         }
+    }
+}
+
+/// O ticket do launch falhou porque a sessão morreu (a renovação também não
+/// deu: "Re-login required"), não por rede, limite de pedidos ou verificação.
+pub(crate) fn launch_error_means_dead_session(error: &str) -> bool {
+    error == session_relogin_error() || is_auth_session_error(error)
+}
+
+/// Sessão morta descoberta ao abrir: marca a conta inválida (a bolinha vermelha
+/// da lista, como o "Conferir contas") e avisa a tela (`account-session-dead`).
+/// Antes só o "Conferir contas" marcava, e a conta que falhava ao abrir
+/// continuava parecendo boa (26/10/2026). Nada além do `Valid` muda.
+pub(crate) fn mark_account_session_dead(store: &AccountStore, app: &tauri::AppHandle, user_id: i64, error: &str) {
+    if !launch_error_means_dead_session(error) {
+        return;
+    }
+    if store.set_valid(user_id, false).unwrap_or(false) {
+        let _ = app.emit("account-session-dead", serde_json::json!({ "userId": user_id }));
     }
 }
 
@@ -248,6 +276,9 @@ pub(crate) struct ClientWindowPlan {
     /// resolvido): se a janela aparecer em tela cheia, essa tela cheia veio do
     /// XML regravado por outro cliente, e é tirada — uma vez.
     pub leave_fullscreen: bool,
+    /// A janela vai para a grade: se nascer maximizada, volta ao normal — uma
+    /// vez (`should_leave_maximized`).
+    pub leave_maximized: bool,
 }
 
 impl ClientWindowPlan {
@@ -277,8 +308,12 @@ pub(crate) fn client_window_plan(inputs: ClientWindowInputs) -> ClientWindowPlan
         saved_rect: if grid { None } else { inputs.saved_rect },
         // Com tamanho no plano a conta é "em janela" por definição (o XML
         // grava `Fullscreen=false` junto do `StartScreenSize`). Sem tamanho e
-        // sem `Some(false)`, a tela cheia é preferência do próprio jogador.
+        // sem `Some(false)`, a tela cheia é preferência do próprio jogador —
+        // mesmo com a grade (`an_alt_with_nothing_resolved_keeps_the_players_own_fullscreen`).
         leave_fullscreen: inputs.window_size.is_some() || inputs.fullscreen == Some(false),
+        // Maximizada não é modo de jogo: é como a janela foi fechada da última
+        // vez (quem joga maximizado pelo site). Com a grade, volta ao normal.
+        leave_maximized: grid,
     }
 }
 
@@ -351,6 +386,7 @@ pub(crate) fn grid_window_style(settings: &SettingsStore) -> platform::windows::
     platform::windows::GridWindowStyle {
         allow_small: settings.get_bool("General", "GridAllowSmallWindows"),
         borderless: settings.get_bool("General", "GridBorderless"),
+        auto_fit: settings.get_bool("General", "GridAutoFit"),
     }
 }
 
@@ -455,6 +491,8 @@ pub(crate) fn spawn_client_window_enforcement(
         // A tela cheia herdada é tirada uma vez só (`leave_fullscreen`): se o
         // Roblox voltar para ela, a conferência seguinte a vê e para.
         let mut fullscreen_exit_tried = false;
+        // Maximizada com a grade: idem (`should_leave_maximized`).
+        let mut maximized_exit_tried = false;
         // Lido uma vez: a conferência segura a célula escolhida com os mesmos
         // flags com que ela foi posta.
         let grid_style = plan
@@ -484,8 +522,16 @@ pub(crate) fn spawn_client_window_enforcement(
                     }
                 }
             }
+            if windows::should_leave_maximized(plan.leave_maximized, mode, maximized_exit_tried) {
+                maximized_exit_tried = true;
+                if windows::leave_maximized(hwnd) {
+                    // O tamanho de agora é o normal guardado, não o que o XML deu.
+                    first_look = false;
+                    eprintln!("[window] PID {pid}: saiu de maximizada para entrar na grade");
+                }
+            }
             let outcome = match chosen {
-                Some(rect) => windows::hold_window_rect(hwnd, rect, grid_style.allow_small),
+                Some(rect) => windows::hold_window_rect(hwnd, rect, grid_style.small_cells()),
                 None if plan.grid => {
                     let request = {
                         let settings = app.state::<SettingsStore>();
@@ -658,10 +704,16 @@ fn windows_client_overrides(
 
     let optimization_profile = platform::windows::load_optimization_profile(settings, profile);
     let fast_flags = if optimization_profile.experimental.enable_fast_flags {
-        match platform::windows::parse_allowlisted_fast_flags_json(
+        // Chave fora da lista do Roblox sai (ele a ignoraria); as outras valem.
+        match platform::windows::split_allowlisted_fast_flags_json(
             &optimization_profile.experimental.fast_flags_json,
         ) {
-            Ok(flags) => Some(flags),
+            Ok((flags, ignored)) => {
+                if !ignored.is_empty() {
+                    eprintln!("Ignored fast flags Roblox does not accept for {:?}: {}", profile, ignored.join(", "));
+                }
+                Some(flags)
+            }
             Err(err) => {
                 eprintln!("Skipped allowlisted fast flags for {:?}: {}", profile, err);
                 None
@@ -718,12 +770,6 @@ fn windows_client_overrides(
     resolved
 }
 
-/// `General.RestoreRobloxSettingsOnExit`: devolver ao fechar o app o que o
-/// launch mudou nos arquivos do Roblox (ideia 21). Desligada por padrão.
-fn restore_roblox_settings_enabled(settings: &SettingsStore) -> bool {
-    settings.get_bool("General", "RestoreRobloxSettingsOnExit")
-}
-
 /// `base_path`: pasta da versão do Roblox que vai realmente abrir (`None` =
 /// build padrão/produção, usada pelo servidor HTTP local, que não tem conta no
 /// contexto). Sem isso, `ClientAppSettings.json` era sempre escrito na pasta de
@@ -743,10 +789,10 @@ pub(crate) fn patch_client_settings_for_launch(
     let custom_settings = custom_client_settings_path(settings, effective_profile);
     let custom_settings = custom_settings.trim();
     let mut custom_applied = false;
-    // Ideia 21: com "devolver ao fechar" ligado, o que estava nos arquivos do
-    // Roblox antes desta escrita fica anotado (settings_restore.rs).
-    let restore_snapshot = restore_roblox_settings_enabled(settings)
-        .then(|| windows::snapshot_roblox_settings(windows::roblox_settings_files(base_path)));
+    // Ideia 21: o que estava nos arquivos do Roblox antes desta escrita fica
+    // anotado (settings_restore.rs) — sempre, mesmo com a devolução desligada:
+    // ligá-la depois tem de devolver o valor do usuário, não o do app.
+    let restore_snapshot = windows::snapshot_roblox_settings(windows::roblox_settings_files(base_path));
 
     // Legacy behavior: custom settings file overrides FPS unlock when valid.
     if !custom_settings.is_empty()
@@ -773,9 +819,7 @@ pub(crate) fn patch_client_settings_for_launch(
     )
     .ok()
     .flatten();
-    if let Some(snapshot) = restore_snapshot {
-        windows::record_roblox_settings_change(snapshot);
-    }
+    windows::record_roblox_settings_change(restore_snapshot);
     ResolvedClientWindow {
         // Sem pedido desta conta nem do perfil global, vale o que o registro
         // pôs de volta depois da exceção de outra conta (a tela cheia da
@@ -1049,11 +1093,51 @@ where
         .map_err(|e| format!("{label} task failed: {e}"))
 }
 
+/// Resposta pendente do "abrir mesmo assim?" (`multi-roblox-confirm`). Uma por
+/// vez: uma pergunta nova responde "não" à anterior.
+static LAUNCH_ANYWAY_ANSWER: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<bool>>> =
+    std::sync::Mutex::new(None);
+
+/// Quanto o launch espera a pessoa responder. Sem resposta (ninguém na frente
+/// do PC, reconexão automática), conta como "não": nada é fechado.
+const LAUNCH_ANYWAY_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+fn register_launch_anyway_question() -> tokio::sync::oneshot::Receiver<bool> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let previous = LAUNCH_ANYWAY_ANSWER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .replace(tx);
+    if let Some(previous) = previous {
+        let _ = previous.send(false);
+    }
+    rx
+}
+
+/// Entrega a resposta da tela. `false` se não havia pergunta pendente.
+fn answer_launch_anyway(allow: bool) -> bool {
+    let pending = LAUNCH_ANYWAY_ANSWER.lock().unwrap_or_else(|e| e.into_inner()).take();
+    pending.map(|tx| tx.send(allow).is_ok()).unwrap_or(false)
+}
+
+async fn wait_launch_anyway_answer(
+    rx: tokio::sync::oneshot::Receiver<bool>,
+    wait: std::time::Duration,
+) -> bool {
+    matches!(tokio::time::timeout(wait, rx).await, Ok(Ok(true)))
+}
+
+#[tauri::command]
+fn answer_multi_roblox_confirm(allow: bool) -> bool {
+    answer_launch_anyway(allow)
+}
+
 #[cfg(target_os = "windows")]
 async fn ensure_multi_roblox_enabled(
     auto_close_conflicts: bool,
     reserve_singleton_event: bool,
-) -> Result<(), String> {
+    ask: Option<&tauri::AppHandle>,
+) -> Result<Option<String>, String> {
     // Experimental e desligado por padrão (ideia 3): com a opção ligada, o
     // `enable_multi_roblox` também reserva o nome `ROBLOX_singletonEvent`.
     platform::windows::set_singleton_reservation_enabled(reserve_singleton_event);
@@ -1065,8 +1149,22 @@ async fn ensure_multi_roblox_enabled(
     // opção opt-in, o launch para aqui com a mensagem — abrir fecharia esse
     // cliente. Com `AutoCloseRobloxForMultiRbx` ligado segue o caminho de
     // sempre dessa opção, abaixo.
+    // Seguiu apesar de outro programa segurar a trava: o aviso volta para o
+    // chamador pôr no log do launch.
+    let notice = platform::windows::multi_roblox_notice(&outcome);
+    // Abrir fecharia uma janela: pergunta na tela em vez de dar erro. Sem
+    // resposta em 2 min (ou recusa), segue o caminho de sempre — nada fecha.
+    if let (Some(app), Some(question)) = (ask, platform::windows::launch_anyway_question(&outcome)) {
+        let rx = register_launch_anyway_question();
+        if app.emit("multi-roblox-confirm", &question).is_ok()
+            && wait_launch_anyway_answer(rx, LAUNCH_ANYWAY_WAIT).await
+        {
+            platform::windows::lock_roblox_cookies()?;
+            return Ok(Some(platform::windows::MULTI_ROBLOX_LAUNCHED_ANYWAY.to_string()));
+        }
+    }
     if let Some(response) = platform::windows::held_event_response(outcome, auto_close_conflicts) {
-        return response;
+        return response.map(|()| notice);
     }
 
     let roblox_pids = platform::windows::get_roblox_pids();
@@ -1082,7 +1180,7 @@ async fn ensure_multi_roblox_enabled(
             let enabled_after =
                 run_off_worker("Multi Roblox", platform::windows::enable_multi_roblox).await??;
             if enabled_after {
-                return Ok(());
+                return Ok(None);
             }
         }
         return Err(
@@ -1101,7 +1199,7 @@ async fn ensure_multi_roblox_enabled(
     let enabled_retry =
         run_off_worker("Multi Roblox", platform::windows::enable_multi_roblox).await??;
     if enabled_retry {
-        return Ok(());
+        return Ok(None);
     }
 
     Err(
@@ -1373,12 +1471,12 @@ fn extract_place_id_from_url(value: &str) -> Option<i64> {
 
 /// Picks a random public server for **this** account.
 ///
-/// Cada conta chama este helper por conta própria: num launch múltiplo com
-/// `shuffleJob` ligado, as contas acabam espalhadas por servidores diferentes
-/// (a lista é buscada de novo e o índice é sorteado por conta), em vez de todas
-/// caírem no mesmo servidor. Devolve `None` — e o chamador mantém o Job ID
-/// vazio, entrando num servidor público qualquer — quando a listagem falha ou
-/// vem vazia.
+/// Cada conta chama este helper por conta própria, mas o sorteio passa pelo
+/// `SHUFFLE_ASSIGNMENTS`: um servidor dado a uma conta sai do sorteio das
+/// próximas do mesmo jogo, então num launch múltiplo com `shuffleJob` ligado
+/// cada conta vai para um servidor diferente (servidor lotado nem entra).
+/// Devolve `None` — e o chamador mantém o Job ID vazio, entrando num servidor
+/// público qualquer — quando a listagem falha ou não tem servidor com vaga.
 async fn pick_shuffled_public_job(
     accounts: &AccountStore,
     user_id: i64,
@@ -1389,22 +1487,19 @@ async fn pick_shuffled_public_job(
     // da conta. Sortear servidor é leitura opcional — se falhar, o launch segue
     // com o Job vazio (servidor público qualquer).
     let cookie = get_cookie(accounts, user_id).ok()?;
-    let response = api::roblox::get_servers(place_id, "Public", None, Some(&cookie))
-        .await
-        .ok()?;
+    let response =
+        api::roblox::get_servers_page(place_id, "Public", None, Some(&cookie), "Asc", true)
+            .await
+            .ok()?;
 
-    if response.data.is_empty() {
-        return None;
-    }
-
-    let index = shuffle_server_index(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos(),
-        response.data.len(),
-    );
-    Some(response.data[index].id.clone())
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    SHUFFLE_ASSIGNMENTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .pick(place_id, &response.data, nanos, std::time::Instant::now())
 }
 
 #[derive(Debug, Clone)]
@@ -1571,6 +1666,59 @@ fn current_botting_status() -> BottingStatusPayload {
 #[cfg(target_os = "windows")]
 fn emit_botting_status(app: &tauri::AppHandle) {
     let _ = app.emit("botting-status", current_botting_status());
+}
+
+#[cfg(test)]
+mod dead_session_tests {
+    use super::*;
+
+    /// Relato do dono (26/10/2026): a Stone_Wolf888 falhava ao abrir com "precisa
+    /// refazer o login", mas a linha não tinha a bolinha vermelha — só o
+    /// "Conferir contas" marcava a sessão inválida. Agora o launch marca também.
+    #[test]
+    fn a_launch_that_needs_a_new_login_means_the_session_is_dead() {
+        assert!(launch_error_means_dead_session("Roblox invalidated this session. Re-login required."));
+        assert!(launch_error_means_dead_session("Failed to get authentication ticket (status 401): "));
+        assert!(launch_error_means_dead_session("Invalid cookie (status 401)"));
+    }
+
+    #[test]
+    fn other_launch_failures_leave_the_session_alone() {
+        // Rede, limite de pedidos, verificação e moderação não dizem que o
+        // cookie morreu.
+        assert!(!launch_error_means_dead_session("Request timed out"));
+        assert!(!launch_error_means_dead_session("Failed to get authentication ticket (status 429): "));
+        assert!(!launch_error_means_dead_session("Roblox asked for a captcha"));
+        assert!(!launch_error_means_dead_session("Roblox is restricting this account (moderated)"));
+    }
+
+    /// Todo caminho do launch que pede o ticket marca a sessão morta quando ele
+    /// falha por isso (conta sozinha, fila e preset).
+    #[test]
+    fn every_auth_ticket_failure_of_the_launch_marks_the_session() {
+        let source = include_str!("launch.rs");
+        let failures = source.matches("api::auth::get_auth_ticket(&cookie)").count();
+        let marks = source.matches("mark_account_session_dead(").count();
+        assert!(failures >= 3, "the launch lost its ticket requests? found {failures}");
+        assert_eq!(marks, failures, "{failures} ticket requests, {marks} of them mark a dead session");
+    }
+}
+
+#[cfg(test)]
+mod settings_record_tests {
+    /// O launch anota o que muda nos arquivos do Roblox **sempre**, com a opção
+    /// de devolver ligada ou não: anotar só com ela ligada fazia o "original"
+    /// sair já com os valores do app (26/10/2026).
+    #[test]
+    fn every_write_to_the_roblox_files_is_recorded_whatever_the_option() {
+        for (name, source) in [
+            ("launch_shared.rs", include_str!("launch_shared.rs")),
+            ("launch.rs", include_str!("launch.rs")),
+        ] {
+            let gated = format!("{}(", "restore_roblox_settings_enabled");
+            assert!(!source.contains(&gated), "{name} still records only with the option on");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2864,6 +3012,22 @@ mod client_window_plan_tests {
         assert!(!plan.is_noop());
     }
 
+    /// Relato do Discord (25/10/2026), reproduzido: sem tamanho configurado, o
+    /// Roblox abre como foi fechado — quem joga maximizado pelo site tem
+    /// `StartMaximized=true` — e a grade desistia da janela maximizada (as
+    /// quatro ficavam uma por cima da outra no monitor principal).
+    #[test]
+    fn the_grid_takes_the_window_out_of_maximized() {
+        let plan = client_window_plan(ClientWindowInputs {
+            auto_arrange_grid: true,
+            ..inputs()
+        });
+        assert!(plan.leave_maximized);
+        // Sem grade e sem tamanho, maximizado é escolha do jogador.
+        let plan = client_window_plan(inputs());
+        assert!(!plan.leave_maximized);
+    }
+
     /// A conta principal com tamanho próprio fica fora da grade: mantém o
     /// tamanho e a posição dela.
     #[test]
@@ -3082,9 +3246,12 @@ mod client_window_plan_tests {
             grid_window_style(&settings),
             platform::windows::GridWindowStyle {
                 allow_small: true,
-                borderless: true
+                borderless: true,
+                auto_fit: false
             }
         );
+        settings.set("General", "GridAutoFit", "true").unwrap();
+        assert!(grid_window_style(&settings).auto_fit);
     }
 
     #[test]
@@ -3191,5 +3358,46 @@ mod client_window_order_tests {
             let enforce = pos(corpo, "spawn_client_window_enforcement(", nome);
             assert!(pid < enforce, "{nome}: a janela só é conferida depois do PID");
         }
+    }
+}
+
+#[cfg(test)]
+mod launch_anyway_tests {
+    use super::*;
+
+    /// A pergunta pendente é global: um teste por vez.
+    static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    // "Abrir mesmo assim?" (23/10/2026): o launch espera a resposta da tela.
+
+    #[tokio::test]
+    async fn a_yes_from_the_screen_lets_the_launch_go_on() {
+        let _serial = SERIAL.lock().await;
+        let rx = register_launch_anyway_question();
+        assert!(answer_launch_anyway(true));
+        assert!(wait_launch_anyway_answer(rx, std::time::Duration::from_secs(1)).await);
+    }
+
+    #[tokio::test]
+    async fn no_or_no_answer_keeps_the_old_safe_path() {
+        let _serial = SERIAL.lock().await;
+        let rx = register_launch_anyway_question();
+        assert!(answer_launch_anyway(false));
+        assert!(!wait_launch_anyway_answer(rx, std::time::Duration::from_secs(1)).await);
+
+        let rx = register_launch_anyway_question();
+        assert!(!wait_launch_anyway_answer(rx, std::time::Duration::from_millis(50)).await);
+        // A pergunta que expirou não aceita resposta atrasada.
+        assert!(!answer_launch_anyway(true));
+    }
+
+    #[tokio::test]
+    async fn a_new_question_answers_no_to_the_old_one() {
+        let _serial = SERIAL.lock().await;
+        let old = register_launch_anyway_question();
+        let new = register_launch_anyway_question();
+        assert!(!wait_launch_anyway_answer(old, std::time::Duration::from_secs(1)).await);
+        assert!(answer_launch_anyway(true));
+        assert!(wait_launch_anyway_answer(new, std::time::Duration::from_secs(1)).await);
     }
 }

@@ -1294,9 +1294,8 @@ impl AccountStore {
             existing.username = account.username;
             existing.valid = account.valid;
             existing.last_use = account.last_use;
-            if !account.password.is_empty() {
-                existing.password = account.password;
-            }
+            // A anterior vai para o histórico; vazia não apaga a guardada.
+            existing.replace_password(&account.password);
         } else {
             accounts.push(account);
         }
@@ -1431,6 +1430,26 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// Novo login da conta cuja sessão morreu ("Fazer login de novo"): troca o
+    /// cookie pelo do login e marca a sessão válida, sem tocar no resto (grupo,
+    /// campos, senha). Quem chama garante que o cookie é **desta** conta. Devolve
+    /// `false` quando a conta não existe.
+    /// `typed_password`: a senha que estava no campo quando o login deu certo —
+    /// ela passa a ser a guardada (a anterior vai para o histórico).
+    pub fn relogin(&self, user_id: i64, new_token: &str, typed_password: Option<&str>) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        account.security_token = new_token.to_string();
+        account.valid = true;
+        if let Some(password) = typed_password {
+            account.replace_password(password);
+        }
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     /// Grava o `valid` da conta (o ponto vermelho de sessão inválida). Só
     /// regrava o arquivo quando o valor muda — conferir 50 contas boas não pode
     /// virar 50 gravações. Devolve `true` quando mudou.
@@ -1443,6 +1462,22 @@ impl AccountStore {
             return Ok(false);
         }
         account.valid = valid;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
+    /// Marca (`true`, com a hora) ou limpa (`false`) a verificação "confirme que
+    /// é humano" que o Roblox pediu na última sessão da conta. Devolve `true`
+    /// quando mudou algo.
+    pub fn set_human_check(&self, user_id: i64, pending: bool) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        if account.human_check_at.is_some() == pending {
+            return Ok(false);
+        }
+        account.human_check_at = pending.then(|| chrono::Utc::now().to_rfc3339());
         self.save_locked(&accounts)?;
         Ok(true)
     }
@@ -1460,6 +1495,24 @@ impl AccountStore {
         };
         account.last_use = Utc::now();
 
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
+    /// `mark_used` para quem passa a toda hora (cliente aberto pelo site, presença
+    /// "em jogo"): só grava quando a última marca é mais velha que `min_age` —
+    /// conferir de 5 em 5 s não pode virar uma gravação do arquivo a cada vez.
+    /// Devolve `true` quando marcou.
+    pub fn mark_used_if_stale(&self, user_id: i64, min_age: chrono::Duration) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        let now = Utc::now();
+        if now - account.last_use < min_age {
+            return Ok(false);
+        }
+        account.last_use = now;
         self.save_locked(&accounts)?;
         Ok(true)
     }
@@ -1953,6 +2006,107 @@ mod account_store_tests {
         let reloaded = AccountStore::new(store.file_path.clone());
         reloaded.load().unwrap();
         assert_eq!(reloaded.get_all().unwrap()[0].last_use, after);
+    }
+
+    /// "Fazer login de novo" (25/10/2026): o cookie morto e trocado pelo do login
+    /// novo **na mesma conta** — grupo, campos e senha ficam — e a sessao volta a
+    /// valida (o ponto vermelho some).
+    #[test]
+    fn relogin_swaps_the_cookie_keeps_the_rest_and_marks_the_session_valid() {
+        let store = store("relogin");
+        let mut old = account(7, "ann");
+        old.security_token = "DEAD-COOKIE".to_string();
+        old.valid = false;
+        old.group = "Farm".to_string();
+        old.password = "secret".to_string();
+        store.add(old).unwrap();
+
+        assert!(store.relogin(7, "NEW-COOKIE", None).unwrap());
+
+        let after = store.get_all().unwrap().remove(0);
+        assert_eq!(after.security_token, "NEW-COOKIE");
+        assert!(after.valid);
+        assert_eq!(after.group, "Farm");
+        assert_eq!(after.password, "secret");
+        let reloaded = AccountStore::new(store.file_path.clone());
+        reloaded.load().unwrap();
+        assert_eq!(reloaded.get_all().unwrap()[0].security_token, "NEW-COOKIE");
+    }
+
+    /// O login que deu certo ensina a senha: quem trocou a senha pelo app antes
+    /// da v2.2.0 (a nova não era gravada) digita a certa no "Fazer login de
+    /// novo", e ela passa a ser a guardada — com a antiga no histórico.
+    #[test]
+    fn a_successful_relogin_saves_the_password_that_worked() {
+        let store = store("relogin-typed");
+        let mut old = account(7, "ann");
+        old.password = "old-and-wrong".to_string();
+        store.add(old).unwrap();
+
+        assert!(store.relogin(7, "NEW-COOKIE", Some("the-right-one")).unwrap());
+
+        let after = store.get_all().unwrap().remove(0);
+        assert_eq!(after.password, "the-right-one");
+        assert_eq!(after.password_history, vec!["old-and-wrong".to_string()]);
+    }
+
+    /// Re-adicionar uma conta que já existe com outra senha não perde a antiga.
+    #[test]
+    fn adding_an_existing_account_with_another_password_keeps_the_old_one() {
+        let store = store("add-keeps-old-password");
+        let mut first = account(7, "ann");
+        first.password = "original".to_string();
+        store.add(first).unwrap();
+        let mut again = account(7, "ann");
+        again.password = "other".to_string();
+        store.add(again).unwrap();
+
+        let after = store.get_all().unwrap().remove(0);
+        assert_eq!(after.password, "other");
+        assert_eq!(after.password_history, vec!["original".to_string()]);
+    }
+
+    #[test]
+    fn relogin_of_a_missing_account_changes_nothing() {
+        let store = store("relogin-missing");
+        store.add(account(7, "ann")).unwrap();
+        assert!(!store.relogin(999, "NEW-COOKIE", None).unwrap());
+        assert_ne!(store.get_all().unwrap()[0].security_token, "NEW-COOKIE");
+    }
+
+    /// Conta jogada fora do app (pelo site, ou em outro aparelho) também está em
+    /// uso (pedido do dono, 25/10/2026: a principal aparecia "sem uso há 20+
+    /// dias" jogando todo dia pelo site). A varredura e a presença passam aqui a
+    /// toda hora: só grava quando a última marca é mais velha que `min_age`.
+    #[test]
+    fn the_human_check_mark_is_saved_and_cleared() {
+        let store = store("human-check");
+        store.add(account(7, "ann")).unwrap();
+        assert!(store.set_human_check(7, true).unwrap());
+        let saved = store.get_all().unwrap()[0].human_check_at.clone();
+        assert!(saved.is_some(), "the mark is stored with its time");
+        // Marcar de novo não regrava.
+        assert!(!store.set_human_check(7, true).unwrap());
+        assert!(store.set_human_check(7, false).unwrap());
+        assert!(store.get_all().unwrap()[0].human_check_at.is_none());
+        assert!(!store.set_human_check(99, true).unwrap());
+    }
+
+    #[test]
+    fn mark_used_if_stale_only_writes_when_the_last_mark_is_old() {
+        let store = store("mark-used-stale");
+        let mut old = account(7, "ann");
+        old.last_use = chrono::Utc::now() - chrono::Duration::days(20);
+        store.add(old).unwrap();
+
+        let ten_minutes = chrono::Duration::minutes(10);
+        assert!(store.mark_used_if_stale(7, ten_minutes).unwrap(), "20 dias: marca");
+        let marked = store.get_all().unwrap()[0].last_use;
+        assert!(chrono::Utc::now() - marked < chrono::Duration::seconds(5));
+
+        assert!(!store.mark_used_if_stale(7, ten_minutes).unwrap(), "acabou de marcar: não regrava");
+        assert_eq!(store.get_all().unwrap()[0].last_use, marked);
+        assert!(!store.mark_used_if_stale(999, ten_minutes).unwrap(), "conta inexistente");
     }
 
     #[test]

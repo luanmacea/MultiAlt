@@ -4,7 +4,6 @@ import type { TabId } from "./tabs";
 import { TAB_ORDER } from "./tabs";
 import { LaunchTab } from "./LaunchTab";
 import { KeepInGameTab } from "./KeepInGameTab";
-import { NotificationsTab } from "./NotificationsTab";
 import { AccountsTab } from "./AccountsTab";
 import { PrivacyTab } from "./PrivacyTab";
 import { UpdatesTab } from "./UpdatesTab";
@@ -17,6 +16,7 @@ import { GeneratorTab } from "./GeneratorTab";
 import { IsolationTab } from "./IsolationTab";
 import { VersionsTab } from "./VersionsTab";
 import { BackupsTab } from "./BackupsTab";
+import { ChecksTab } from "./ChecksTab";
 import { useTr } from "../../i18n/text";
 
 export function TabContent({
@@ -73,7 +73,6 @@ export function TabContent({
           >
             {tab === "launch" && <LaunchTab s={s} />}
             {tab === "keep-in-game" && <KeepInGameTab s={s} />}
-            {tab === "notifications" && <NotificationsTab s={s} />}
             {tab === "accounts" && <AccountsTab s={s} />}
             {tab === "privacy" && (
               <PrivacyTab s={s} onRequestEncryptionSetup={onRequestEncryptionSetup} />
@@ -81,6 +80,7 @@ export function TabContent({
             {tab === "updates" && <UpdatesTab s={s} />}
             {tab === "app" && <AppTab s={s} />}
             {tab === "backups" && <BackupsTab active={active} />}
+            {tab === "checks" && <ChecksTab />}
             {tab === "developer" && <DeveloperTab s={s} />}
             {tab === "webserver" && <WebServerTab s={s} />}
             {tab === "watcher" && <WatcherTab s={s} />}

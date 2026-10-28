@@ -106,6 +106,48 @@ describe("BulkCredentialsDialog", () => {
     expect(within(screen.getByTestId("bulk-cred-row-2")).getByText("done")).toBeInTheDocument();
   });
 
+  /** Pedido do dono (27/10/2026): cada conta com uma senha aleatória nova. */
+  it("with a random password per account, each account goes through the backend generator", async () => {
+    let n = 0;
+    setInvokeHandler((cmd) => {
+      if (cmd === "change_password_random") return `RandomPass${++n}xyzAB`;
+      return undefined;
+    });
+    renderDialog();
+    await userEvent.click(screen.getByLabelText("Change the password"));
+    await userEvent.click(screen.getByLabelText("A different random password for each account"));
+    // Sem campo de senha nova: ninguém digita, e o botão já libera.
+    expect(screen.queryByPlaceholderText(/New password/)).not.toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText(/Leave empty/), "common99");
+    await userEvent.click(screen.getByRole("button", { name: /Change 2 account/ }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("change_password_random", { userId: 2, currentPassword: "common99" })
+    );
+    expect(invokeMock).toHaveBeenCalledWith("change_password_random", { userId: 1, currentPassword: "stored1" });
+    expect(invokeMock).not.toHaveBeenCalledWith("change_password", expect.anything());
+    expect(within(screen.getByTestId("bulk-cred-row-2")).getByText("done")).toBeInTheDocument();
+  });
+
+  it("with a random password, the email change uses the password that account just got", async () => {
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "change_password_random") return `New-${(args as { userId: number }).userId}-Pass9`;
+      return undefined;
+    });
+    renderDialog([ACCOUNTS[0]]);
+    await userEvent.click(screen.getByLabelText("Change the password"));
+    await userEvent.click(screen.getByLabelText("A different random password for each account"));
+    await userEvent.click(screen.getByLabelText("Change the email"));
+    await userEvent.type(screen.getByPlaceholderText(/New email/), "me@example.com");
+    await userEvent.click(screen.getByRole("button", { name: /Change 1 account/ }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("change_email", {
+        userId: 1,
+        password: "New-1-Pass9",
+        newEmail: "me@example.com",
+      })
+    );
+  });
+
   it("asks for confirmation before changing the real accounts", async () => {
     confirmMock.mockResolvedValue(false);
     renderDialog();

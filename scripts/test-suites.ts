@@ -37,6 +37,8 @@ export const SUITES: Record<string, TestSuite> = {
       "exit_cleanup_tests",
       "launch_resolve_tests",
       "launch_shared_helper_tests",
+      "dead_session_tests",
+      "launch_anyway_tests",
       "channel_follow_tests",
       "channel_build_pairing_tests",
       "channel_repair_tests",
@@ -60,6 +62,7 @@ export const SUITES: Record<string, TestSuite> = {
     front: [
       "src/store.test.ts",
       "src/components/ChooseGameScreen.test.tsx",
+      "src/components/MultiRobloxConfirm.test.tsx",
       "src/components/session",
       "src/components/pages/SessionPage.test.tsx",
       "src/accountLaunchOverrides.test.ts",
@@ -169,6 +172,10 @@ export const SUITES: Record<string, TestSuite> = {
       // Moderação (ideia 8): selos e legenda.
       "src/utils/moderation.test.ts",
       "src/utils/accountCheck.test.ts",
+      // Janela de resultados do Check Accounts em lote: quais contas, filtro, selecionar banidas.
+      "src/components/dialogs/AccountCheckResultsDialog.test.tsx",
+      // Resultado conta a conta das outras ações do menu Ações, e o "Fazer login de novo".
+      "src/components/dialogs/ActionResultsDialog.test.tsx",
       "src/components/layout/StatusBar.test.tsx",
     ],
   },
@@ -221,7 +228,9 @@ export const SUITES: Record<string, TestSuite> = {
     description: "AFK mode: teclas permitidas, modo clique, agendamento por conta e parada do ciclo",
     rust: [
       "afk_command_tests",
+      "afk_warning_tests",
       "afk_input_safety_tests",
+      "hidden_focus_tests",
       "win_input_tests",
       "win_focus_tests",
       // Parada de emergência por chacoalhar o mouse (shake_stop.rs, Afk.ShakeToStop).
@@ -272,7 +281,7 @@ export const SUITES: Record<string, TestSuite> = {
   isolation: {
     description: "Isolamento pré-launch (cache, registro, MachineGuid/MAC)",
     rust: ["win_isolation_tests", "isolation_command_tests"],
-    front: ["src/components/settings"],
+    front: ["src/components/settings", "src/components/IsolationProgressOverlay.test.tsx"],
   },
   versions: {
     description: "Catálogo e instalação de versões do Roblox",
@@ -439,15 +448,17 @@ export const SUITES: Record<string, TestSuite> = {
     front: ["src/components/servers", "src/components/server-list"],
   },
   webhook: {
-    description: "Avisos no Discord por webhook: URL, filtro de eventos, lote/limite, mensagem com nomes ocultos, envio mockado",
+    description: "Página Discord alerts: URL, eventos, menção por evento, horário silencioso, lote/limite, status ao vivo, resumo do dia, envio mockado",
     rust: [
       "discord_webhook_url_tests",
       "discord_webhook_message_tests",
       "discord_webhook_queue_tests",
       "discord_webhook_http_tests",
+      "discord_status_tests",
+      "discord_status_http_tests",
       "webhook_glue_tests",
     ],
-    front: ["src/components/settings/NotificationsTab.test.tsx", "src/utils/discordWebhook.test.ts"],
+    front: ["src/components/discord/DiscordSettings.test.tsx", "src/utils/discordWebhook.test.ts"],
   },
   settings: {
     description: "RAMSettings.ini, defaults, temas e presets",
@@ -476,11 +487,12 @@ export const SUITES: Record<string, TestSuite> = {
     description: "Chromium via CDP: download, argumentos, sessão de login",
     rust: [
       "chromium_cdp_tests",
+      "browser_diagnose_tests",
       "chromium_manager_tests",
       "chromium_commands_tests",
       "chromium_download_tests",
     ],
-    front: [],
+    front: ["src/utils/chromiumErrors.test.ts"],
   },
   signup: {
     description: "Criação de contas no formulário do Roblox (CAPTCHA pelo usuário)",
@@ -590,6 +602,8 @@ export const SUITES: Record<string, TestSuite> = {
       "diagnostics_tests",
       "win_windowing_tests",
       "win_grid_slot_tests",
+      "win_grid_auto_fit_tests",
+      "grid_overflow_real_tests",
       "win_optimization_tests",
       "generator_command_tests",
       "generator_http_tests",
@@ -629,7 +643,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   performance: {
-    description: "Desempenho enquanto joga: otimização que segue a janela em uso, fundo mudo (live-audio), grade menor e sem moldura",
+    description: "Desempenho enquanto joga: otimização que segue a janela em uso, fundo mudo (live-audio), grade menor e sem moldura, FastFlags (lista do Roblox e perfis prontos)",
     rust: [
       "focus_follow_tests",
       "win_optimization_tests",
@@ -638,12 +652,19 @@ export const SUITES: Record<string, TestSuite> = {
       "platform_info_tests",
       "win_grid_style_tests",
       "win_grid_slot_tests",
+      "win_grid_auto_fit_tests",
       "client_window_plan_tests",
       // Devolver as configurações do Roblox ao fechar (ideia 21, settings_restore.rs).
       "win_settings_restore_tests",
       "settings_on_exit_tests",
+      "settings_record_tests",
     ],
-    front: ["src/components/settings/settingsTabs.test.tsx", "src/components/console/WindowGridCard.test.tsx"],
+    front: [
+      "src/components/settings/settingsTabs.test.tsx",
+      "src/components/console/WindowGridCard.test.tsx",
+      // FastFlags: a lista oficial do Roblox e os perfis prontos com "+".
+      "src/utils/fastFlagPresets.test.ts",
+    ],
   },
   release: {
     description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",
@@ -668,6 +689,11 @@ export const SUITES: Record<string, TestSuite> = {
     description: "bun run scan: veredito do Defender e do VirusTotal por arquivo, com o portão de cada edição (padrão: nada; completa: só o Trapmine de ML)",
     rust: [],
     front: ["scripts/scanVerdict.test.ts"],
+  },
+  "build-test": {
+    description: "bun run build:test: executáveis de teste rápidos (perfil test-exe, sem LTO) de cada edição, com o nome da pasta de testes",
+    rust: [],
+    front: ["scripts/buildTestPlan.test.ts"],
   },
   site: {
     description: "Site de divulgação: páginas /pt/ e /es/ geradas, hreflang, FAQ estruturado, sitemap",

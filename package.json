@@ -18,6 +18,7 @@
     "t": "bun scripts/test-suite.ts",
     "vt": "bun scripts/virustotal.ts",
     "scan": "bun scripts/scan.ts",
+    "build:test": "bun scripts/build-test.ts",
     "test:suite": "bun scripts/test-suite.ts",
     "test:audit": "bun scripts/test-suite.ts --audit",
     "dev:ui": "UI_HARNESS=1 vite",

@@ -7,8 +7,14 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
+// A versão do título (release): o backup grava a mesma.
+vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(async () => "2.4.0") }));
 
 import { BackupsTab } from "./BackupsTab";
+import { TEST_BUILD_LABEL, titleVersion } from "../../buildInfo";
+
+/** O que o título mostra com o `getVersion()` do mock (o build de teste usa o rótulo dele). */
+const APP_VERSION = titleVersion("2.4.0", TEST_BUILD_LABEL);
 import { setStore } from "../../test-utils/renderWithStore";
 import {
   confirmMock,
@@ -265,9 +271,19 @@ describe("BackupsTab — creating", () => {
 
     expect(promptMock).toHaveBeenCalled();
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("create_backup", { label: "Before the move" })
+      expect(invokeMock).toHaveBeenCalledWith("create_backup", { label: "Before the move", appVersion: APP_VERSION })
     );
     expect(await screen.findByText("Before the move")).toBeInTheDocument();
+  });
+
+  /** Pedido do dono (26/10/2026): em que versão cada backup foi feito. */
+  it("shows the MultiAlt version each backup was made with", async () => {
+    backend({ list_backups: [makeBackup({ appVersion: "v2.3.0-beta + test 41e0cba" }), OLDER] });
+    renderDialog();
+    expect(await screen.findByText("v2.3.0-beta + test 41e0cba")).toHaveAttribute(
+      "title",
+      "MultiAlt version that made this backup"
+    );
   });
 
   it("creates an unlabelled backup when the name is left empty", async () => {
@@ -277,7 +293,7 @@ describe("BackupsTab — creating", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Create backup" }));
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("create_backup", { label: null })
+      expect(invokeMock).toHaveBeenCalledWith("create_backup", { label: null, appVersion: APP_VERSION })
     );
   });
 
@@ -330,7 +346,7 @@ describe("BackupsTab — restoring", () => {
 
     await userEvent.click(within(rowFor("b1")).getByRole("button", { name: "Restore" }));
 
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("restore_backup", { id: "b1" }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("restore_backup", { id: "b1", appVersion: APP_VERSION }));
     expect(await screen.findByText("Backup restored")).toBeInTheDocument();
     expect(screen.getByText(`Restored from ${NEWER.fileName}`)).toBeInTheDocument();
     expect(

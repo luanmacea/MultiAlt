@@ -60,18 +60,70 @@ pub fn chromium_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-fn cached_binary(app: &AppHandle) -> Option<PathBuf> {
+/// Arquivos sem os quais o Chromium abre uma janela em branco e não responde,
+/// com um tamanho mínimo bem abaixo do real (`chrome.dll` ~300 MB, `chrome.exe`
+/// ~4,5 MB, medidos na 154): pegam arquivo ausente ou cortado, não versão.
+#[cfg(target_os = "windows")]
+const REQUIRED_FILES: &[(&str, u64)] = &[
+    ("chrome.exe", 1024 * 1024),
+    ("chrome.dll", 20 * 1024 * 1024),
+    ("resources.pak", 1024 * 1024),
+    ("icudtl.dat", 1024 * 1024),
+    ("v8_context_snapshot.bin", 100 * 1024),
+];
+
+/// A instalação baixada está completa? `None` = sim (ou não sabemos conferir
+/// nesta plataforma). Só confere o que existe no disco: antivírus que apaga um
+/// arquivo depois da extração, ou uma extração cortada, deixava o `chrome.exe`
+/// no lugar e a instalação passava por boa — o navegador abria em branco.
+fn installation_problem(binary: &Path) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let Some(dir) = binary.parent() else {
+            return Some("chrome.exe".to_string());
+        };
+        for (name, min_bytes) in REQUIRED_FILES {
+            match std::fs::metadata(dir.join(name)) {
+                Ok(meta) if meta.is_file() && meta.len() >= *min_bytes => {}
+                Ok(_) => return Some(format!("{name} is incomplete")),
+                Err(_) => return Some(format!("{name} is missing")),
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if binary.exists() {
+            None
+        } else {
+            Some("the browser executable is missing".to_string())
+        }
+    }
+}
+
+pub(crate) fn cached_binary(app: &AppHandle) -> Option<PathBuf> {
     let dir = chromium_dir(app).ok()?;
     let manifest = dir.join("version.json");
     let raw = std::fs::read_to_string(manifest).ok()?;
     let json: Value = serde_json::from_str(&raw).ok()?;
     let binary = json.get("binary").and_then(Value::as_str)?;
     let path = PathBuf::from(binary);
-    if path.exists() {
+    // Instalação incompleta = como se não houvesse: `ensure_chromium` baixa de
+    // novo em vez de entregar um navegador que abre em branco.
+    if installation_problem(&path).is_none() {
         Some(path)
     } else {
         None
     }
+}
+
+/// Há uma cópia baixada registrada, mas com arquivo faltando ou cortado
+/// (`installation_problem`): é o "Reinstall" que resolve.
+pub(crate) fn has_damaged_download(app: &AppHandle) -> bool {
+    let Ok(dir) = chromium_dir(app) else {
+        return false;
+    };
+    dir.join("version.json").exists() && cached_binary(app).is_none()
 }
 
 pub fn is_installed(app: &AppHandle) -> bool {
@@ -198,7 +250,7 @@ pub fn find_system_chromium() -> Option<(PathBuf, String)> {
 /// usuário e **tem** que ser um arquivo comum — senão é erro na hora, sem
 /// cair silenciosamente para o download ou para a detecção automática, que é
 /// exatamente o que o usuário estava tentando evitar ao configurar isto.
-fn resolve_manual_path(raw: Option<&str>) -> Result<Option<PathBuf>, String> {
+pub(crate) fn resolve_manual_path(raw: Option<&str>) -> Result<Option<PathBuf>, String> {
     let Some(raw) = raw else { return Ok(None) };
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -307,7 +359,7 @@ pub async fn ensure_chromium(app: &AppHandle) -> Result<PathBuf, String> {
     let version_dir = dir.join(&version);
     let binary = binary_path(&version_dir);
 
-    if !binary.exists() {
+    if installation_problem(&binary).is_some() {
         let archive = dir.join("download.zip");
         let client = archive_client(ARCHIVE_IDLE_TIMEOUT)?;
         download_archive(&client, &url, &archive, |downloaded, total| {
@@ -694,6 +746,66 @@ mod chromium_download_tests {
         if cfg!(target_os = "windows") {
             assert_eq!(binary.file_name().unwrap(), "chrome.exe");
         }
+    }
+
+    // ── installation_problem ───────────────────────────────────────────────
+    //
+    // Relato (23/10/2026): o Chromium do criador de contas abria e ficava em
+    // about:blank para sempre. A instalação só era conferida pela existência do
+    // `chrome.exe`; um arquivo que o antivírus removeu ou uma extração cortada
+    // passava por "instalada".
+
+    #[cfg(target_os = "windows")]
+    fn write_sized(dir: &Path, name: &str, bytes: usize) {
+        std::fs::write(dir.join(name), vec![0u8; bytes]).expect("write");
+    }
+
+    #[cfg(target_os = "windows")]
+    fn complete_install(tag: &str) -> (TempDir, PathBuf) {
+        let tmp = TempDir::new(tag);
+        let folder = tmp.0.join("chrome-win64");
+        std::fs::create_dir_all(&folder).expect("dir");
+        write_sized(&folder, "chrome.exe", 2 * 1024 * 1024);
+        write_sized(&folder, "chrome.dll", 30 * 1024 * 1024);
+        write_sized(&folder, "resources.pak", 2 * 1024 * 1024);
+        write_sized(&folder, "icudtl.dat", 2 * 1024 * 1024);
+        write_sized(&folder, "v8_context_snapshot.bin", 200 * 1024);
+        let binary = folder.join("chrome.exe");
+        (tmp, binary)
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn a_complete_installation_has_no_problem() {
+        let (_tmp, binary) = complete_install("complete");
+        assert_eq!(installation_problem(&binary), None);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn a_missing_core_file_is_a_problem_that_names_it() {
+        for missing in ["chrome.dll", "resources.pak", "icudtl.dat", "v8_context_snapshot.bin"] {
+            let (_tmp, binary) = complete_install("missing");
+            std::fs::remove_file(binary.parent().unwrap().join(missing)).expect("remove");
+            let problem = installation_problem(&binary).expect("should be a problem");
+            assert!(problem.contains(missing), "{problem}");
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn a_truncated_core_file_is_a_problem() {
+        let (_tmp, binary) = complete_install("truncated");
+        write_sized(binary.parent().unwrap(), "chrome.dll", 1024);
+        let problem = installation_problem(&binary).expect("should be a problem");
+        assert!(problem.contains("chrome.dll"), "{problem}");
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn a_binary_that_does_not_exist_is_a_problem() {
+        let tmp = TempDir::new("nobinary");
+        assert!(installation_problem(&tmp.0.join("chrome-win64").join("chrome.exe")).is_some());
     }
 
     #[test]

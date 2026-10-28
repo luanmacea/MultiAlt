@@ -11,6 +11,17 @@ fn dedupe_preserving_order(ids: Vec<i64>) -> Vec<i64> {
     out
 }
 
+/// As contas do ciclo, sem repetição. Uma conta basta: ela vira uma alt que é
+/// reaberta a cada intervalo (antes o mínimo era duas, e quem tinha uma alt só
+/// não conseguia ligar o Auto Rejoin).
+fn botting_selection(user_ids: Vec<i64>) -> Result<Vec<i64>, String> {
+    let dedup = dedupe_preserving_order(user_ids);
+    if dedup.is_empty() {
+        return Err("Select at least one account for Auto Rejoin".into());
+    }
+    Ok(dedup)
+}
+
 /// Player accounts must be part of the botting selection; anything else is a
 /// UI bug that would silently never be launched.
 #[cfg(target_os = "windows")]
@@ -276,7 +287,8 @@ async fn launch_account_for_cycle(
     let resolved_launch = resolve_launch_job(job_id, false, "");
 
     if multi_rbx {
-        ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event).await?;
+        // Ciclo automático: ninguém na frente para confirmar, nada fecha.
+        ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event, None).await?;
     } else {
         let _ = windows::disable_multi_roblox();
     }
@@ -926,19 +938,14 @@ async fn start_botting_mode(
     // sao fechadas nem relancadas na primeira passagem.
     adopt_running: Option<bool>,
 ) -> Result<BottingStatusPayload, String> {
-    if user_ids.len() < 2 {
-        return Err("Select at least two accounts for Auto Rejoin".into());
-    }
+    let dedup = botting_selection(user_ids)?;
     if place_id <= 0 {
         return Err("Place ID must be greater than 0".into());
     }
+    // O Auto Rejoin precisa do Multi Roblox: liga em vez de recusar o Start
+    // (pedido do dono, 23/10/2026: nada de erro quando dá para jogar).
     if !settings.get_bool("General", "EnableMultiRbx") {
-        return Err("Auto Rejoin currently requires Multi Roblox to be enabled".into());
-    }
-
-    let dedup = dedupe_preserving_order(user_ids);
-    if dedup.len() < 2 {
-        return Err("Select at least two unique accounts for Auto Rejoin".into());
+        let _ = settings.set("General", "EnableMultiRbx", "true");
     }
 
     let player_set = botting_player_set(&dedup, player_user_ids)?;
@@ -1432,6 +1439,16 @@ mod botting_command_tests {
             dedupe_preserving_order(vec![30, 10, 30, 20, 10]),
             vec![30, 10, 20]
         );
+    }
+
+    #[test]
+    fn botting_selection_accepts_a_single_account() {
+        // Antes o mínimo era duas contas: quem tinha uma alt só não ligava o
+        // Auto Rejoin. Uma conta = uma alt que é reaberta no intervalo.
+        assert_eq!(botting_selection(vec![7]), Ok(vec![7]));
+        assert_eq!(botting_selection(vec![7, 7]), Ok(vec![7]));
+        assert_eq!(botting_selection(vec![3, 7, 3]), Ok(vec![3, 7]));
+        assert!(botting_selection(vec![]).is_err());
     }
 
     #[test]

@@ -28,6 +28,16 @@ function placeholders(text: string): string[] {
 const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   // Marca: o servidor da comunidade no Discord (barra lateral).
   "Discord",
+  // Nome do perfil pronto de FastFlags (escolhido pelo dono, 28/10/2026).
+  "Nuke rendering",
+  // FastFlags: multiplicadores e nomes de API gráfica, iguais em todo idioma.
+  "1x",
+  "2x",
+  "4x",
+  "Direct3D 11",
+  "OpenGL",
+  "Vulkan",
+  "Anti-aliasing",
   // Gravações: "global" é a mesma palavra (a gravação que vale para toda conta).
   "global",
   // Presets de launch: "place" e "VIP" não se traduzem (glossário).
@@ -171,6 +181,16 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
 const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   // Marca: o servidor da comunidade no Discord (barra lateral).
   "Discord",
+  // Nome do perfil pronto de FastFlags (escolhido pelo dono, 28/10/2026).
+  "Nuke rendering",
+  // FastFlags: multiplicadores e nomes de API gráfica, iguais em todo idioma.
+  "1x",
+  "2x",
+  "4x",
+  "Direct3D 11",
+  "OpenGL",
+  "Vulkan",
+  "Anti-aliasing",
   // Gravações: "global" é a mesma palavra (a gravação que vale para toda conta).
   "global",
   // Presets de launch: "place" e "VIP" não se traduzem (glossário).
@@ -306,6 +326,16 @@ describe.each(COMPLETE_CATALOGS)("catálogo %s completo", (_name, dict, identica
     expect(empty).toEqual([]);
     const padded = Object.keys(dict).filter((k) => dict[k] !== dict[k].trim());
     expect(padded).toEqual([]);
+  });
+
+  /**
+   * UTF-8 lido como Windows-1252 vira "vocÃª", "gravaÃ§Ã£o" (26/10/2026: três
+   * frases novas chegaram assim à tela). "Ã" seguido de um desses caracteres,
+   * ou "Â" antes de pontuação, não existe em português nem em espanhol.
+   */
+  it("não tem acento quebrado por codificação errada", () => {
+    const broken = Object.keys(dict).filter((k) => /Ã[-¿‚-›ŒœŠšŸ]|Â[ -¿]/.test(dict[k]));
+    expect(broken).toEqual([]);
   });
 
   it("traduziu tudo que não é jargão", () => {

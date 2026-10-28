@@ -8,7 +8,7 @@ Ajudar quem relata "clico e nada acontece" sem precisar de conversa longa:
 - **Trancar por inatividade** (ideia 27): documentado em [accounts.md](accounts.md#trancar-por-inatividade-ideia-27).
 - **Reserva experimental do singleton** (ideia 3): documentada em [launch.md](launch.md#regras-de-negócio); a checagem mostra se está ativa.
 - **Adicionar conta por Quick Login** (ideia 12): documentado em [authentication.md](authentication.md#adicionar-conta-por-quick-login-ideia-12).
-- **Reportar problema com resumo anonimizado** (ideia 28): o "Send feedback" › "Report a problem" pode levar versão, edição, sistema, a checagem e as últimas linhas do Console, sem nada que identifique a pessoa ou as contas.
+- **Reportar problema com resumo anonimizado** (ideia 28): o "Send feedback" › "Report a problem" (diálogo fora da barra lateral desde 26/10/2026: hoje nenhum botão o abre) pode levar versão, edição, sistema, a checagem e as últimas linhas do Console, sem nada que identifique a pessoa ou as contas.
 
 ## Onde fica o código
 
@@ -17,7 +17,7 @@ Ajudar quem relata "clico e nada acontece" sem precisar de conversa longa:
 | Checagens (backend) | `src-tauri/src/commands/diagnostics.rs` — comando `run_launch_diagnostics`, funções puras `install_check`, `folder_check`, `probe_folder_writable`, `internet_check`, `count_stuck_processes`, `multi_roblox_check` |
 | Frases (frontend) | `src/utils/diagnostics.ts` — `diagnosticText`, `overallStatus`, `diagnosticsSummaryLines` |
 | Tela | `src/components/dialogs/DiagnosticsDialog.tsx` (estado `diagnosticsOpen` na store) |
-| Entradas | Settings › Launch › "Launch does nothing?" (primeiro cartão da seção) e o botão "Check what's wrong" da faixa de erro (`App.tsx`), que aparece quando há log de launch |
+| Entradas | Settings › Checks › "Launch does nothing?" (a seção dos checklists, desde 26/10/2026) e o botão "Check what's wrong" da faixa de erro (`App.tsx`), que aparece quando há log de launch |
 | Resumo do relato | `src/utils/problemReport.ts` (`buildProblemReport`, `anonymizeContextFor`), `src/utils/anonymize.ts` (`anonymize`), `src/components/dialogs/FeedbackDialog.tsx` (passo "Report a problem"), comando `get_report_environment` em `src-tauri/src/commands/services.rs` e `os_version_label` em `platform/windows/core.rs` |
 
 ## Fluxo
@@ -58,7 +58,7 @@ Nenhuma. A checagem lê `General.EnableMultiRbx`.
 
 ### Fluxo
 
-1. Barra lateral › **Send feedback** › **Report a problem** abre o segundo passo (antes abria o formulário direto).
+1. **Send feedback** › **Report a problem** abre o segundo passo (antes abria o formulário direto). **Atenção (26/10/2026):** o botão "Send feedback" saiu do rodapé da barra lateral; o `FeedbackDialog` continua no código, mas não há caminho na tela até ele. Para voltar a oferecer o resumo é preciso religar um ponto de entrada.
 2. A caixa **"Add a diagnostic summary"** começa **desmarcada**. Desmarcada, nada é montado e nenhum comando roda; "Open the form" abre o formulário de bug como antes.
 3. Marcada, o app junta: `get_report_environment` (versão, edição `standard`/`complete`, versão do Windows lida do registro), `run_launch_diagnostics` (a mesma checagem acima) e as últimas 40 linhas do Console (`store.launchLogs`). Monta o texto (`buildProblemReport`) e passa tudo por `anonymize`.
 4. A prévia mostra **o texto inteiro** que iria junto. "Copy summary" copia **exatamente** a prévia para a área de transferência; "Open the form" abre o formulário no navegador e a pessoa cola na descrição.

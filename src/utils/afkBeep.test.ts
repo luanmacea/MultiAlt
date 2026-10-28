@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { playAfkBeep, resetAfkBeepContextForTests } from "./afkBeep";
+import { playAfkBeep, playAfkWarningBeep, resetAfkBeepContextForTests } from "./afkBeep";
 
 /** Dublê mínimo de Web Audio, só para ver o que o bipe faz. */
 function fakeAudio() {
@@ -65,6 +65,28 @@ beforeEach(() => {
 afterEach(() => {
   resetAfkBeepContextForTests();
   restoreGlobals();
+});
+
+describe("bipe de aviso antes do ciclo", () => {
+  it("toca dois tons subindo, diferentes do bipe do fim do ciclo", () => {
+    vi.useFakeTimers();
+    try {
+      const audio = fakeAudio();
+      (globalThis as GlobalBag).AudioContext = audio.Ctor;
+      expect(playAfkWarningBeep()).toBe(true);
+      vi.advanceTimersByTime(200);
+      const tones = audio.oscillators.map((o) => o.frequency.value);
+      expect(tones).toHaveLength(2);
+      expect(tones[1]).toBeGreaterThan(tones[0]);
+      expect(tones).not.toContain(880);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sem Web Audio, não toca nem lança", () => {
+    expect(playAfkWarningBeep()).toBe(false);
+  });
 });
 
 describe("bipe do AFK mode", () => {

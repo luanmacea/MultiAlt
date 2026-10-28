@@ -10,6 +10,11 @@ ideia 5 de [ideias-de-outros-gerenciadores.md](../ideias-de-outros-gerenciadores
 **Desligado por padrão.** Ligado, as informações **saem do PC** — a tela diz isso no próprio
 interruptor.
 
+**Página Discord alerts** (27/10/2026, na barra lateral logo abaixo do AFK Mode; antes era a seção
+Settings › Notifications, só com os avisos). Além dos avisos, a página tem: **menção por evento**,
+**horário silencioso**, **status ao vivo** (uma mensagem editada a cada N minutos) e **resumo do
+dia** (tempo de jogo por conta e por jogo). Tudo no mesmo webhook e atrás do mesmo interruptor.
+
 ## Onde fica o código
 
 | Parte | Arquivo |
@@ -18,12 +23,14 @@ interruptor.
 | Cola: settings, nome da conta, pontos onde os eventos nascem, task que manda, "Send test message" | [commands/webhook.rs](../../src-tauri/src/commands/webhook.rs) |
 | Pontos de origem | [client_health.rs](../../src-tauri/src/commands/client_health.rs) (`webhook_after_health_tick` no laço do monitor), [reconnect.rs](../../src-tauri/src/commands/reconnect.rs) (`publish_reconnect`), [launch.rs](../../src-tauri/src/commands/launch.rs) (falha no auth ticket e ao abrir o cliente, launch de uma conta e fila) |
 | Segunda trava da URL ao gravar | `update_setting` em [data/settings/commands.rs](../../src-tauri/src/data/settings/commands.rs) → `validate_setting` |
-| Tela | Settings › **Notifications** ([NotificationsTab.tsx](../../src/components/settings/NotificationsTab.tsx)); conferência da URL espelhada em [utils/discordWebhook.ts](../../src/utils/discordWebhook.ts) |
+| Status ao vivo e resumo: parte pura e envio (POST com `?wait=true`, PATCH na mensagem) | [api/discord_status.rs](../../src-tauri/src/api/discord_status.rs) |
+| Status ao vivo e resumo: o laço de 30 s, a soma do tempo de jogo, `RAMDiscordStats.json`, "Update now"/"Send a preview" | [commands/discord_status.rs](../../src-tauri/src/commands/discord_status.rs) |
+| Tela | Página **Discord alerts** ([DiscordPage.tsx](../../src/components/pages/DiscordPage.tsx) → [DiscordSettings.tsx](../../src/components/discord/DiscordSettings.tsx)); conferência da URL espelhada em [utils/discordWebhook.ts](../../src/utils/discordWebhook.ts) |
 | Chaves | `[Webhook]` em [settings.md](settings.md#webhook--detalhes-em-webhookmd) |
 
 ## Fluxo
 
-1. Settings › Notifications: liga **Send notifications to Discord**, cola a URL (campo de senha;
+1. Página Discord alerts: liga **Send notifications to Discord**, cola a URL (campo de senha;
    grava ao sair do campo, só se for válida) e, se quiser, um texto antes de cada mensagem
    (`@everyone`, `<@&id do cargo>`). **Send test message** manda na hora, para a URL do campo
    (salva ou não), um cartão "✅ Webhook conectado" com os avisos marcados e um **exemplo** de queda
@@ -50,9 +57,50 @@ interruptor.
 | A client stopped responding | `NotifyNotResponding` | ligado | `HealthNotice::NotResponding { true }` (30 s travada) |
 | An account reconnected | `NotifyReconnected` | desligado | `ReconnectNotice::Reconnected` |
 | An account opened as a different Roblox account | `NotifyWrongAccount` | ligado | O cliente lançado para uma conta entrou logado em outra (`HealthNotice::WrongAccount`, ver client health). A fila foi parada e o cliente fica aberto. Vai sem o id da outra conta |
+| An account was banned | `NotifyModerated` | ligado | `mark_account_moderated` ([launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)): o launch recusado por moderação ou a consulta de moderação viu ban ativo. Só na **primeira vez** (quando a conta vai para o grupo das moderadas), não a cada launch recusado |
+| A launch batch finished | `NotifyBatchFinished` | desligado | A fila de launch fechou ([launch.rs](../../src-tauri/src/commands/launch.rs), `webhook_after_launch_batch`): quantas abriram, falharam e foram canceladas. Só lote de **2 contas ou mais**; sem conta no cartão |
+| A client was closed for memory | `NotifyMemoryClosed` | ligado | O teto de memória fechou o cliente ([memory_ceiling.rs](../../src-tauri/src/commands/memory_ceiling.rs), `MemoryNotice::Closed`) ou o Watcher fechou por memória abaixo do mínimo ([watcher.rs](../../src-tauri/src/commands/watcher.rs)) |
+| Windows is almost out of memory | `NotifySystemLowMemory` | desligado | O laço do status ([discord_status.rs](../../src-tauri/src/commands/discord_status.rs)) lê a memória livre (`GlobalMemoryStatusEx`, só leitura): avisa abaixo de **10%** e só avisa de novo depois de voltar para mais de **15%** (`system_memory_step`) |
 | A launch failed | `NotifyLaunchFailed` | desligado | Falha no auth ticket / ao abrir o cliente (launch de uma conta e fila). Vai **só a etapa**, nunca o texto do erro (pode ter URL de launch, ticket ou código de VIP) |
 
 "Conta aberta como outra conta do Roblox" ficou de fora: o evento ainda não existe no backend.
+
+## Menção por evento e horário silencioso
+
+- **Menção por evento** (pedido do dono, 27/10/2026): cada evento tem uma caixa ao lado
+  (`Mention<evento>`, ex.: `MentionModerated`). Vazia, vale o texto geral (`Mention`). Num lote com
+  vários eventos, a mensagem leva cada menção **uma vez**, na ordem (`WebhookConfig::mention_for`).
+  A menção continua sendo a única parte que pode chamar alguém.
+- **Horário silencioso** (`QuietHours`, `QuietStart`/`QuietEnd` em `HH:MM`, hora do PC): nesse
+  horário a mensagem sai **sem menção**. Pode atravessar a meia-noite (23:00 → 08:00). Início = fim
+  ou hora inválida = desligado. Com **Don't send notifications during quiet hours** (`QuietSkip`),
+  o aviso nem sai (o lote é descartado). O status ao vivo continua editando de qualquer jeito.
+
+## Status ao vivo
+
+- `StatusEnabled` (desligado) + `StatusInterval` (minutos, 1–60, padrão 5). Uma mensagem só no
+  canal: a primeira vez é um POST com `?wait=true` (o Discord devolve o id, guardado em
+  `StatusMessageId`); depois, **PATCH** nessa mensagem. Apagaram no Discord (404)? Cria outra.
+- Mostra cada cliente aberto (o tracker do Windows, inclusive os abertos pelo site): 🟢 em jogo
+  com o jogo e há quanto tempo ("1h 05m"), 🟡 fora de jogo; contagem "Em jogo"/"Abertas" e
+  "Atualizado há…". O "desde quando" é lembrado pelo laço (o monitor de quedas só diz "em jogo").
+- **Nunca menciona** ninguém (`allowed_mentions` vazio): é editado a cada poucos minutos.
+- **Update now** manda/edita na hora (`send_discord_status_now`).
+- Só Windows por enquanto (tracker e monitor de quedas); no macOS a lista sai vazia.
+
+## Resumo do dia
+
+- `SummaryEnabled` (desligado) + `SummaryTime` (`HH:MM`, padrão 23:00) + `MentionSummary`
+  (opcional; vazio = sem menção, **não** usa o texto geral; nada no horário silencioso).
+- A cada passada (30 s) o laço soma o tempo de cada conta **em jogo** e do jogo dela; quedas
+  entram pela queda do monitor (`discord_stats_note_drop`). Uma passada que demorou mais de 2 min
+  (PC suspenso) conta só 2 min. Só conta com o app aberto e o resumo ligado.
+- A soma mora em `RAMDiscordStats.json` (pasta de dados), para não zerar se o app fechar no meio
+  do dia. Não entra nos backups (é só contagem do dia).
+- Sai **uma vez por dia**, na primeira passada depois da hora; com o PC desligado nessa hora, sai
+  na próxima vez que passar dela (o cartão diz "Desde <data>"). Sem nada para contar, não manda:
+  só marca o dia. Depois de mandar, zera.
+- **Send a preview** manda o que somou até agora, sem zerar (`send_discord_summary_now`).
 
 ## Mensagem
 
@@ -63,7 +111,7 @@ aconteceu"). Antes era um embed com uma linha em inglês por aviso e o nome masc
 
 | Parte | O que leva |
 |---|---|
-| Título | ícone + evento: 🔴 Conta caiu · 🟢 Voltou para o jogo · 🟠 Não conseguiu reconectar · 🟡 Janela travada · ⚠️ Falha ao abrir · ⚠️ Abriu em outra conta |
+| Título | ícone + evento: 🔴 Conta caiu · 🟢 Voltou para o jogo · 🟠 Não conseguiu reconectar · 🟡 Janela travada · ⚠️ Falha ao abrir · ⚠️ Abriu em outra conta · ⛔ Conta banida · 📋 Lote de launch terminou · 🧠 Cliente fechado por memória · 🧠 O Windows está quase sem memória. Os dois do app inteiro (lote, memória do Windows) não têm campo Conta nem foto: a frase é o motivo ("8 abertas, 1 falharam, 0 canceladas.") |
 | Descrição | a frase do que aconteceu, com o nome em negrito ("**conta** saiu do jogo.") |
 | Conta | o nome; à mostra, vira link do perfil (`roblox.com/users/<id>/profile`) |
 | Jogo | o **nome** do jogo com link (`roblox.com/games/<place>`); sem nome conhecido, "Place 123" com o mesmo link |
@@ -107,16 +155,23 @@ aconteceu"). Antes era um embed com uma linha em inglês por aviso e o nome masc
 
 ## Testes
 
-`bun run t webhook` — Rust: `discord_webhook_url_tests`, `discord_webhook_message_tests`,
-`discord_webhook_queue_tests`, `discord_webhook_http_tests` (POST no mock compartilhado, 429 com
-`retry_after`, erro sem URL/token), `webhook_glue_tests`; front:
-[NotificationsTab.test.tsx](../../src/components/settings/NotificationsTab.test.tsx),
+`bun run t webhook` — Rust: `discord_webhook_url_tests`, `discord_webhook_message_tests`
+(também menção por evento, horário silencioso e os cartões novos), `discord_webhook_queue_tests`,
+`discord_webhook_http_tests` (POST no mock compartilhado, 429 com `retry_after`, erro sem
+URL/token), `discord_status_tests` (status, soma do tempo, hora do resumo, memória do Windows),
+`discord_status_http_tests` (POST `?wait=true` devolvendo o id, PATCH, 404 = apagada),
+`webhook_glue_tests`, e o `a_finished_batch_reports_how_many_opened_failed_and_were_cancelled`
+(`launch_queue_tests`); front:
+[DiscordSettings.test.tsx](../../src/components/discord/DiscordSettings.test.tsx),
 [discordWebhook.test.ts](../../src/utils/discordWebhook.test.ts) (os mesmos casos de URL dos dois
 lados). Defaults em `settings_store_tests`.
 
 ## Armadilhas / cuidados
 
-- **Não verificado com um Discord de verdade** pelo agente (sem rede nos testes): o dono confere
-  com o **Send test message** num canal dele.
+- **Testado com um Discord de verdade em 28/10/2026** (canal #logs do dono, build de teste):
+  mensagem de teste, status ao vivo editado na mesma mensagem com 2 contas em jogo, aviso de
+  lote terminado com a menção só dele, e a prévia do resumo. O teste achou um defeito: aviso sem
+  conta (lote, memória do Windows) mostrava "Place 123" em vez do nome do jogo, porque não havia
+  cookie de onde buscar o nome — agora usa o de qualquer conta salva (`webhook_cookie_order`).
 - A fila vive em memória: avisos ainda não enviados se perdem ao fechar o app.
 - Sem nome do jogo na mensagem: o backend não guarda o nome, só o Place ID que o log do cliente deu.

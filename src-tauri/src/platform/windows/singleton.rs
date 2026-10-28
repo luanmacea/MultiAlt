@@ -17,7 +17,9 @@
 // `windows-sys` não expõe — daí as declarações `extern "system"` abaixo.
 //
 // Cuidados que o código respeita (a varredura mexe em processo de terceiros):
-// - só processos cujo executável é do Roblox (`find_roblox_pids_all`);
+// - primeiro só processos cujo executável é do Roblox (`find_roblox_pids_all`);
+//   se o nome ainda existir depois disso, outro programa (Fishtrap, executor)
+//   o segura: `find_foreign_singleton_holders` só diz quem é, sem fechar nada;
 // - só handles do **tipo Event** — o índice do tipo é descoberto criando um
 //   evento nosso e localizando-o na tabela, o que evita chamar `NtQueryObject`
 //   num handle de pipe (pode travar a chamada indefinidamente);
@@ -419,6 +421,138 @@ pub fn close_roblox_singleton_handles() -> SingletonCloseReport {
     report
 }
 
+/// Quem segura o objeto da nossa sonda (`probe_pid`/`probe_handle`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SingletonHolders {
+    /// A tabela traz o endereço do objeto: só os processos com handle nele.
+    Exact(Vec<u32>),
+    /// Endereço zerado (Windows 11 24H2 sem privilégio de depuração): todo
+    /// processo com algum Event é candidato, e o nome decide em cada um.
+    Candidates(Vec<u32>),
+}
+
+fn singleton_holders(
+    snapshot: &[SystemHandleEntryEx],
+    probe_pid: usize,
+    probe_handle: usize,
+    event_type_index: u16,
+) -> SingletonHolders {
+    let object = snapshot
+        .iter()
+        .find(|e| e.unique_process_id == probe_pid && e.handle_value == probe_handle)
+        .map(|e| e.object)
+        .unwrap_or(0);
+    let mut pids: Vec<u32> = snapshot
+        .iter()
+        .filter(|e| e.object_type_index == event_type_index)
+        .filter(|e| !(e.unique_process_id == probe_pid && e.handle_value == probe_handle))
+        .filter(|e| object == 0 || e.object == object)
+        .map(|e| e.unique_process_id as u32)
+        .collect();
+    pids.sort_unstable();
+    pids.dedup();
+    if object == 0 {
+        // A sonda também é um Event do nosso processo: ele entra como candidato.
+        if !pids.contains(&(probe_pid as u32)) {
+            pids.push(probe_pid as u32);
+            pids.sort_unstable();
+        }
+        SingletonHolders::Candidates(pids)
+    } else {
+        SingletonHolders::Exact(pids)
+    }
+}
+
+/// `pid` tem um Event chamado exatamente `name`? Só **lê** o nome (uma cópia
+/// do handle, fechada na hora): nada é fechado no outro processo. `None` se o
+/// processo nem abre (administrador).
+fn process_holds_named_event(
+    pid: u32,
+    name: &str,
+    snapshot: &[SystemHandleEntryEx],
+    event_type_index: u16,
+) -> Option<bool> {
+    let target = unsafe { OpenProcess(PROCESS_DUP_HANDLE, 0, pid) };
+    if target.is_null() {
+        return None;
+    }
+    let this_process = unsafe { GetCurrentProcess() };
+    let pid_key = pid as usize;
+    let mut found = false;
+    for entry in snapshot
+        .iter()
+        .filter(|e| e.unique_process_id == pid_key && e.object_type_index == event_type_index)
+    {
+        let mut probe: HANDLE = std::ptr::null_mut();
+        let duplicated = unsafe {
+            DuplicateHandle(
+                target,
+                entry.handle_value as HANDLE,
+                this_process,
+                &mut probe,
+                0,
+                0,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if duplicated == 0 {
+            continue;
+        }
+        let matches = handle_object_name(probe).is_some_and(|n| singleton_name_matches(&n, name));
+        unsafe { CloseHandle(probe) };
+        if matches {
+            found = true;
+            break;
+        }
+    }
+    unsafe { CloseHandle(target) };
+    Some(found)
+}
+
+/// Quais processos (fora `skip_pids`) seguram o Event `name`. Só diagnóstico:
+/// a trava **não** é liberada neles.
+///
+/// Ferramentas como o Fishtrap e executores (Real) seguram um handle do
+/// `ROBLOX_singletonEvent`; enquanto ele existir, o próximo cliente desiste e
+/// o app só consegue dizer quem é para a pessoa fechar. Fechar o handle no
+/// outro programa resolveria, mas foi testado e descartado em 23/10/2026: a
+/// edição completa passou a ser marcada por um motor de análise.
+fn find_foreign_singleton_holders(name: &str, skip_pids: &[u32]) -> Vec<u32> {
+    let wide = encode_wide(name);
+    let probe = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, wide.as_ptr()) };
+    if probe.is_null() {
+        return Vec::new();
+    }
+    let self_pid = unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() } as usize;
+    let probe_value = probe as usize;
+    let snapshot = snapshot_with_event_type_index();
+    unsafe { CloseHandle(probe) };
+    let Some((snapshot, event_type_index)) = snapshot else {
+        return Vec::new();
+    };
+    match singleton_holders(&snapshot, self_pid, probe_value, event_type_index) {
+        // A tabela já diz quem é: nem precisa abrir processo nenhum.
+        SingletonHolders::Exact(pids) => {
+            pids.into_iter().filter(|pid| !skip_pids.contains(pid)).collect()
+        }
+        SingletonHolders::Candidates(pids) => pids
+            .into_iter()
+            .filter(|pid| !skip_pids.contains(pid))
+            .filter(|pid| {
+                process_holds_named_event(*pid, name, &snapshot, event_type_index) == Some(true)
+            })
+            .collect(),
+    }
+}
+
+/// Quem, fora os clientes do Roblox e o próprio app, segura o
+/// `ROBLOX_singletonEvent`.
+pub fn find_foreign_roblox_singleton_holders() -> Vec<u32> {
+    let mut skip = find_roblox_pids_all();
+    skip.push(unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() });
+    find_foreign_singleton_holders(ROBLOX_SINGLETON_EVENT, &skip)
+}
+
 /// `OpenEventW` falhou (handle nulo) com `last_error`: esse nome segura um
 /// Event que faz o próximo cliente desistir?
 ///
@@ -708,6 +842,77 @@ mod singleton_event_tests {
             close_singleton_events_for_pids(&[self_pid()], ""),
             SingletonCloseReport::default()
         );
+    }
+
+    // ── Trava presa em outro programa (tickets de 22/10/2026) ──────────────
+    //
+    // Com o Fishtrap ou o executor Real abertos, o launch da 2ª conta dava
+    // "Another Roblox window could not be unlocked" até reiniciar o PC: um
+    // processo que não é do Roblox segurava o `ROBLOX_singletonEvent`, e a
+    // varredura só olhava os executáveis do Roblox.
+
+    fn entry(pid: usize, handle: usize, object: usize, type_index: u16) -> SystemHandleEntryEx {
+        SystemHandleEntryEx {
+            object,
+            unique_process_id: pid,
+            handle_value: handle,
+            granted_access: 0,
+            creator_back_trace_index: 0,
+            object_type_index: type_index,
+            handle_attributes: 0,
+            reserved: 0,
+        }
+    }
+
+    #[test]
+    fn holders_are_the_processes_that_share_the_object_of_our_probe() {
+        const EVENT: u16 = 16;
+        let snapshot = vec![
+            entry(10, 0x40, 0xAAAA, EVENT), // nossa sonda
+            entry(20, 0x88, 0xAAAA, EVENT), // outro programa com a mesma trava
+            entry(30, 0x90, 0xBBBB, EVENT), // outro evento qualquer
+            entry(40, 0x10, 0xAAAA, EVENT),
+            entry(20, 0x99, 0xAAAA, EVENT), // dois handles no mesmo processo
+        ];
+        assert_eq!(
+            singleton_holders(&snapshot, 10, 0x40, EVENT),
+            SingletonHolders::Exact(vec![20, 40])
+        );
+    }
+
+    #[test]
+    fn without_object_addresses_every_process_with_events_is_a_candidate() {
+        // Windows 11 24H2 sem privilégio de depuração zera o endereço do
+        // objeto: aí só dá para olhar o nome em cada processo com Event.
+        const EVENT: u16 = 16;
+        let snapshot = vec![
+            entry(10, 0x40, 0, EVENT),
+            entry(20, 0x88, 0, EVENT),
+            entry(20, 0x89, 0, EVENT),
+            entry(30, 0x90, 0, 7), // não é Event
+            entry(40, 0x10, 0, EVENT),
+        ];
+        assert_eq!(
+            singleton_holders(&snapshot, 10, 0x40, EVENT),
+            SingletonHolders::Candidates(vec![10, 20, 40])
+        );
+    }
+
+    #[test]
+    fn an_event_held_by_a_process_that_is_not_roblox_is_found_and_left_alone() {
+        let name = "RAMTest_foreignHolder_singletonEvent";
+        let _event = create_named_event(name).expect("CreateEventW falhou");
+        // Pulando o próprio processo, ninguém segura.
+        assert!(find_foreign_singleton_holders(name, &[self_pid()]).is_empty());
+        // Sem pular, o "outro programa" (este runner) aparece...
+        assert_eq!(find_foreign_singleton_holders(name, &[]), vec![self_pid()]);
+        // ...e a trava continua com ele: só diagnóstico.
+        assert!(named_event_exists(name), "nada pode ser fechado no outro programa");
+    }
+
+    #[test]
+    fn no_event_no_holder() {
+        assert!(find_foreign_singleton_holders("RAMTest_absent_singletonEvent", &[]).is_empty());
     }
 
     /// Processo que não abre (Roblox como administrador, ou já saiu) era

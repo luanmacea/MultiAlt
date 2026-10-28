@@ -5,6 +5,7 @@ import {
   MAX_ALIAS_LENGTH,
   orderGroupKeys,
   parseGroupName,
+  parseAccountDate,
   parseGroupOrder,
   serializeGroupOrder,
   timeAgo,
@@ -83,6 +84,34 @@ describe("timeAgo", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     expect(timeAgo(new Date(NOW + HOUR).toISOString())).toBe("just now");
+  });
+});
+
+/**
+ * O backend grava as datas da conta em UTC **sem** o "Z" (`csharp_datetime`,
+ * formato herdado do RAM). Lida como hora local, a data de quem jogou há
+ * menos de 3 h (Brasília, UTC-3) caía no futuro e a linha dizia "just now"
+ * (relato do dono, 26/10/2026: contas fechadas havia meia hora).
+ */
+describe("parseAccountDate", () => {
+  it("reads a date without a timezone as UTC, like the backend writes it", () => {
+    expect(parseAccountDate("2026-10-26T07:40:00.123").toISOString()).toBe("2026-10-26T07:40:00.123Z");
+    expect(parseAccountDate("2026-10-26T07:40:00").toISOString()).toBe("2026-10-26T07:40:00.000Z");
+    // Com 7 casas (o formato do C#), também.
+    expect(parseAccountDate("2020-01-02T03:04:05.1234567").toISOString()).toBe("2020-01-02T03:04:05.123Z");
+  });
+
+  it("keeps a date that already says its timezone", () => {
+    expect(parseAccountDate("2026-10-26T07:40:00Z").toISOString()).toBe("2026-10-26T07:40:00.000Z");
+    expect(parseAccountDate("2026-10-26T04:40:00-03:00").toISOString()).toBe("2026-10-26T07:40:00.000Z");
+    expect(parseAccountDate("2026-10-26T10:40:00.5+03:00").toISOString()).toBe("2026-10-26T07:40:00.500Z");
+  });
+
+  it("makes timeAgo count from the backend's UTC date", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const backend = new Date(NOW - 30 * MINUTE).toISOString().replace("Z", "");
+    expect(timeAgo(backend)).toBe("30m");
   });
 });
 

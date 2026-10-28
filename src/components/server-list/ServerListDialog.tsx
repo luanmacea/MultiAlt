@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { isLaunchAlreadyActiveError, launchErrorText } from "../../utils/robloxErrors";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
@@ -129,7 +130,11 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
       });
       store.addToast(t("Launching game..."));
     } catch (e) {
-      store.addToast(t("Failed to join: {{error}}", { error: String(e) }));
+      store.addToast(
+        isLaunchAlreadyActiveError(e)
+          ? t("A launch is already in progress")
+          : t("Failed to join: {{error}}", { error: launchErrorText(e, t) })
+      );
     }
   }
 

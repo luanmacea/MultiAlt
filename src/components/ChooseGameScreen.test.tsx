@@ -947,6 +947,30 @@ describe("ChooseGameScreen — preferência de servidor", () => {
     expect(invokeMock.mock.calls.filter((call) => call[0] === "pick_server")).toHaveLength(0);
   });
 
+  /**
+   * Bateria de testes de 25/10/2026: com "Shuffle Job ID" ligado as 4 contas
+   * caíam no mesmo servidor — a preferência (padrão "bestfit") resolvia um Job
+   * ID para o lote, e com Job ID preenchido o backend não sorteia. O shuffle
+   * pede servidores diferentes: o lote vai com Job vazio e cada conta sorteia.
+   */
+  it("com o Shuffle Job ID ligado, não escolhe um servidor único para o lote", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "resolve_join_link") return joinTarget({ kind: "place" });
+      if (cmd === "pick_server") {
+        return { jobId: "job-unico", playing: 2, maxPlayers: 30, region: null, regionFallback: false };
+      }
+      return undefined;
+    });
+    const store = pickStore({ serverPreference: "bestfit", shuffleJobId: true });
+
+    await joinPlainLink();
+
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith([1001, 1002], expect.objectContaining({ jobId: "" }))
+    );
+    expect(invokeMock.mock.calls.filter((call) => call[0] === "pick_server")).toHaveLength(0);
+  });
+
   /** Job ID explícito vence a preferência: o usuário já escolheu. */
   it("não sobrepõe um servidor que o usuário escolheu", async () => {
     setInvokeHandler((cmd) => {

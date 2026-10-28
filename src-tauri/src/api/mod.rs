@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod batch;
 pub mod cookie_rotation;
+pub mod discord_status;
 pub mod discord_webhook;
 pub mod endpoints;
 pub mod http_client;
