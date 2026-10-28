@@ -262,6 +262,53 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   `settings_record_tests` (o launch anota com a opção desligada também).
   Interruptor em `settingsTabs.test.tsx`.
 
+## FastFlags (`Optimization.<perfil>EnableFastFlags` / `<perfil>FastFlagsJson`)
+
+Settings › Optimization › Experimental / Danger, por perfil (Normal, Auto Rejoin
+main e alts). O launch junta as FastFlags ao `ClientAppSettings.json` da pasta da
+versão (`patch_client_settings_for_launch`, [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)),
+e o "Restore Roblox settings" as devolve (acima).
+
+- **A lista do Roblox** (DevForum, "Allowlist for local client configuration via
+  Fast Flags", 29/09/2025): o cliente só lê **18** FastFlags do arquivo; o resto
+  ele ignora e escreve no log `Denied local configuration for: <flag>`. O app usa
+  essa lista (`WINDOWS_FASTFLAG_ALLOWLIST` em [optimization.rs](../../src-tauri/src/platform/windows/optimization.rs),
+  espelhada em [fastFlagPresets.ts](../../src/utils/fastFlagPresets.ts)). Até
+  28/10/2026 a lista do app era outra: aceitava oito chaves que o Roblox ignora
+  (`DFIntRenderShadowIntensity`, `DFFlagDebugRenderForceTechnologyVoxel`…) e
+  recusava nove das oficiais (grama, distância de detalhe, Vulkan/OpenGL,
+  Alt+Enter). O Roblox pode mudar a lista; o log do cliente é a prova.
+- **Chave fora da lista sai, o resto vale** (`split_allowlisted_fast_flags_json`).
+  Antes uma chave errada derrubava o JSON inteiro em silêncio. A tela avisa em
+  amarelo quais chaves o Roblox ignora; só JSON quebrado é erro.
+- **FPS não é FastFlag:** o Roblox recusa `DFIntTaskSchedulerTargetFps` (visto no
+  log deste PC em 28/10/2026). O limite de FPS do app vale pelo `FramerateCap` do
+  `GlobalBasicSettings_13.xml`; a chave no JSON fica sem efeito.
+- **Perfis prontos** (pedido do dono, 28/10/2026), cartões com **+** acima do
+  JSON. O "+" junta as chaves ao JSON do perfil (o valor do padrão vence, as outras
+  chaves ficam) e liga as FastFlags; depois dá para editar à mão. Valores como
+  texto ("True", "0"), como o Bloxstrap grava:
+  - **Nuke rendering:** texturas 0, qualidade 1, sem MSAA, iluminação parada
+    (`DFFlagDebugPauseVoxelizer`), sem grama, modelos mais simples (as quatro
+    distâncias de detalhe em 0) e céu cinza;
+  - **More FPS:** sem MSAA, sem grama, iluminação parada — texturas e modelos
+    ficam;
+  - **Less video memory:** texturas 0 e sem MSAA.
+- **Menus simples** (como o Bloxstrap e o Fishstrap, `FAST_FLAG_CONTROLS`): qualidade
+  das texturas, anti-aliasing, qualidade gráfica (1–21), detalhe dos modelos (níveis
+  do Fishstrap: `(clamp(q - i, 0, 3) + 1) * 250`, mais o "Mínimo" em 0), grama,
+  atualização da iluminação, céu e API gráfica (só uma das três). Cada menu grava as
+  chaves dele no **mesmo JSON** (`writeControl`) e lê o estado de lá (`readControl`):
+  **Automatic** tira as chaves, valor digitado à mão vira **Custom**. Ao lado do
+  nome, uma dica de direção ("Menor = mais leve", "Desligado = mais rápido"; pedido
+  do dono, 28/10/2026). Escolher uma opção liga as FastFlags do perfil.
+- A seção é **Graphics (FastFlags)**, acima de "Experimental / Danger"; o JSON fica
+  fechado em "Edit the JSON by hand (advanced)".
+- As chaves da lista aparecem com o que cada uma faz no tooltip (`FAST_FLAG_INFO`).
+- **Valem ao abrir o cliente.** O Roblox lê o arquivo uma vez, quando o cliente
+  abre: mudar com a conta já no jogo só vale no próximo launch. Mexer num cliente
+  aberto (memória) é o que o Roblox pune.
+
 ## Testes
 
 `focus_follow_tests` (cliente em uso, carência, plano de mudanças, políticas,
@@ -273,7 +320,7 @@ arquivo), `live_audio_com_tests` (com a feature: percorre o mixer de verdade
 (`supportsLiveAudio`), `win_grid_style_tests` (célula pequena, flags do
 `SetWindowPos`, moldura tirada e devolvida, cliente do site na grade),
 `win_grid_slot_tests`, `client_window_plan_tests` (padrão desligado),
-`settingsTabs.test.tsx` (interruptores).
+`settingsTabs.test.tsx` (interruptores, perfis prontos de FastFlags), `fastFlagPresets.test.ts`, `fastFlagAllowlist.test.ts` e `the_fastflag_allowlist_is_roblox_official_list` (`win_optimization_tests`).
 Suíte: `bun run t performance`.
 
 ## Armadilhas / cuidados

@@ -1806,6 +1806,101 @@ async fn change_password(
     Ok(())
 }
 
+/// Tamanho da senha aleatória da troca em massa.
+const RANDOM_PASSWORD_LEN: usize = 16;
+
+/// Letras e dígitos sem os que se confundem (0/O, 1/l/I): a pessoa pode ter
+/// de digitar a senha um dia. Sem `:` (separa usuário e senha nas listas).
+const RANDOM_PASSWORD_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+/// Uma senha nova para uma conta, do gerador do sistema: 16 caracteres com
+/// pelo menos uma maiúscula, uma minúscula e um dígito (~93 bits).
+fn random_account_password() -> String {
+    loop {
+        let mut bytes = [0u8; RANDOM_PASSWORD_LEN];
+        getrandom::fill(&mut bytes).expect("OS RNG unavailable");
+        // 256 não é múltiplo do alfabeto: sobra um viés mínimo, irrelevante
+        // aqui (o teto é o tamanho, não a distribuição perfeita).
+        let password: String = bytes
+            .iter()
+            .map(|b| RANDOM_PASSWORD_ALPHABET[*b as usize % RANDOM_PASSWORD_ALPHABET.len()] as char)
+            .collect();
+        let mixed = password.chars().any(|c| c.is_ascii_uppercase())
+            && password.chars().any(|c| c.is_ascii_lowercase())
+            && password.chars().any(|c| c.is_ascii_digit());
+        if mixed {
+            return password;
+        }
+    }
+}
+
+/// Troca a senha da conta por uma aleatória e devolve a nova. Cuidado
+/// triplicado (CLAUDE.md, "Senha guardada nunca se perde"): ninguém digitou
+/// esta senha, então ela não pode sumir.
+/// 1. A nova entra no histórico da conta **antes** de ir ao Roblox. Falhou ao
+///    gravar? Nada é pedido ao Roblox.
+/// 2. Roblox confirmou: ela vira a guardada (`persist_password_update`). Se essa
+///    gravação falhar, ela continua no histórico.
+/// 3. Roblox recusou com certeza (4xx, ou o pedido nem saiu): ela sai do
+///    histórico. Resposta perdida ou erro do servidor: fica, porque pode ser a
+///    que vale agora.
+async fn change_password_random_in(state: &AccountStore, user_id: i64, current_password: &str) -> Result<String, String> {
+    let new_password = random_account_password();
+    {
+        let mut account = get_account(state, user_id)?;
+        account.remember_possible_password(&new_password);
+        state.update(account)?;
+    }
+
+    let maybe_changed = std::sync::atomic::AtomicBool::new(false);
+    let result = run_with_session_retry(state, user_id, |cookie| {
+        let current_password = current_password.to_string();
+        let new_password = new_password.clone();
+        let maybe_changed = &maybe_changed;
+        async move {
+            api::auth::change_password_attempt(&cookie, &current_password, &new_password)
+                .await
+                .map_err(|failure| {
+                    if failure.maybe_changed {
+                        maybe_changed.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    failure.message
+                })
+        }
+    })
+    .await;
+
+    match result {
+        Ok(new_cookie) => {
+            if let Some(new_cookie) = new_cookie {
+                persist_cookie_update(state, user_id, &new_cookie)?;
+            }
+            persist_password_update(state, user_id, &new_password)?;
+            Ok(new_password)
+        }
+        Err(error) => {
+            if !maybe_changed.load(std::sync::atomic::Ordering::SeqCst) {
+                if let Ok(mut account) = get_account(state, user_id) {
+                    account.forget_refused_password(&new_password);
+                    let _ = state.update(account);
+                }
+            }
+            Err(error)
+        }
+    }
+}
+
+/// "A different random password for each account" da troca em massa. A senha
+/// volta para a tela só para o e-mail, que pede a senha da conta.
+#[tauri::command]
+async fn change_password_random(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+    current_password: String,
+) -> Result<String, String> {
+    change_password_random_in(state.inner(), user_id, &current_password).await
+}
+
 #[tauri::command]
 async fn change_email(
     state: tauri::State<'_, AccountStore>,
@@ -1875,6 +1970,20 @@ mod account_api_tests {
 
     fn account(user_id: i64, token: &str) -> crate::data::accounts::Account {
         crate::data::accounts::Account::new(token.to_string(), format!("user{user_id}"), user_id)
+    }
+
+    #[test]
+    fn random_passwords_are_long_mixed_unique_and_easy_to_read() {
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            let p = random_account_password();
+            assert_eq!(p.len(), RANDOM_PASSWORD_LEN);
+            assert!(p.chars().any(|c| c.is_ascii_uppercase()), "{p}");
+            assert!(p.chars().any(|c| c.is_ascii_lowercase()), "{p}");
+            assert!(p.chars().any(|c| c.is_ascii_digit()), "{p}");
+            assert!(!p.chars().any(|c| "0O1lI:".contains(c)), "{p}");
+            assert!(seen.insert(p), "two accounts got the same password");
+        }
     }
 
     // ---- is_auth_session_error ----------------------------------------------
@@ -2551,6 +2660,76 @@ mod account_api_http_tests {
             .respond_with(response)
             .mount(mock_server().await)
             .await;
+    }
+
+    // ---- change_password_random (pedido do dono, 27/10/2026) ------------------
+
+    fn store_with_password(user_id: i64, token: &str, password: &str, tag: &str) -> AccountStore {
+        let store = temp_store(tag);
+        let mut account = crate::data::accounts::Account::new(token.to_string(), format!("user{user_id}"), user_id);
+        account.password = password.to_string();
+        store.add(account).unwrap();
+        store
+    }
+
+    async fn mount_password_change(token: &str, response: ResponseTemplate) {
+        Mock::given(method("POST"))
+            .and(path(mock_path("auth", "/v2/user/passwords/change")))
+            .and(header("cookie", cookie_of(token)))
+            .respond_with(response)
+            .mount(mock_server().await)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn a_random_password_is_saved_once_roblox_takes_it() {
+        mount_csrf("random-ok", "CSRF-RANDOM-OK").await;
+        mount_password_change("random-ok", ResponseTemplate::new(200)).await;
+        let store = store_with_password(9101, "random-ok", "old-password-1", "random-ok");
+
+        let new_password = change_password_random_in(&store, 9101, "old-password-1").await.unwrap();
+
+        assert_eq!(new_password.len(), RANDOM_PASSWORD_LEN);
+        let stored = store.get_all().unwrap().remove(0);
+        assert_eq!(stored.password, new_password);
+        // A anterior vai para o histórico, e a nova não fica repetida lá.
+        assert_eq!(stored.password_history, vec!["old-password-1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn a_random_password_roblox_refused_leaves_no_trace() {
+        mount_csrf("random-refused", "CSRF-RANDOM-REFUSED").await;
+        mount_password_change(
+            "random-refused",
+            ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "errors": [{ "code": 8, "message": "Incorrect password" }]
+            })),
+        )
+        .await;
+        let store = store_with_password(9102, "random-refused", "old-password-2", "random-refused");
+
+        assert!(change_password_random_in(&store, 9102, "old-password-2").await.is_err());
+
+        let stored = store.get_all().unwrap().remove(0);
+        assert_eq!(stored.password, "old-password-2");
+        assert!(stored.password_history.is_empty(), "{:?}", stored.password_history);
+    }
+
+    /// Resposta que não diz se trocou (erro do servidor, conexão caiu): a
+    /// senha nova pode ser a que vale agora no Roblox — fica no histórico para
+    /// não se perder (regra "Senha guardada nunca se perde").
+    #[tokio::test]
+    async fn a_random_password_whose_answer_got_lost_stays_in_the_history() {
+        mount_csrf("random-unclear", "CSRF-RANDOM-UNCLEAR").await;
+        mount_password_change("random-unclear", ResponseTemplate::new(502)).await;
+        let store = store_with_password(9103, "random-unclear", "old-password-3", "random-unclear");
+
+        assert!(change_password_random_in(&store, 9103, "old-password-3").await.is_err());
+
+        let stored = store.get_all().unwrap().remove(0);
+        assert_eq!(stored.password, "old-password-3", "the saved one stays until Roblox confirms");
+        assert_eq!(stored.password_history.len(), 1);
+        assert_eq!(stored.password_history[0].len(), RANDOM_PASSWORD_LEN);
     }
 
     // ---- refresh_account_session ---------------------------------------------

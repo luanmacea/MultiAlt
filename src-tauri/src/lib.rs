@@ -684,6 +684,7 @@ pub fn run() {
             get_asset_details,
             purchase_product,
             change_password,
+            change_password_random,
             change_email,
             set_display_name,
             quick_login_enter_code,
