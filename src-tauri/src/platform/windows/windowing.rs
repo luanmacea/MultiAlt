@@ -2161,6 +2161,21 @@ pub fn get_process_memory_mb(pid: u32) -> Option<u64> {
     Some(memory_reading_mb(private_ws, working_set))
 }
 
+/// Memória física livre e total do Windows, em MB (o aviso "Windows quase sem
+/// memória" da página Discord). Só leitura.
+pub fn system_memory_mb() -> Option<(u64, u64)> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    const MB: u64 = 1024 * 1024;
+    // SAFETY: MEMORYSTATUSEX é uma struct C simples; zerada e com o
+    // `dwLength` certo é o que a função pede.
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+        return None;
+    }
+    Some((status.ullAvailPhys / MB, status.ullTotalPhys / MB))
+}
+
 #[cfg(test)]
 mod win_process_memory_tests {
     use super::*;

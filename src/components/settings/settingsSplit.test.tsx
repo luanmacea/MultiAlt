@@ -160,10 +160,9 @@ describe("Settings split (General and Misc became plain sections)", () => {
     const names = within(nav)
       .getAllByRole("button")
       .map((b) => b.textContent);
-    expect(names.slice(0, 9)).toEqual([
+    expect(names.slice(0, 8)).toEqual([
       "Launch",
       "Keep in game",
-      "Notifications",
       "Accounts",
       "Privacy & security",
       "Updates",

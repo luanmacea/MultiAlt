@@ -4,7 +4,6 @@ import type { TabId } from "./tabs";
 import { TAB_ORDER } from "./tabs";
 import { LaunchTab } from "./LaunchTab";
 import { KeepInGameTab } from "./KeepInGameTab";
-import { NotificationsTab } from "./NotificationsTab";
 import { AccountsTab } from "./AccountsTab";
 import { PrivacyTab } from "./PrivacyTab";
 import { UpdatesTab } from "./UpdatesTab";
@@ -74,7 +73,6 @@ export function TabContent({
           >
             {tab === "launch" && <LaunchTab s={s} />}
             {tab === "keep-in-game" && <KeepInGameTab s={s} />}
-            {tab === "notifications" && <NotificationsTab s={s} />}
             {tab === "accounts" && <AccountsTab s={s} />}
             {tab === "privacy" && (
               <PrivacyTab s={s} onRequestEncryptionSetup={onRequestEncryptionSetup} />

@@ -21,6 +21,8 @@ const PERMITIDOS: Record<string, string> = {
   "pages/SettingsPage.tsx: max-w-[760px]": "formulário: rótulo à esquerda, controle à direita",
   "pages/SettingsPage.tsx: 2xl:max-w-[920px]": "formulário, um pouco mais largo em tela grande",
   "pages/ChangelogPage.tsx: max-w-[880px]": "texto de leitura (notas de versão)",
+  "pages/DiscordPage.tsx: max-w-[760px]": "formulário: interruptor à esquerda, menção à direita (como a Settings)",
+  "pages/DiscordPage.tsx: 2xl:max-w-[920px]": "formulário, um pouco mais largo em tela grande",
   "afk-mode/RecordingsTab.tsx: max-w-3xl": "lista de passos do editor de gravação (formulário)",
   "afk-mode/RecordingsTab.tsx: max-w-5xl": "editor de gravação (formulário)",
 };

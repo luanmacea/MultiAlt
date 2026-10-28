@@ -14,7 +14,7 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 | Comandos (`get_all_settings`, `get_setting`, `update_setting`, tema, presets, fontes) | [data/settings/commands.rs](../../src-tauri/src/data/settings/commands.rs) |
 | Tema (`RAMTheme.ini`) e presets | [data/settings/theme.rs](../../src-tauri/src/data/settings/theme.rs), [data/settings/presets.rs](../../src-tauri/src/data/settings/presets.rs) |
 | Página e seções | [SettingsPage.tsx](../../src/components/pages/SettingsPage.tsx) (seções numa lista vertical), [tabs.tsx](../../src/components/settings/tabs.tsx) (ordem e ícones), [TabContent.tsx](../../src/components/settings/TabContent.tsx) |
-| Abas | [LaunchTab](../../src/components/settings/LaunchTab.tsx), [KeepInGameTab](../../src/components/settings/KeepInGameTab.tsx), [AccountsTab](../../src/components/settings/AccountsTab.tsx), [PrivacyTab](../../src/components/settings/PrivacyTab.tsx), [UpdatesTab](../../src/components/settings/UpdatesTab.tsx), [AppTab](../../src/components/settings/AppTab.tsx) (peças comuns em [settingsParts.tsx](../../src/components/settings/settingsParts.tsx)), [BackupsTab](../../src/components/settings/BackupsTab.tsx), [ChecksTab](../../src/components/settings/ChecksTab.tsx), [NotificationsTab](../../src/components/settings/NotificationsTab.tsx), [DeveloperTab](../../src/components/settings/DeveloperTab.tsx), [WebServerTab](../../src/components/settings/WebServerTab.tsx), [WatcherTab](../../src/components/settings/WatcherTab.tsx), [GeneratorTab](../../src/components/settings/GeneratorTab.tsx), [IsolationTab](../../src/components/settings/IsolationTab.tsx), [VersionsTab](../../src/components/settings/VersionsTab.tsx), [OptimizationTab](../../src/components/settings/OptimizationTab.tsx) |
+| Abas | [LaunchTab](../../src/components/settings/LaunchTab.tsx), [KeepInGameTab](../../src/components/settings/KeepInGameTab.tsx), [AccountsTab](../../src/components/settings/AccountsTab.tsx), [PrivacyTab](../../src/components/settings/PrivacyTab.tsx), [UpdatesTab](../../src/components/settings/UpdatesTab.tsx), [AppTab](../../src/components/settings/AppTab.tsx) (peças comuns em [settingsParts.tsx](../../src/components/settings/settingsParts.tsx)), [BackupsTab](../../src/components/settings/BackupsTab.tsx), [ChecksTab](../../src/components/settings/ChecksTab.tsx), [DeveloperTab](../../src/components/settings/DeveloperTab.tsx), [WebServerTab](../../src/components/settings/WebServerTab.tsx), [WatcherTab](../../src/components/settings/WatcherTab.tsx), [GeneratorTab](../../src/components/settings/GeneratorTab.tsx), [IsolationTab](../../src/components/settings/IsolationTab.tsx), [VersionsTab](../../src/components/settings/VersionsTab.tsx), [OptimizationTab](../../src/components/settings/OptimizationTab.tsx) |
 | Hook de leitura/escrita | [hooks/useSettings.ts](../../src/hooks/useSettings.ts) |
 | Cópia global na store | [store.tsx](../../src/store.tsx) (`settings`, `reloadSettings`) |
 
@@ -36,7 +36,6 @@ A página abre em **Launch**. Outra tela abre uma seção com `store.openSetting
 |---|---|---|
 | Launch | sempre | **Several accounts at once**: `General.EnableMultiRbx`, `ReserveSingletonEvent` (Windows), `AutoCloseRobloxForMultiRbx` (vinha de Misc); **Time between accounts**: `AsyncJoin`, `AccountJoinDelay`, `WaitForGameJoin` (Windows); **Before each launch**: `CheckModerationBeforeLaunch`, `WarnOnOnlineJoin`, `AutoCloseLastProcess` e `ShuffleJobId` (os dois vinham de Misc) |
 | Keep in game | sempre | `General.BottingEnabled` (Auto Rejoin) + linha "Auto Rejoin options" com botão **Open AFK Mode**; "Reconnect accounts that drop" **sem interruptor** — mostra se o padrão `General.AutoReconnect` está ligado e tem o botão **Change it on the Session page** (Windows); `General.KeepPcAwake`, `Afk.ShakeToStop` (Windows) |
-| Notifications | sempre | Avisos no Discord por webhook (`Webhook.*`, desligado por padrão), com o botão **Send test message** — ver [webhook.md](webhook.md) |
 | Accounts | sempre | **Account list**: `ShowPresence`, `PresenceUpdateRate` (vinha de Misc), `WrapLongNames`, `DisableAgingAlert`, `DisableImages`, `AutoCookieRefresh`; **Login browser**: `Login.PersistentProfile`, `Login.StealthMode`, `Login.ManualBinaryPath` e o cartão do navegador embutido |
 | Privacy & security | sempre | **Hidden names**: `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `ShowAccountNameOnWindow` (Windows); **Account file**: botão "Change Encryption Method" (vinha de Misc), `WarnOnCopyCredential`; **Password screen**: `LockOnInactivity`, `LockAfterMinutes`, "Stay signed in on this computer" (os três vinham de Misc), `RestrictedBackgroundStyle` |
 | Updates | sempre | `CheckForUpdates`, `UpdaterReleaseChannel`, `UpdaterFeatureChannel` e o cartão "Manual Update Check" |
@@ -241,7 +240,7 @@ A biblioteca de gravações e qual vale para cada conta em cada vaga (global e p
 
 ### `[Webhook]` — detalhes em [webhook.md](webhook.md)
 
-Seção Settings › **Notifications**. Avisos no Discord, **desligados** por padrão (os avisos saem do PC).
+Página **Discord alerts** (na barra lateral; até 27/10/2026 era a seção Settings › Notifications). Avisos, status ao vivo e resumo do dia no Discord, **desligados** por padrão (saem do PC).
 
 | Chave | Default | Significado |
 |---|---|---|
@@ -254,6 +253,20 @@ Seção Settings › **Notifications**. Avisos no Discord, **desligados** por pa
 | `NotifyReconnected` | `false` | A reconexão automática devolveu a conta ao jogo. |
 | `NotifyWrongAccount` | `true` | O cliente de uma conta entrou logado em outra conta do Roblox (a fila para; o cliente fica aberto). |
 | `NotifyLaunchFailed` | `false` | O launch de uma conta falhou (auth ticket ou abrir o cliente). |
+| `NotifyModerated` | `true` | O Roblox está bloqueando a conta (ban/análise); só na primeira vez. |
+| `NotifyBatchFinished` | `false` | Um lote de launch de 2+ contas terminou (abertas/falharam/canceladas). |
+| `NotifyMemoryClosed` | `true` | Um cliente foi fechado por memória (teto da Optimization ou mínimo do Watcher). |
+| `NotifySystemLowMemory` | `false` | O Windows ficou com menos de 10% de memória livre. |
+| `Mention<evento>` | `""` | Menção só daquele evento (ex.: `MentionModerated`), até 100 caracteres; vazia usa `Mention`. |
+| `QuietHours` | `false` | Horário silencioso: as mensagens saem sem menção. |
+| `QuietStart` / `QuietEnd` | `23:00` / `08:00` | Início e fim do horário silencioso (`HH:MM`, hora do PC; pode atravessar a meia-noite). O `update_setting` recusa outro formato. |
+| `QuietSkip` | `false` | No horário silencioso, não mandar os avisos (em vez de só tirar a menção). |
+| `StatusEnabled` | `false` | Status ao vivo: uma mensagem editada a cada `StatusInterval` minutos. |
+| `StatusInterval` | `5` | Minutos entre as edições do status (1–60). |
+| `StatusMessageId` | `""` | O id da mensagem do status (gravado pelo app; só dígitos). |
+| `SummaryEnabled` | `false` | Resumo do dia (tempo de jogo por conta e por jogo, quedas). |
+| `SummaryTime` | `23:00` | Hora do resumo (`HH:MM`). |
+| `MentionSummary` | `""` | Menção no resumo; vazia = sem menção. |
 | `MaskNames` | `false` | "Hide account names in messages": nome mascarado como no "Names hidden" (usa `General.HiddenNameLetters`), sem foto nem link do perfil. Desligado (padrão desde 15/10/2026), vai Alias ou Username com foto e link. Substituiu o `HideNames` (ligado), nunca publicado. |
 
 ### `[Generator]` / `[BloxGen]`

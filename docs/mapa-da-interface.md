@@ -40,6 +40,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 | ícone de paleta | `Theme`: editor de cores e fontes. |
 | ícone de camadas | `Nexus`: controle de clientes por script Lua (exige executor externo). |
 | ícone de teclado | `AFK Mode`: manda uma tecla de tempo em tempo para a janela de cada conta escolhida, para não perder o estado no jogo. **Cada envio dá o foco à janela do Roblox por um instante** — com "Keep Roblox windows out of sight" (ligado por padrão), uma janela minimizada ou coberta faz o turno dela sem aparecer; desligado, ela vem para a frente. Fica aceso enquanto o modo está mandando. |
+| ícone de sino | `Discord alerts`: avisos no Discord pelo webhook do próprio usuário (conta caiu, banida, lote terminado, memória...), com menção por evento e horário silencioso, mais uma mensagem de **status ao vivo** editada a cada N minutos e o **resumo do dia** com o tempo de jogo. Tudo desligado por padrão. Era a seção Settings › Notifications. Ver [webhook.md](features/webhook.md). |
 | ícone de camiseta | `Avatars`: monta avatares só com itens **oficiais gratuitos** do Roblox (aba Build, com sorteio) e os distribui entre as contas escolhidas (aba Distribute), pegando de graça as peças que faltam. Nunca gasta Robux; conta que o Roblox pede verificação é pulada. |
 | ícone de terminal | `Scripts`: automação em JavaScript **do próprio gerenciador**. |
 | ícone de engrenagem | `Settings`. |
