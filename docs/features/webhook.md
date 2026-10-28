@@ -168,7 +168,10 @@ lados). Defaults em `settings_store_tests`.
 
 ## Armadilhas / cuidados
 
-- **Não verificado com um Discord de verdade** pelo agente (sem rede nos testes): o dono confere
-  com o **Send test message** num canal dele.
+- **Testado com um Discord de verdade em 28/10/2026** (canal #logs do dono, build de teste):
+  mensagem de teste, status ao vivo editado na mesma mensagem com 2 contas em jogo, aviso de
+  lote terminado com a menção só dele, e a prévia do resumo. O teste achou um defeito: aviso sem
+  conta (lote, memória do Windows) mostrava "Place 123" em vez do nome do jogo, porque não havia
+  cookie de onde buscar o nome — agora usa o de qualquer conta salva (`webhook_cookie_order`).
 - A fila vive em memória: avisos ainda não enviados se perdem ao fechar o app.
 - Sem nome do jogo na mensagem: o backend não guarda o nome, só o Place ID que o log do cliente deu.

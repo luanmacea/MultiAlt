@@ -113,7 +113,10 @@ async fn webhook_game_names(
         return out;
     }
     let store = app.state::<AccountStore>();
-    let cookie = cookie_users.iter().find_map(|id| get_cookie(store.inner(), *id).ok());
+    let saved: Vec<i64> = store.get_all().unwrap_or_default().iter().map(|a| a.user_id).collect();
+    let cookie = webhook_cookie_order(cookie_users, &saved)
+        .into_iter()
+        .find_map(|id| get_cookie(store.inner(), id).ok());
     if let Ok(Ok(details)) =
         tokio::time::timeout(WEBHOOK_ENRICH_TIMEOUT, api::roblox::get_place_details(&missing, cookie.as_deref())).await
     {
@@ -124,6 +127,20 @@ async fn webhook_game_names(
                 }
                 out.insert(d.place_id, d.name);
             }
+        }
+    }
+    out
+}
+
+/// De quem pegar o cookie para o nome do jogo: as contas do aviso primeiro e,
+/// depois, qualquer conta salva. Aviso sem conta (lote de launch, memória do
+/// Windows) saía com "Place 123" porque não achava cookie (teste real,
+/// 28/10/2026).
+fn webhook_cookie_order(event_users: &[i64], saved: &[i64]) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::new();
+    for id in event_users.iter().chain(saved.iter()).copied().filter(|id| *id > 0) {
+        if !out.contains(&id) {
+            out.push(id);
         }
     }
     out
@@ -385,6 +402,15 @@ async fn send_test_webhook(app: tauri::AppHandle, url: String, mention: Option<S
 #[cfg(test)]
 mod webhook_glue_tests {
     use super::*;
+
+    #[test]
+    fn an_event_without_an_account_still_finds_a_cookie_for_the_game_name() {
+        // Lote de launch: user_id 0, então vale qualquer conta salva.
+        assert_eq!(webhook_cookie_order(&[0], &[7, 8]), vec![7, 8]);
+        // Com conta no aviso, ela vem primeiro, sem repetir.
+        assert_eq!(webhook_cookie_order(&[8, 0, 8], &[7, 8]), vec![8, 7]);
+        assert!(webhook_cookie_order(&[0], &[]).is_empty());
+    }
 
     #[test]
     fn names_are_masked_like_the_hidden_names_mode() {
