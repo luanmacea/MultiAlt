@@ -704,10 +704,16 @@ fn windows_client_overrides(
 
     let optimization_profile = platform::windows::load_optimization_profile(settings, profile);
     let fast_flags = if optimization_profile.experimental.enable_fast_flags {
-        match platform::windows::parse_allowlisted_fast_flags_json(
+        // Chave fora da lista do Roblox sai (ele a ignoraria); as outras valem.
+        match platform::windows::split_allowlisted_fast_flags_json(
             &optimization_profile.experimental.fast_flags_json,
         ) {
-            Ok(flags) => Some(flags),
+            Ok((flags, ignored)) => {
+                if !ignored.is_empty() {
+                    eprintln!("Ignored fast flags Roblox does not accept for {:?}: {}", profile, ignored.join(", "));
+                }
+                Some(flags)
+            }
             Err(err) => {
                 eprintln!("Skipped allowlisted fast flags for {:?}: {}", profile, err);
                 None

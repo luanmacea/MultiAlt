@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { X, AlertTriangle, Check, SkipForward, Loader2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
@@ -51,6 +51,10 @@ export function BulkCredentialsDialog({ open, onClose }: { open: boolean; onClos
 
   const [changePassword, setChangePassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
+  const [randomPassword, setRandomPassword] = useState(false);
+  // A senha aleatória que cada conta já recebeu nesta janela: o e-mail pede a
+  // senha da conta, e o "Retry failed" de um e-mail não troca a senha de novo.
+  const randomGiven = useRef(new Map<number, string>());
   const [changeEmail, setChangeEmail] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const [sharedCurrentPassword, setSharedCurrentPassword] = useState("");
@@ -63,6 +67,7 @@ export function BulkCredentialsDialog({ open, onClose }: { open: boolean; onClos
     changeEmail,
     newEmail,
     sharedCurrentPassword,
+    randomPassword,
   };
 
   const plan = useMemo(
@@ -121,16 +126,27 @@ export function BulkCredentialsDialog({ open, onClose }: { open: boolean; onClos
       setRows(new Map(next));
       try {
         if (changePassword && !passwordDone) {
-          await invoke("change_password", {
-            userId: step.userId,
-            currentPassword: step.currentPassword,
-            newPassword,
-          });
+          if (randomPassword) {
+            // Quem gera e grava é o backend (antes de ir ao Roblox, para a
+            // senha nunca se perder); volta só para o e-mail usar.
+            const given = await invoke<string>("change_password_random", {
+              userId: step.userId,
+              currentPassword: step.currentPassword,
+            });
+            randomGiven.current.set(step.userId, given);
+          } else {
+            await invoke("change_password", {
+              userId: step.userId,
+              currentPassword: step.currentPassword,
+              newPassword,
+            });
+          }
           passwordDone = true;
         }
         if (changeEmail) {
           // O e-mail pede a senha da conta: a nova, se ela já trocou.
-          const passForEmail = changePassword ? newPassword : step.currentPassword;
+          const newForThisAccount = randomPassword ? randomGiven.current.get(step.userId) : newPassword;
+          const passForEmail = changePassword && newForThisAccount ? newForThisAccount : step.currentPassword;
           await invoke("change_email", { userId: step.userId, password: passForEmail, newEmail });
         }
         next.set(step.userId, { kind: "done" });
@@ -200,6 +216,25 @@ export function BulkCredentialsDialog({ open, onClose }: { open: boolean; onClos
             {t("Change the password")}
           </label>
           {changePassword && (
+            <label className="flex items-start gap-2 pl-5 text-[13px] text-zinc-200">
+              <input
+                type="checkbox"
+                className="mt-[3px]"
+                aria-label={t("A different random password for each account")}
+                checked={randomPassword}
+                onChange={(e) => setRandomPassword(e.target.checked)}
+              />
+              <span>
+                {t("A different random password for each account")}
+                <span className="block text-[11px] theme-muted">
+                  {t(
+                    "Safer: 16 random letters and digits per account, saved in MultiAlt before Roblox is asked. Copy them from each account later."
+                  )}
+                </span>
+              </span>
+            </label>
+          )}
+          {changePassword && !randomPassword && (
             <input
               type="text"
               value={newPassword}

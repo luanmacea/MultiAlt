@@ -1778,6 +1778,101 @@ async fn change_password(
     Ok(())
 }
 
+/// Tamanho da senha aleatória da troca em massa.
+const RANDOM_PASSWORD_LEN: usize = 16;
+
+/// Letras e dígitos sem os que se confundem (0/O, 1/l/I): a pessoa pode ter
+/// de digitar a senha um dia. Sem `:` (separa usuário e senha nas listas).
+const RANDOM_PASSWORD_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+/// Uma senha nova para uma conta, do gerador do sistema: 16 caracteres com
+/// pelo menos uma maiúscula, uma minúscula e um dígito (~93 bits).
+fn random_account_password() -> String {
+    loop {
+        let mut bytes = [0u8; RANDOM_PASSWORD_LEN];
+        getrandom::fill(&mut bytes).expect("OS RNG unavailable");
+        // 256 não é múltiplo do alfabeto: sobra um viés mínimo, irrelevante
+        // aqui (o teto é o tamanho, não a distribuição perfeita).
+        let password: String = bytes
+            .iter()
+            .map(|b| RANDOM_PASSWORD_ALPHABET[*b as usize % RANDOM_PASSWORD_ALPHABET.len()] as char)
+            .collect();
+        let mixed = password.chars().any(|c| c.is_ascii_uppercase())
+            && password.chars().any(|c| c.is_ascii_lowercase())
+            && password.chars().any(|c| c.is_ascii_digit());
+        if mixed {
+            return password;
+        }
+    }
+}
+
+/// Troca a senha da conta por uma aleatória e devolve a nova. Cuidado
+/// triplicado (CLAUDE.md, "Senha guardada nunca se perde"): ninguém digitou
+/// esta senha, então ela não pode sumir.
+/// 1. A nova entra no histórico da conta **antes** de ir ao Roblox. Falhou ao
+///    gravar? Nada é pedido ao Roblox.
+/// 2. Roblox confirmou: ela vira a guardada (`persist_password_update`). Se essa
+///    gravação falhar, ela continua no histórico.
+/// 3. Roblox recusou com certeza (4xx, ou o pedido nem saiu): ela sai do
+///    histórico. Resposta perdida ou erro do servidor: fica, porque pode ser a
+///    que vale agora.
+async fn change_password_random_in(state: &AccountStore, user_id: i64, current_password: &str) -> Result<String, String> {
+    let new_password = random_account_password();
+    {
+        let mut account = get_account(state, user_id)?;
+        account.remember_possible_password(&new_password);
+        state.update(account)?;
+    }
+
+    let maybe_changed = std::sync::atomic::AtomicBool::new(false);
+    let result = run_with_session_retry(state, user_id, |cookie| {
+        let current_password = current_password.to_string();
+        let new_password = new_password.clone();
+        let maybe_changed = &maybe_changed;
+        async move {
+            api::auth::change_password_attempt(&cookie, &current_password, &new_password)
+                .await
+                .map_err(|failure| {
+                    if failure.maybe_changed {
+                        maybe_changed.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    failure.message
+                })
+        }
+    })
+    .await;
+
+    match result {
+        Ok(new_cookie) => {
+            if let Some(new_cookie) = new_cookie {
+                persist_cookie_update(state, user_id, &new_cookie)?;
+            }
+            persist_password_update(state, user_id, &new_password)?;
+            Ok(new_password)
+        }
+        Err(error) => {
+            if !maybe_changed.load(std::sync::atomic::Ordering::SeqCst) {
+                if let Ok(mut account) = get_account(state, user_id) {
+                    account.forget_refused_password(&new_password);
+                    let _ = state.update(account);
+                }
+            }
+            Err(error)
+        }
+    }
+}
+
+/// "A different random password for each account" da troca em massa. A senha
+/// volta para a tela só para o e-mail, que pede a senha da conta.
+#[tauri::command]
+async fn change_password_random(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+    current_password: String,
+) -> Result<String, String> {
+    change_password_random_in(state.inner(), user_id, &current_password).await
+}
+
 #[tauri::command]
 async fn change_email(
     state: tauri::State<'_, AccountStore>,
