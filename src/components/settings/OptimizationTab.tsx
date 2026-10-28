@@ -11,38 +11,20 @@ import { TextField } from "../ui/TextField";
 import { Toggle } from "../ui/Toggle";
 import { WarningBadge } from "../ui/WarningBadge";
 import { isWindowsPlatform } from "../../utils/platform";
+import { Plus, Check } from "lucide-react";
+import {
+  FAST_FLAG_INFO,
+  FAST_FLAG_PRESETS,
+  WINDOWS_FASTFLAG_ALLOWLIST,
+  addPresetToJson,
+  presetIsApplied,
+  unlistedFastFlags,
+} from "../../utils/fastFlagPresets";
 
 type OptimizationProfileId = "Normal" | "BottingPlayer" | "BottingBot";
 
-/**
- * Espelho de `WINDOWS_FASTFLAG_ALLOWLIST`
- * (`src-tauri/src/platform/windows/optimization.rs`).
- *
- * Por que espelhar em vez de expor por comando Tauri: a validacao precisa
- * acontecer enquanto o usuario digita, e a tela de Settings ja monta sem
- * depender de ida ao backend; um comando novo traria estado assincrono (carga,
- * falha, lista vazia no primeiro render) para uma lista de 15 strings que so
- * muda quando alguem edita o .rs. O preco do espelho e pago por
- * `fastFlagAllowlist.test.ts`, que le o proprio .rs e quebra a suite se as duas
- * listas divergirem.
- */
-export const WINDOWS_FASTFLAG_ALLOWLIST = [
-  "DFFlagTextureQualityOverrideEnabled",
-  "DFIntTextureQualityOverride",
-  "DFFlagDebugRenderForceTechnologyVoxel",
-  "DFFlagDebugRenderForceTechnologyFuture",
-  "DFFlagRenderForceLowQualityLightmaps",
-  "DFFlagDisableDPIScale",
-  "FFlagDebugGraphicsDisableDirect3D11",
-  "FFlagDebugGraphicsPreferD3D11FL10",
-  "FIntDebugForceMSAASamples",
-  "FFlagDebugSkyGray",
-  "DFFlagDebugPauseVoxelizer",
-  "DFFlagDebugRenderForceMoonAngularSize",
-  "DFIntDebugRenderForceMoonTextureSize",
-  "DFIntDebugFRMQualityLevelOverride",
-  "DFIntRenderShadowIntensity",
-] as const;
+// A lista oficial do Roblox e os padrões prontos moram em utils/fastFlagPresets.ts.
+export { WINDOWS_FASTFLAG_ALLOWLIST };
 
 function generalKey(profile: OptimizationProfileId, suffix: string): string {
   if (profile === "Normal") return suffix;
@@ -63,15 +45,8 @@ function optimizationJsonError(raw: string, enabled: boolean, t: (text: string) 
     if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
       return t("Allowlisted fast flags JSON must be a JSON object");
     }
-    // O backend recusa o JSON INTEIRO por uma chave fora da allowlist e
-    // `launch_shared.rs` engole o erro num `eprintln!` — sem esta checagem o
-    // toggle ficava ligado, o JSON salvo, e nada era aplicado.
-    const invalidKeys = Object.keys(parsed).filter(
-      (key) => !(WINDOWS_FASTFLAG_ALLOWLIST as readonly string[]).includes(key)
-    );
-    if (invalidKeys.length > 0) {
-      return `${t("Only Roblox allowlisted keys are accepted")}: ${invalidKeys.join(", ")}`;
-    }
+    // Chave fora da lista do Roblox não é erro: o launch a descarta e aplica
+    // o resto (aviso em `unlistedFastFlags`, abaixo do campo).
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return `${t("Invalid allowlisted fast flags JSON")}: ${detail}`;
@@ -497,6 +472,51 @@ function OptimizationProfileSection({
             {t("These settings are experimental and may stop working after Roblox updates")}
           </div>
 
+          {/* Padrões prontos (pedido do dono, 28/10/2026): o "+" junta as chaves
+              ao JSON deste perfil e liga as FastFlags. Ver utils/fastFlagPresets.ts. */}
+          <div className="px-1 pt-2 pb-1">
+            <div className="text-[13px] text-zinc-300">{t("Ready-made profiles")}</div>
+            <div className="text-[12px] text-zinc-500 leading-snug mt-0.5">
+              {t(
+                "Click + to add one to this profile. They only use flags Roblox still reads, take effect the next time an account opens, and you can edit the result below."
+              )}
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {FAST_FLAG_PRESETS.map((preset) => {
+                const applied = fastFlagsEnabled && presetIsApplied(fastFlagsJson, preset);
+                return (
+                  <div
+                    key={preset.id}
+                    data-testid={`fastflag-preset-${preset.id}`}
+                    className="flex flex-col gap-1.5 rounded-lg border border-zinc-800/70 bg-zinc-900/40 p-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[13px] font-medium text-zinc-200">{t(preset.name)}</span>
+                      <button
+                        type="button"
+                        disabled={customClientSettingsEnabled || applied}
+                        aria-label={`${t("Add")} ${t(preset.name)}`}
+                        title={applied ? t("Already in this profile") : t("Add to this profile")}
+                        onClick={() => {
+                          s.set(
+                            "Optimization",
+                            optimizationKey(profile, "FastFlagsJson"),
+                            addPresetToJson(fastFlagsJson, preset)
+                          );
+                          s.setBool("Optimization", optimizationKey(profile, "EnableFastFlags"), true);
+                        }}
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-zinc-700/70 bg-zinc-800 text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {applied ? <Check size={13} strokeWidth={2} /> : <Plus size={13} strokeWidth={2} />}
+                      </button>
+                    </div>
+                    <p className="text-[11px] leading-snug text-zinc-500">{t(preset.description)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <Toggle
             checked={fastFlagsEnabled}
             onChange={(v) =>
@@ -531,13 +551,20 @@ function OptimizationProfileSection({
                   : "Requires Enable allowlisted fast flags"
             }
           />
-          {/* O usuario tinha que adivinhar as chaves aceitas: a allowlist fica a vista. */}
+          {fastFlagsEnabled && !fastFlagsError && unlistedFastFlags(fastFlagsJson).length > 0 && (
+            <p className="px-1 pb-1 text-[12px] text-amber-400/80">
+              {t("Roblox ignores these, so they are left out at launch")}: {unlistedFastFlags(fastFlagsJson).join(", ")}
+            </p>
+          )}
+          {/* O usuario tinha que adivinhar as chaves aceitas: a allowlist fica a vista,
+              com o que cada uma faz no tooltip. */}
           <div className="px-1 pb-2">
-            <div className="text-[12px] text-zinc-500">{t("Keys accepted by the launcher")}</div>
+            <div className="text-[12px] text-zinc-500">{t("Keys Roblox still reads (hover for what each does)")}</div>
             <div className="mt-1 flex flex-wrap gap-1">
               {WINDOWS_FASTFLAG_ALLOWLIST.map((key) => (
                 <code
                   key={key}
+                  title={t(FAST_FLAG_INFO[key] ?? "")}
                   className="rounded border border-zinc-800/70 bg-zinc-900/60 px-1.5 py-0.5 text-[11px] text-zinc-400"
                 >
                   {key}

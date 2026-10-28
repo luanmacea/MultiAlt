@@ -641,7 +641,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   performance: {
-    description: "Desempenho enquanto joga: otimização que segue a janela em uso, fundo mudo (live-audio), grade menor e sem moldura",
+    description: "Desempenho enquanto joga: otimização que segue a janela em uso, fundo mudo (live-audio), grade menor e sem moldura, FastFlags (lista do Roblox e perfis prontos)",
     rust: [
       "focus_follow_tests",
       "win_optimization_tests",
@@ -657,7 +657,12 @@ export const SUITES: Record<string, TestSuite> = {
       "settings_on_exit_tests",
       "settings_record_tests",
     ],
-    front: ["src/components/settings/settingsTabs.test.tsx", "src/components/console/WindowGridCard.test.tsx"],
+    front: [
+      "src/components/settings/settingsTabs.test.tsx",
+      "src/components/console/WindowGridCard.test.tsx",
+      // FastFlags: a lista oficial do Roblox e os perfis prontos com "+".
+      "src/utils/fastFlagPresets.test.ts",
+    ],
   },
   release: {
     description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",

@@ -1177,18 +1177,18 @@ describe("OptimizationTab", () => {
     expect(screen.queryByRole("switch", { name: /Free memory from the windows you're not using/ })).not.toBeInTheDocument();
   });
 
-  it("rejects a fast flag key that is not on the backend allowlist", async () => {
+  /** Chave fora da lista do Roblox: aviso, e o launch aplica o resto (28/10/2026). */
+  it("warns about a fast flag key Roblox ignores without refusing the JSON", async () => {
     renderOptimization({
       Optimization: {
         NormalEnableFastFlags: "true",
-        NormalFastFlagsJson: '{"FFlagMadeUpByTheUser": true}',
+        NormalFastFlagsJson: '{"FFlagMadeUpByTheUser": true, "FFlagDebugSkyGray": "True"}',
       },
     });
     expect(
-      await screen.findByText(
-        "Only Roblox allowlisted keys are accepted: FFlagMadeUpByTheUser"
-      )
+      await screen.findByText(/Roblox ignores these, so they are left out at launch: FFlagMadeUpByTheUser/)
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Invalid allowlisted fast flags JSON/)).not.toBeInTheDocument();
   });
 
   it("accepts a JSON whose keys are all on the allowlist", async () => {
@@ -1199,15 +1199,33 @@ describe("OptimizationTab", () => {
       },
     });
     await screen.findByLabelText("Allowlisted fast flags JSON");
-    expect(
-      screen.queryByText(/Only Roblox allowlisted keys are accepted:/)
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Roblox ignores these/)).not.toBeInTheDocument();
   });
 
-  it("shows which keys the backend accepts instead of making the user guess", async () => {
+  it("shows the keys Roblox still reads, with what each one does", async () => {
     renderOptimization(FAST_FLAGS_ON);
-    expect(await screen.findByText("DFFlagTextureQualityOverrideEnabled")).toBeInTheDocument();
-    expect(screen.getByText("DFIntRenderShadowIntensity")).toBeInTheDocument();
+    const key = await screen.findByText("FIntFRMMaxGrassDistance");
+    expect(key).toHaveAttribute("title", "How far grass is drawn. 0 = no grass.");
+    // Fora da lista oficial do Roblox (DevForum, 29/09/2025): não aparece mais.
+    expect(screen.queryByText("DFIntRenderShadowIntensity")).not.toBeInTheDocument();
+  });
+
+  /** Pedido do dono (28/10/2026): "quem entende pouco clica no + e pronto". */
+  it("the + adds a ready-made profile to this profile's JSON and turns fast flags on", async () => {
+    renderOptimization({
+      Optimization: { NormalEnableFastFlags: "false", NormalFastFlagsJson: '{"FFlagHandleAltEnterFullscreenManually": "False"}' },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Add Nuke rendering" }));
+    await expectSaved("Optimization", "NormalEnableFastFlags", "true");
+    const saved = invokeMock.mock.calls
+      .filter((c) => c[0] === "update_setting" && (c[1] as { key: string }).key === "NormalFastFlagsJson")
+      .map((c) => JSON.parse((c[1] as { value: string }).value))
+      .pop();
+    expect(saved).toMatchObject({
+      FFlagHandleAltEnterFullscreenManually: "False",
+      DFIntTextureQualityOverride: "0",
+      FFlagDebugSkyGray: "True",
+    });
   });
 
   /**
