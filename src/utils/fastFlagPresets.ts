@@ -150,3 +150,184 @@ export function unlistedFastFlags(json: string): string[] {
   if (!current) return [];
   return Object.keys(current).filter((key) => !(WINDOWS_FASTFLAG_ALLOWLIST as readonly string[]).includes(key));
 }
+
+/**
+ * Controles simples (como o Bloxstrap e o Fishstrap): um menu por coisa, que
+ * grava as chaves dele no mesmo JSON do perfil. "Automatic" tira as chaves (o
+ * Roblox decide). Um valor digitado à mão que não é de nenhuma opção aparece
+ * como "Custom" e só muda se a pessoa escolher outra opção.
+ */
+export interface FastFlagControlOption {
+  id: string;
+  /** Chave de tradução (inglês). */
+  label: string;
+  flags: Record<string, string>;
+}
+
+export interface FastFlagControl {
+  id: "textures" | "msaa" | "quality" | "models" | "grass" | "lighting" | "sky" | "api";
+  label: string;
+  description: string;
+  /**
+   * Para que lado fica mais leve, em poucas palavras (pedido do dono,
+   * 28/10/2026: "quanto menor, mais rápido"). Aparece ao lado do nome.
+   */
+  hint: string;
+  /** As chaves que este controle é dono (as que "Automatic" tira). */
+  keys: string[];
+  options: FastFlagControlOption[];
+}
+
+const CSG_KEYS = [
+  "DFIntCSGLevelOfDetailSwitchingDistance",
+  "DFIntCSGLevelOfDetailSwitchingDistanceL12",
+  "DFIntCSGLevelOfDetailSwitchingDistanceL23",
+  "DFIntCSGLevelOfDetailSwitchingDistanceL34",
+];
+
+const csg = (values: number[]): Record<string, string> =>
+  Object.fromEntries(CSG_KEYS.map((key, i) => [key, String(values[i])]));
+
+export const FAST_FLAG_CONTROLS: FastFlagControl[] = [
+  {
+    id: "textures",
+    hint: "Lower = lighter",
+    label: "Texture quality",
+    description: "Lower textures look blurry but use much less video memory.",
+    keys: ["DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride"],
+    options: [
+      { id: "auto", label: "Automatic", flags: {} },
+      ...[
+        ["lowest", "Lowest", "0"],
+        ["low", "Low", "1"],
+        ["medium", "Medium", "2"],
+        ["high", "High", "3"],
+      ].map(([id, label, level]) => ({
+        id,
+        label,
+        flags: { DFFlagTextureQualityOverrideEnabled: "True", DFIntTextureQualityOverride: level },
+      })),
+    ],
+  },
+  {
+    id: "msaa",
+    hint: "Off = lightest",
+    label: "Anti-aliasing",
+    description: "Smooths the edges of objects. Off is the lightest.",
+    keys: ["FIntDebugForceMSAASamples"],
+    options: [
+      { id: "auto", label: "Automatic", flags: {} },
+      { id: "off", label: "Off", flags: { FIntDebugForceMSAASamples: "0" } },
+      { id: "1", label: "1x", flags: { FIntDebugForceMSAASamples: "1" } },
+      { id: "2", label: "2x", flags: { FIntDebugForceMSAASamples: "2" } },
+      { id: "4", label: "4x", flags: { FIntDebugForceMSAASamples: "4" } },
+    ],
+  },
+  {
+    id: "quality",
+    hint: "Lower = faster",
+    label: "Graphics quality",
+    description: "Forces the graphics level, from 1 (lowest) to 21 (highest), whatever the in-game slider says.",
+    keys: ["DFIntDebugFRMQualityLevelOverride"],
+    options: [
+      { id: "auto", label: "Automatic", flags: {} },
+      ...["1", "3", "5", "10", "15", "21"].map((level) => ({
+        id: level,
+        label: level === "1" ? "1 (lowest)" : level === "21" ? "21 (highest)" : level,
+        flags: { DFIntDebugFRMQualityLevelOverride: level },
+      })),
+    ],
+  },
+  {
+    id: "models",
+    hint: "Lower = faster",
+    label: "Model detail",
+    description: "How soon parts switch to a simpler model. Lowest uses the simplest model everywhere.",
+    keys: CSG_KEYS,
+    options: [
+      { id: "auto", label: "Automatic", flags: {} },
+      { id: "lowest", label: "Lowest", flags: csg([0, 0, 0, 0]) },
+      // Os níveis do Fishstrap: (clamp(q - i, 0, 3) + 1) * 250.
+      { id: "low", label: "Low", flags: csg([250, 250, 250, 250]) },
+      { id: "medium", label: "Medium", flags: csg([750, 500, 250, 250]) },
+      { id: "high", label: "High", flags: csg([1000, 750, 500, 250]) },
+    ],
+  },
+  {
+    id: "grass",
+    hint: "Off = faster",
+    label: "Grass",
+    description: "Turning grass off saves a lot in open maps.",
+    keys: ["FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance", "FIntGrassMovementReducedMotionFactor"],
+    options: [
+      { id: "auto", label: "Automatic", flags: {} },
+      {
+        id: "off",
+        label: "Off",
+        flags: { FIntFRMMinGrassDistance: "0", FIntFRMMaxGrassDistance: "0", FIntGrassMovementReducedMotionFactor: "0" },
+      },
+      { id: "still", label: "Still (no movement)", flags: { FIntGrassMovementReducedMotionFactor: "0" } },
+    ],
+  },
+  {
+    id: "lighting",
+    hint: "Paused = faster",
+    label: "Lighting updates",
+    description: "Paused stops recalculating light and shadows: big FPS gain, but lighting may look frozen.",
+    keys: ["DFFlagDebugPauseVoxelizer"],
+    options: [
+      { id: "auto", label: "Automatic", flags: {} },
+      { id: "paused", label: "Paused", flags: { DFFlagDebugPauseVoxelizer: "True" } },
+    ],
+  },
+  {
+    id: "sky",
+    hint: "Gray = a bit lighter",
+    label: "Sky",
+    description: "A plain gray sky instead of the game's skybox.",
+    keys: ["FFlagDebugSkyGray"],
+    options: [
+      { id: "auto", label: "Automatic", flags: {} },
+      { id: "gray", label: "Gray", flags: { FFlagDebugSkyGray: "True" } },
+    ],
+  },
+  {
+    id: "api",
+    hint: "Depends on your PC",
+    label: "Graphics API",
+    description: "Leave it on Automatic unless Roblox runs badly. Vulkan can help or close the game depending on the graphics card.",
+    keys: ["FFlagDebugGraphicsPreferD3D11", "FFlagDebugGraphicsPreferVulkan", "FFlagDebugGraphicsPreferOpenGL"],
+    options: [
+      { id: "auto", label: "Automatic", flags: {} },
+      { id: "d3d11", label: "Direct3D 11", flags: { FFlagDebugGraphicsPreferD3D11: "True" } },
+      { id: "vulkan", label: "Vulkan", flags: { FFlagDebugGraphicsPreferVulkan: "True" } },
+      { id: "opengl", label: "OpenGL", flags: { FFlagDebugGraphicsPreferOpenGL: "True" } },
+    ],
+  },
+];
+
+/** Qual opção do controle está no JSON: "auto" sem nenhuma chave dele, "custom" se não bate com nenhuma. */
+export function readControl(json: string, control: FastFlagControl): string {
+  const current = parseObject(json.trim()) ?? {};
+  const present = control.keys.filter((key) => key in current);
+  if (present.length === 0) return "auto";
+  const match = control.options.find(
+    (option) =>
+      Object.keys(option.flags).length === present.length &&
+      Object.entries(option.flags).every(([key, value]) => key in current && String(current[key]) === value)
+  );
+  return match?.id ?? "custom";
+}
+
+/** Grava a opção: tira as chaves do controle e põe as da opção; as outras chaves do JSON ficam. */
+export function writeControl(json: string, control: FastFlagControl, optionId: string): string {
+  const current = parseObject(json.trim()) ?? {};
+  const option = control.options.find((o) => o.id === optionId);
+  if (!option) return JSON.stringify(current, null, 2);
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(current)) {
+    if (!control.keys.includes(key)) next[key] = value;
+  }
+  Object.assign(next, option.flags);
+  return JSON.stringify(next, null, 2);
+}
