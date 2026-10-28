@@ -64,6 +64,15 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
                     serde_json::json!({ "userId": user_id, "group": MODERATED_GROUP }),
                 );
                 record_moderated_history(app, user_id);
+                // Só na primeira vez (a conta acabou de ir para o grupo): o
+                // aviso não se repete a cada launch recusado.
+                notify_webhook(
+                    app,
+                    WebhookEventKind::Moderated,
+                    user_id,
+                    Some(WebhookReason::Banned),
+                    webhook_place_of(user_id),
+                );
             }
         }
     }

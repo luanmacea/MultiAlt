@@ -107,6 +107,7 @@ export type AppPage =
   | "session"
   | "console"
   | "afk"
+  | "discord"
   | "avatars"
   | "groups"
   | "scripts"

@@ -509,7 +509,19 @@ impl SettingsStore {
             ("NotifyNotResponding", "true"),
             ("NotifyLaunchFailed", "false"),
             ("NotifyWrongAccount", "true"),
+            ("NotifyModerated", "true"),
+            ("NotifyBatchFinished", "false"),
+            ("NotifyMemoryClosed", "true"),
+            ("NotifySystemLowMemory", "false"),
             ("MaskNames", "false"),
+            ("QuietHours", "false"),
+            ("QuietStart", "23:00"),
+            ("QuietEnd", "08:00"),
+            ("QuietSkip", "false"),
+            ("StatusEnabled", "false"),
+            ("StatusInterval", "5"),
+            ("SummaryEnabled", "false"),
+            ("SummaryTime", "23:00"),
         ];
         let webhook = ini.section("Webhook");
         for (key, value) in webhook_defaults {
