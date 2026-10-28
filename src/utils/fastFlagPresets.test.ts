@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { WINDOWS_FASTFLAG_ALLOWLIST } from "../components/settings/OptimizationTab";
-import { FAST_FLAG_INFO, FAST_FLAG_PRESETS, addPresetToJson, presetIsApplied, unlistedFastFlags } from "./fastFlagPresets";
+import {
+  FAST_FLAG_CONTROLS,
+  FAST_FLAG_INFO,
+  FAST_FLAG_PRESETS,
+  addPresetToJson,
+  presetIsApplied,
+  readControl,
+  unlistedFastFlags,
+  writeControl,
+} from "./fastFlagPresets";
 
 describe("fast flag presets", () => {
   it("only use flags Roblox still reads", () => {
@@ -39,6 +48,53 @@ describe("fast flag presets", () => {
     expect(JSON.parse(addPresetToJson("", more))).toEqual(more.flags);
     expect(JSON.parse(addPresetToJson("{oops", more))).toEqual(more.flags);
     expect(presetIsApplied("", more)).toBe(false);
+  });
+
+  it("simple controls only write flags Roblox still reads", () => {
+    for (const control of FAST_FLAG_CONTROLS) {
+      for (const key of control.keys) {
+        expect(WINDOWS_FASTFLAG_ALLOWLIST, `${control.id}: ${key}`).toContain(key);
+      }
+      expect(control.options[0].id, control.id).toBe("auto");
+    }
+  });
+
+  /** Como o Bloxstrap e o Fishstrap: um menu por coisa, sem digitar JSON (28/10/2026). */
+  it("a simple control writes its keys, reads them back and Automatic removes them", () => {
+    const textures = FAST_FLAG_CONTROLS.find((c) => c.id === "textures")!;
+    let json = writeControl('{"FFlagDebugSkyGray":"True"}', textures, "lowest");
+    expect(JSON.parse(json)).toEqual({
+      FFlagDebugSkyGray: "True",
+      DFFlagTextureQualityOverrideEnabled: "True",
+      DFIntTextureQualityOverride: "0",
+    });
+    expect(readControl(json, textures)).toBe("lowest");
+    json = writeControl(json, textures, "auto");
+    expect(JSON.parse(json)).toEqual({ FFlagDebugSkyGray: "True" });
+    expect(readControl(json, textures)).toBe("auto");
+    // Valor digitado à mão que não é de nenhuma opção.
+    expect(readControl('{"DFIntTextureQualityOverride":"7"}', textures)).toBe("custom");
+  });
+
+  it("the graphics API keeps only one of Direct3D, Vulkan and OpenGL", () => {
+    const api = FAST_FLAG_CONTROLS.find((c) => c.id === "api")!;
+    let json = writeControl("", api, "vulkan");
+    json = writeControl(json, api, "opengl");
+    expect(JSON.parse(json)).toEqual({ FFlagDebugGraphicsPreferOpenGL: "True" });
+  });
+
+  it("the Nuke rendering profile reads as the lowest option on every control it touches", () => {
+    const nuke = FAST_FLAG_PRESETS.find((p) => p.id === "nuke")!;
+    const json = addPresetToJson("", nuke);
+    const read = (id: string) => readControl(json, FAST_FLAG_CONTROLS.find((c) => c.id === id)!);
+    expect(read("textures")).toBe("lowest");
+    expect(read("msaa")).toBe("off");
+    expect(read("quality")).toBe("1");
+    expect(read("models")).toBe("lowest");
+    expect(read("grass")).toBe("off");
+    expect(read("lighting")).toBe("paused");
+    expect(read("sky")).toBe("gray");
+    expect(read("api")).toBe("auto");
   });
 
   it("lists the keys Roblox would ignore without blocking the rest", () => {

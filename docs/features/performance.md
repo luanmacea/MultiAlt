@@ -294,6 +294,16 @@ e o "Restore Roblox settings" as devolve (acima).
   - **More FPS:** sem MSAA, sem grama, iluminação parada — texturas e modelos
     ficam;
   - **Less video memory:** texturas 0 e sem MSAA.
+- **Menus simples** (como o Bloxstrap e o Fishstrap, `FAST_FLAG_CONTROLS`): qualidade
+  das texturas, anti-aliasing, qualidade gráfica (1–21), detalhe dos modelos (níveis
+  do Fishstrap: `(clamp(q - i, 0, 3) + 1) * 250`, mais o "Mínimo" em 0), grama,
+  atualização da iluminação, céu e API gráfica (só uma das três). Cada menu grava as
+  chaves dele no **mesmo JSON** (`writeControl`) e lê o estado de lá (`readControl`):
+  **Automatic** tira as chaves, valor digitado à mão vira **Custom**. Ao lado do
+  nome, uma dica de direção ("Menor = mais leve", "Desligado = mais rápido"; pedido
+  do dono, 28/10/2026). Escolher uma opção liga as FastFlags do perfil.
+- A seção é **Graphics (FastFlags)**, acima de "Experimental / Danger"; o JSON fica
+  fechado em "Edit the JSON by hand (advanced)".
 - As chaves da lista aparecem com o que cada uma faz no tooltip (`FAST_FLAG_INFO`).
 - **Valem ao abrir o cliente.** O Roblox lê o arquivo uma vez, quando o cliente
   abre: mudar com a conta já no jogo só vale no próximo launch. Mexer num cliente

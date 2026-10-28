@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, type ReactNode } from "react";
 
@@ -1208,6 +1208,21 @@ describe("OptimizationTab", () => {
     expect(key).toHaveAttribute("title", "How far grass is drawn. 0 = no grass.");
     // Fora da lista oficial do Roblox (DevForum, 29/09/2025): não aparece mais.
     expect(screen.queryByText("DFIntRenderShadowIntensity")).not.toBeInTheDocument();
+  });
+
+  /** Menus simples como os do Fishstrap, com a dica "para que lado fica leve" (28/10/2026). */
+  it("a simple menu writes its flags and says which way is lighter", async () => {
+    renderOptimization({ Optimization: { NormalEnableFastFlags: "false", NormalFastFlagsJson: "" } });
+    const row = await screen.findByTestId("fastflag-control-textures");
+    expect(row).toHaveTextContent("Lower = lighter");
+    await userEvent.click(screen.getByRole("button", { name: "Texture quality" }));
+    await userEvent.click(await within(row).findByRole("button", { name: "Lowest" }));
+    await expectSaved("Optimization", "NormalEnableFastFlags", "true");
+    const saved = invokeMock.mock.calls
+      .filter((c) => c[0] === "update_setting" && (c[1] as { key: string }).key === "NormalFastFlagsJson")
+      .map((c) => JSON.parse((c[1] as { value: string }).value))
+      .pop();
+    expect(saved).toEqual({ DFFlagTextureQualityOverrideEnabled: "True", DFIntTextureQualityOverride: "0" });
   });
 
   /** Pedido do dono (28/10/2026): "quem entende pouco clica no + e pronto". */

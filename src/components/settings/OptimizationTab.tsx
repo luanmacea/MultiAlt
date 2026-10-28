@@ -13,12 +13,15 @@ import { WarningBadge } from "../ui/WarningBadge";
 import { isWindowsPlatform } from "../../utils/platform";
 import { Plus, Check } from "lucide-react";
 import {
+  FAST_FLAG_CONTROLS,
   FAST_FLAG_INFO,
   FAST_FLAG_PRESETS,
   WINDOWS_FASTFLAG_ALLOWLIST,
   addPresetToJson,
   presetIsApplied,
+  readControl,
   unlistedFastFlags,
+  writeControl,
 } from "../../utils/fastFlagPresets";
 
 type OptimizationProfileId = "Normal" | "BottingPlayer" | "BottingBot";
@@ -463,22 +466,32 @@ function OptimizationProfileSection({
           </div>
 
           <Divider />
-          <div className="flex items-center px-1 pt-3 pb-1">
-            <SectionLabel>Experimental / Danger</SectionLabel>
-            <WarningBadge>advanced</WarningBadge>
+          <SectionLabel>Graphics (FastFlags)</SectionLabel>
+          <div className="px-1 pt-1 text-[12px] text-zinc-500 leading-snug">
+            {t(
+              "Lighter graphics for this profile. Only the settings Roblox still reads are offered, and they take effect the next time an account opens."
+            )}
           </div>
-
-          <div className="px-1 pt-1 text-[12px] text-amber-400/80">
-            {t("These settings are experimental and may stop working after Roblox updates")}
-          </div>
-
+          <Toggle
+            checked={fastFlagsEnabled}
+            onChange={(v) =>
+              s.setBool("Optimization", optimizationKey(profile, "EnableFastFlags"), v)
+            }
+            disabled={customClientSettingsEnabled}
+            label="Enable allowlisted fast flags"
+            description={
+              customClientSettingsEnabled
+                ? "Custom ClientSettings disables generated fast flags for this profile"
+                : "Only Roblox allowlisted keys are accepted"
+            }
+          />
           {/* Padrões prontos (pedido do dono, 28/10/2026): o "+" junta as chaves
               ao JSON deste perfil e liga as FastFlags. Ver utils/fastFlagPresets.ts. */}
           <div className="px-1 pt-2 pb-1">
             <div className="text-[13px] text-zinc-300">{t("Ready-made profiles")}</div>
             <div className="text-[12px] text-zinc-500 leading-snug mt-0.5">
               {t(
-                "Click + to add one to this profile. They only use flags Roblox still reads, take effect the next time an account opens, and you can edit the result below."
+                "Click + to add one to this profile. They only use flags Roblox still reads, take effect the next time an account opens, and you can change each one below."
               )}
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -517,19 +530,53 @@ function OptimizationProfileSection({
             </div>
           </div>
 
-          <Toggle
-            checked={fastFlagsEnabled}
-            onChange={(v) =>
-              s.setBool("Optimization", optimizationKey(profile, "EnableFastFlags"), v)
-            }
-            disabled={customClientSettingsEnabled}
-            label="Enable allowlisted fast flags"
-            description={
-              customClientSettingsEnabled
-                ? "Custom ClientSettings disables generated fast flags for this profile"
-                : "Only Roblox allowlisted keys are accepted"
-            }
-          />
+          {/* Menus simples, como o Bloxstrap e o Fishstrap: cada um grava as
+              chaves dele no mesmo JSON. A dica ao lado do nome diz para que lado
+              fica mais leve (pedido do dono, 28/10/2026). */}
+          <div className="px-1 pt-3 pb-1">
+            <div className="text-[13px] text-zinc-300">{t("Or pick each one")}</div>
+            <div className="text-[12px] text-zinc-500 leading-snug mt-0.5">
+              {t("Automatic leaves it to Roblox.")}
+            </div>
+          </div>
+          {FAST_FLAG_CONTROLS.map((control) => {
+            const current = readControl(fastFlagsJson, control);
+            const options = control.options.map((o) => ({ value: o.id, label: o.label }));
+            if (current === "custom") options.push({ value: "custom", label: "Custom" });
+            return (
+              <div key={control.id} className="flex items-start gap-3 px-1 py-2" data-testid={`fastflag-control-${control.id}`}>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 text-[13px] text-zinc-300">
+                    {t(control.label)}
+                    <span className="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[11px] text-emerald-400/90">
+                      {t(control.hint)}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[12px] text-zinc-500 leading-snug">{t(control.description)}</div>
+                </div>
+                <div className="ml-auto w-[170px] shrink-0">
+                  <Select
+                    ariaLabel={control.label}
+                    disabled={customClientSettingsEnabled}
+                    value={current}
+                    onChange={(value) => {
+                      if (value === "custom") return;
+                      s.set("Optimization", optimizationKey(profile, "FastFlagsJson"), writeControl(fastFlagsJson, control, value));
+                      s.setBool("Optimization", optimizationKey(profile, "EnableFastFlags"), true);
+                    }}
+                    options={options}
+                  />
+                </div>
+              </div>
+            );
+          })}
+
+          {/* O JSON fica para quem quer mexer à mão, fechado por padrão. */}
+          <details className="px-1 py-2 group">
+            <summary className="cursor-pointer select-none text-[13px] text-zinc-400 hover:text-zinc-300">
+              {t("Edit the JSON by hand (advanced)")}
+            </summary>
+            <div className="pt-1">
           <TextAreaField
             value={fastFlagsJson}
             onChange={(value) =>
@@ -571,6 +618,18 @@ function OptimizationProfileSection({
                 </code>
               ))}
             </div>
+          </div>
+            </div>
+          </details>
+
+          <Divider />
+          <div className="flex items-center px-1 pt-3 pb-1">
+            <SectionLabel>Experimental / Danger</SectionLabel>
+            <WarningBadge>advanced</WarningBadge>
+          </div>
+
+          <div className="px-1 pt-1 text-[12px] text-amber-400/80">
+            {t("These settings are experimental and may stop working after Roblox updates")}
           </div>
 
           <Toggle
