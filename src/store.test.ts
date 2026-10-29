@@ -2812,6 +2812,7 @@ describe("updates", () => {
         CheckForUpdates: "false",
         UpdaterReleaseChannel: "STABLE",
         UpdaterFeatureChannel: "nexus",
+        UpdaterFeatureChannelChosen: "true",
       },
     };
     const { result } = await renderStore();
@@ -2886,7 +2887,7 @@ describe("updates", () => {
   });
 
   it("the automatic check never asks for an edition switch", async () => {
-    settingsData = { General: { CheckForUpdates: "true", UpdaterFeatureChannel: "nexus-ws" } };
+    settingsData = { General: { CheckForUpdates: "true", UpdaterFeatureChannel: "nexus-ws", UpdaterFeatureChannelChosen: "true" } };
     const { result } = await renderStore();
 
     await act(async () => {
@@ -2918,11 +2919,10 @@ describe("updates", () => {
     });
 
     expect(opened).toBe(true);
-    expect(lastArgs("update_setting")).toEqual({
-      section: "General",
-      key: "UpdaterFeatureChannel",
-      value: "nexus-ws",
-    });
+    const writes = invokeMock.mock.calls.filter((c) => c[0] === "update_setting").map((c) => c[1]);
+    expect(writes).toContainEqual({ section: "General", key: "UpdaterFeatureChannel", value: "nexus-ws" });
+    // Escolha de propósito: as próximas atualizações continuam na completa.
+    expect(writes).toContainEqual({ section: "General", key: "UpdaterFeatureChannelChosen", value: "true" });
     expect(lastArgs("check_for_updates_with_channels")).toEqual({
       releaseChannel: "stable",
       featureChannel: "nexus-ws",

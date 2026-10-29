@@ -714,6 +714,7 @@ pub fn run() {
             set_app_locked,
             send_test_webhook,
             send_discord_status_now,
+            get_running_feature_channel,
             live_accounts,
             live_tiles,
             set_live_accounts,

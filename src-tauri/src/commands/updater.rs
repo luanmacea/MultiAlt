@@ -64,6 +64,13 @@ pub(crate) const RUNNING_FEATURE_CHANNEL: &str =
         "standard"
     };
 
+/// A edição deste binário, para a tela: sem escolha em Settings › Updates, o
+/// updater segue esta.
+#[tauri::command]
+fn get_running_feature_channel() -> &'static str {
+    RUNNING_FEATURE_CHANNEL
+}
+
 /// A versão do manifesto conta como atualização?
 ///
 /// Normalmente só uma versão maior. A exceção é a troca de edição pedida pela
@@ -224,8 +231,10 @@ async fn check_for_updates_with_channels(
     let normalized_release = normalize_updater_release_channel(
         release_channel.as_deref().unwrap_or("beta"),
     );
+    // Sem escolha da pessoa, a edição instalada (antes: "standard", e quem
+    // tinha a completa atualizava para a padrão sem saber).
     let normalized_feature = normalize_updater_feature_channel(
-        feature_channel.as_deref().unwrap_or("standard"),
+        feature_channel.as_deref().filter(|c| !c.trim().is_empty()).unwrap_or(RUNNING_FEATURE_CHANNEL),
     );
 
     let primary_update = primary_channel_result(

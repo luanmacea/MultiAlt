@@ -50,7 +50,7 @@ O botão do cartão chama `switchToCompleteEdition` no store:
 
 O MSI das duas edições tem o mesmo `upgradeCode` e o template ([wix-peruser.wxs](../../src-tauri/wix-peruser.wxs)) usa `MajorUpgrade` com `AllowDowngrades="yes"` (o padrão do Tauri, `allowDowngrades: true`): o instalador da outra edição, na mesma versão, **substitui** o instalado em vez de instalar ao lado.
 
-Instalação nova: o default de `UpdaterFeatureChannel` é a edição que está rodando — quem instalou a completa recebe a completa.
+Sem escolha de propósito (`UpdaterFeatureChannelChosen` ≠ `true`), o updater segue a edição que está rodando: quem instalou a completa recebe a completa, mesmo com um `UpdaterFeatureChannel = standard` deixado no INI por uma instalação anterior da padrão (relato do dono, 28/10/2026). O botão acima grava as duas chaves.
 
 ## Endpoints usados
 

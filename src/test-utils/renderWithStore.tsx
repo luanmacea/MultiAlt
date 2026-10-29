@@ -388,6 +388,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     setNexusOpen: vi.fn(),
     setScriptsOpen: vi.fn(),
 
+    runningFeatureChannel: "standard",
     updateInfo: null,
     updateDialogOpen: false,
     setUpdateDialogOpen: vi.fn(),

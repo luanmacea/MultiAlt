@@ -561,11 +561,32 @@ describe("Former General controls", () => {
     await expectSaved("General", "UpdaterReleaseChannel", "stable");
   });
 
+  /** Pedido do dono (28/10/2026): quem instalou a completa continua nela. */
+  it("without a choice, the feature channel is the edition that is installed", async () => {
+    setStore({ runningFeatureChannel: "nexus-ws" });
+    renderGeneral();
+    expect(await screen.findByText("Nexus + WebServer")).toBeInTheDocument();
+    expect(screen.queryByText("Standard (Non-Nexus/WebServer)")).not.toBeInTheDocument();
+  });
+
+  it("a value left by an older install does not count as a choice", async () => {
+    setStore({ runningFeatureChannel: "nexus-ws" });
+    renderGeneral({ General: { UpdaterFeatureChannel: "standard" } });
+    expect(await screen.findByText("Nexus + WebServer")).toBeInTheDocument();
+  });
+
+  it("a choice made on purpose wins over the installed edition", async () => {
+    setStore({ runningFeatureChannel: "nexus-ws" });
+    renderGeneral({ General: { UpdaterFeatureChannel: "standard", UpdaterFeatureChannelChosen: "true" } });
+    expect(await screen.findByText("Standard (Non-Nexus/WebServer)")).toBeInTheDocument();
+  });
+
   it("saves the updater feature channel", async () => {
     renderGeneral();
     await userEvent.click(await screen.findByText("Standard (Non-Nexus/WebServer)"));
     await userEvent.click(await screen.findByText("Nexus + WebServer"));
     await expectSaved("General", "UpdaterFeatureChannel", "nexus-ws");
+    await expectSaved("General", "UpdaterFeatureChannelChosen", "true");
   });
 
   /**

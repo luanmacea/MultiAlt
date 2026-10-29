@@ -3024,5 +3024,6 @@
   "Green": "Green",
   "No account to show. Open the accounts in MultiAlt and pick them in the Live page.": "No account to show. Open the accounts in MultiAlt and pick them in the Live page.",
   "Click to play on this account": "Click to play on this account",
-  "Play on": "Play on"
+  "Play on": "Play on",
+  "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed.": "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed."
 }

@@ -1016,6 +1016,7 @@ mod settings_store_tests {
         ("Webhook", "Mention"),
         ("Webhook", "MentionSummary"),
         ("Live", "Accounts"),
+        ("General", "UpdaterFeatureChannelChosen"),
         ("Webhook", "StatusMessageId"),
     ];
 
