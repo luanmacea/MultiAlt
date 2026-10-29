@@ -53,6 +53,9 @@ include!("windows/windowing.rs");
 include!("windows/hidden_focus.rs");
 include!("windows/live_view.rs");
 include!("windows/memory_trim.rs");
+// Freeze: pausa a thread da janela do cliente (docs/features/freeze.md).
+#[cfg(feature = "client-freeze")]
+include!("windows/freeze.rs");
 include!("windows/input.rs");
 include!("windows/tracker.rs");
 include!("windows/isolation.rs");

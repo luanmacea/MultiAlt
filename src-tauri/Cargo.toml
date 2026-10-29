@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 # para as duas edições, ou direto no `full` se for segurada por marcação de
 # scanner; o release-workflow.test.mjs falha se alguma ficar fora do `full`.
 default = ["full"]
-standard = ["avatar-batch", "live-audio", "memory-trim", "python-scripts", "python-dev-pipe"]
+standard = ["avatar-batch", "live-audio", "memory-trim", "python-scripts", "python-dev-pipe", "client-freeze"]
 full = ["standard", "nexus", "webserver"]
 # Só na edição completa.
 nexus = []
@@ -39,6 +39,10 @@ live-audio = ["windows-sys/Win32_System_Com"]
 # API nativa nova). Nas duas edições (via `standard`) desde o scan limpo de
 # 11/10/2026 (docs/features/watcher.md, "Teto de memória").
 memory-trim = []
+# Freeze: pausa a thread da janela do cliente (SuspendThread/ResumeThread) para
+# o jogo parar sem fechar (platform/windows/freeze.rs, docs/features/freeze.md).
+# Nas duas edições (via `standard`) enquanto o scan der limpo.
+client-freeze = []
 # Automação do Roblox Player em Python (docs/features/python-automation.md):
 # Python portátil baixado sob demanda, pasta de trabalho, primitivas (foco,
 # tecla, clique, captura por PrintWindow) e o processo filho por execução. Nas

@@ -42,6 +42,7 @@ import { groupRunning, needsAttention, runningStatus, type RunningStatus } from 
 import { clientHealthLabel } from "../../utils/clientHealth";
 import { activeReconnectIds } from "../../utils/accountLiveState";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
+import { FreezeButton, FrozenChip, useFrozenClients } from "./FreezeControl";
 import type {
   AutoReconnectEntry,
   ClientHealth,
@@ -571,6 +572,33 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
     });
   }
 
+  // Freeze (docs/features/freeze.md): as marcadas, ou todas, como o AFK Mode.
+  const freezeState = useFrozenClients();
+  const freezeTargets = selected.length > 0 ? selected : runningIds;
+
+  async function handleFreeze(userIds: number[], seconds: number) {
+    setError(null);
+    try {
+      const report = await freezeState.freeze(userIds, seconds);
+      if (report.failed.length > 0) {
+        setError(
+          report.failed.map(([id, reason]) => `${nameFor(id)}: ${reason}`).join(" · ")
+        );
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleUnfreeze(userIds: number[]) {
+    setError(null);
+    try {
+      await freezeState.unfreeze(userIds);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   /** Fecha só as contas da lista (`closeRobloxClients`), nunca cliente de fora dela. */
   async function closeNow(userIds: number[]) {
     if (userIds.length === 0) return;
@@ -880,6 +908,14 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
               choice={choice}
               disabled={reconnectSaving}
               onChange={(value) => void saveReconnect([userId], value)}
+            />
+          )}
+          {freezeState.frozen.has(userId) && (
+            <FrozenChip
+              name={name}
+              entry={freezeState.frozen.get(userId)!}
+              now={freezeState.now}
+              onUnfreeze={() => void handleUnfreeze([userId])}
             />
           )}
           <button
@@ -1283,6 +1319,14 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   <Coffee size={13} strokeWidth={1.5} />
                   {t("AFK Mode")}
                 </button>
+                {isWindows && (
+                  <FreezeButton
+                    targets={freezeTargets}
+                    frozen={freezeState.frozen}
+                    onFreeze={(seconds) => void handleFreeze(freezeTargets, seconds)}
+                    onUnfreeze={() => void handleUnfreeze(freezeTargets)}
+                  />
+                )}
                 {/* Sempre todas as da lista, com confirmação; as marcadas
                     fecham pela barra de lote ("Close selected"). */}
                 <button
