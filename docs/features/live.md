@@ -57,6 +57,12 @@ e sem pegar o foco. Quando a Live fecha (ou o app), ela volta a ser minimizada e
 só então volta a aparecer (`live_release_hidden`). Clicar no quadro dela para
 jogar a deixa visível de vez (`live_unhide`).
 
+**Testado no app em 28/10/2026** (build de teste, duas contas Padrão): a janela
+mostrou as duas lado a lado com o nome em cima, inclusive a que estava
+minimizada (ela ficou restaurada com alfa 0, invisível); maximizar a Live refez
+a grade; fechar a Live minimizou de novo a que estava minimizada e tirou a
+transparência, sem mexer na outra. **Falta conferir no OBS** (Captura de janela).
+
 ## Regras de negócio
 
 - **Só Windows.** Nas outras plataformas a lista vem vazia.
