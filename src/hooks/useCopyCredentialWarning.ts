@@ -14,7 +14,7 @@ import { SECRET_CLEAR_SECONDS } from "../utils/copySecret";
  * junto, e o opt-out fica gravado em `General.WarnOnCopyCredential`, no mesmo
  * molde de `useJoinOnlineWarning`.
  */
-export type CopyCredentialKind = "cookie" | "password" | "userpass";
+export type CopyCredentialKind = "cookie" | "password" | "userpass" | "userpasscookie";
 
 function credentialSentence(kind: CopyCredentialKind, count: number): string {
   if (kind === "cookie") {
@@ -34,6 +34,16 @@ function credentialSentence(kind: CopyCredentialKind, count: number): string {
         )
       : tr(
           "Copy the passwords of {{count}} accounts to the clipboard? Anyone holding them can sign in as those accounts on roblox.com.",
+          { count }
+        );
+  }
+  if (kind === "userpasscookie") {
+    return count === 1
+      ? tr(
+          "Copy the username, password and .ROBLOSECURITY cookie of 1 account to the clipboard? Anyone holding them is signed in as that account, with no password and no 2-step verification."
+        )
+      : tr(
+          "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification.",
           { count }
         );
   }

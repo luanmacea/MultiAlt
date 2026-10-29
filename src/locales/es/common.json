@@ -3025,5 +3025,9 @@
   "No account to show. Open the accounts in MultiAlt and pick them in the Live page.": "Ninguna cuenta para mostrar. Abre las cuentas en MultiAlt y elígelas en la página Live.",
   "Click to play on this account": "Haz clic para jugar en esta cuenta",
   "Play on": "Jugar en",
-  "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed.": "Elige si las actualizaciones usan la edición estándar o la Nexus/WebServer. Hasta que elijas, se mantiene la edición que instalaste."
+  "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed.": "Elige si las actualizaciones usan la edición estándar o la Nexus/WebServer. Hasta que elijas, se mantiene la edición que instalaste.",
+  "User:Pass:Cookie": "Usuario:Contraseña:Cookie",
+  "user:pass:cookie": "usuario:contraseña:cookie",
+  "Copy the username, password and .ROBLOSECURITY cookie of 1 account to the clipboard? Anyone holding them is signed in as that account, with no password and no 2-step verification.": "¿Copiar el nombre de usuario, la contraseña y la cookie .ROBLOSECURITY de 1 cuenta al portapapeles? Quien los tenga inicia sesión como esa cuenta, sin contraseña y sin verificación en dos pasos.",
+  "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification.": "¿Copiar el nombre de usuario, la contraseña y la cookie .ROBLOSECURITY de {{count}} cuentas al portapapeles? Quien los tenga inicia sesión como esas cuentas, sin contraseña y sin verificación en dos pasos."
 }

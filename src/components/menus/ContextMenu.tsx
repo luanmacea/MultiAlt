@@ -79,7 +79,7 @@ export function ContextMenu() {
   }
 
   /**
-   * `credential` liga o aviso: cookie, senha e user:pass saem daqui para a área
+   * `credential` liga o aviso: cookie, senha, user:pass e user:pass:cookie saem daqui para a área
    * de transferência de **todas** as contas selecionadas de uma vez. Username,
    * User ID e Profile Link não são credencial e continuam sem confirmação.
    */
@@ -129,6 +129,15 @@ export function ContextMenu() {
       label: t("User:Pass"),
       action: () =>
         copyMulti((a) => `${a.Username}:${a.Password}`, t("user:pass"), "userpass"),
+    },
+    {
+      label: t("User:Pass:Cookie"),
+      action: () =>
+        copyMulti(
+          (a) => `${a.Username}:${a.Password}:${a.SecurityToken}`,
+          t("user:pass:cookie"),
+          "userpasscookie"
+        ),
     },
     { separator: true, label: "" },
     {

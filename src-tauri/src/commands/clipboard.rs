@@ -1,4 +1,4 @@
-// Cópia de credencial (cookie, senha, user:pass) para a área de transferência.
+// Cópia de credencial (cookie, senha, user:pass, user:pass:cookie) para a área de transferência.
 //
 // No Windows o texto vai marcado para não entrar no histórico do Win+V nem na
 // nuvem e é apagado depois de `SECRET_CLEAR_SECS` — só se ninguém tiver copiado
@@ -29,7 +29,7 @@ fn secret_lines(
     user_ids: &[i64],
     kind: &str,
 ) -> Result<Vec<String>, String> {
-    if !matches!(kind, "cookie" | "password" | "userpass") {
+    if !matches!(kind, "cookie" | "password" | "userpass" | "userpasscookie") {
         return Err(format!("Unknown credential kind: {kind}"));
     }
     Ok(user_ids
@@ -39,6 +39,9 @@ fn secret_lines(
             let line = match kind {
                 "cookie" => a.security_token.clone(),
                 "password" => a.password.clone(),
+                "userpasscookie" => {
+                    format!("{}:{}:{}", a.username, a.password, a.security_token)
+                }
                 _ => format!("{}:{}", a.username, a.password),
             };
             (!line.trim().is_empty()).then_some(line)
@@ -104,6 +107,10 @@ mod clipboard_command_tests {
         assert_eq!(
             secret_lines(&accounts, &[1, 2], "userpass").unwrap(),
             vec!["user1:p1", "user2:"]
+        );
+        assert_eq!(
+            secret_lines(&accounts, &[1, 2], "userpasscookie").unwrap(),
+            vec!["user1:p1:C1", "user2::C2"]
         );
     }
 
