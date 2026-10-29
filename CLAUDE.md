@@ -9,7 +9,7 @@
 **Decisões de arquitetura relevantes:**
 - Divisão clara IPC: frontend (React) só fala com o backend via comandos Tauri (`src-tauri/src/commands/*`), não acessa arquivos nem rede por conta própria. As exceções que existem estão listadas em `docs/architecture.md` ("Exceções à regra") — notas de release do updater em `api.github.com`, `ram.http`/`ram.ws` dos scripts, Google Fonts e `localStorage` — e não se cria outra.
 - Estado de contas/settings no backend usa stores com `Mutex<_>` gerenciados pelo Tauri (`tauri::State`), persistidos em arquivo (o `AccountData.json` é encriptado com argon2 + `crypto_secretbox` (desde que o libsodium saiu por causa do antivírus): com a senha do usuário, ou com a chave do aparelho do `AccountData.key` ao lado. Duas exceções em texto puro: o caminho degradado em que a chave não pôde ser criada — grava JSON puro e avisa na faixa — e o `AccountData.json.bak` que a migração deixa. Ver `docs/features/accounts.md`; settings em INI, scripts/versões em JSON).
-- Existe um servidor HTTP local opcional (feature `webserver`, baseado em axum) e um servidor WebSocket (feature `nexus`) para integração com scripts Lua externos (Nexus.lua) — ambos atrás de feature flags no Cargo, só na edição completa (feature `full`, que liga toda feature opcional); a distribuição de avatares em lote também (feature `avatar-batch`, hoje nas duas edições via a feature `standard` — tirá-la da padrão é um interruptor; ver `docs/features/avatars.md`). O volume ao vivo por cliente (feature `live-audio`, COM de áudio) também vai **nas duas edições** (entra pelo `standard`; o `full` o pega via `standard`) — ver `docs/features/performance.md`.
+- Existe um servidor HTTP local opcional (feature `webserver`, baseado em axum) e um servidor WebSocket (feature `nexus`) para integração com scripts Lua externos (Nexus.lua) — ambos atrás de feature flags no Cargo, só na edição completa (feature `full`, que liga toda feature opcional); a distribuição de avatares em lote também (feature `avatar-batch`, hoje nas duas edições via a feature `standard` — tirá-la da padrão é um interruptor; ver `docs/features/avatars.md`). O volume ao vivo por cliente (feature `live-audio`, COM de áudio) também vai **nas duas edições** (entra pelo `standard`; o `full` o pega via `standard`) — ver `docs/features/performance.md`. A automação do Roblox Player em Python (features `python-scripts` e `python-dev-pipe`, modo Python da página Scripts) também vai nas duas edições, pelo `standard` — ver `docs/features/python-automation.md`.
 - Lógica específica de OS isolada em `platform/windows/` e `platform/macos/` para manter o resto do backend portável.
 - "Isolamento pré-launch" (cache wipe, limpeza de registro, MAC rotation) existe deliberadamente para uma conta não herdar sessão/cache/fingerprint da anterior — é tratado como feature central, não hack pontual. Mas ele **só roda com nenhum cliente Roblox aberto**: com cliente aberto é pulado inteiro (inclusive o spoof), para não fechar as outras contas. Não separa contas que rodam juntas (`docs/features/isolation.md`).
 - i18n via react-i18next com chaves extraídas por script próprio (`scripts/i18n/extract-keys.ts`) e traduzidas no próprio repositório (`src/locales/<idioma>/common.json`, com o inglês como fonte; o português e o espanhol acompanham cada mudança). O Crowdin do projeto original foi removido em 28/09/2026.
@@ -136,7 +136,9 @@ src/                          - Frontend React/TypeScript
     ChooseGameScreen.tsx      - Tela "Choose Game": Favorites, Games, Recent, Servers, Friends, Follow, Console, Windows
     accounts/                 - Lista de contas, linhas, chips, painel de UMA conta (DetailSidebar → SingleSelectSidebar). O painel de multi-seleção foi apagado: ação em lote fica na BottomActionBar e na Choose Game
     dialogs/                  - Modais: AddAccount, Import, Botting (Auto Rejoin), Afk, Backups, Generator, Versions, AccountUtils, AccountFields, Update
-    pages/                    - Páginas da barra lateral (`activePage`): PageShell, Session, Afk, Avatars (+ `pages/avatars/`), Scripts, Theme, Nexus, Settings — ver docs/features/ui-layout.md
+    pages/                    - Páginas da barra lateral (`activePage`): PageShell, Session, Console, Afk, Discord (alertas), Live, Avatars (+ `pages/avatars/`), Groups, Scripts, Theme, Nexus, Settings, Changelog — ver docs/features/ui-layout.md
+    discord/                  - Página Discord alerts (DiscordSettings): avisos, menção por evento, horário silencioso, status ao vivo e resumo do dia
+    python/                   - Modo Python da página Scripts (editor CodeMirror, explorer, Global functions, Dashboard, Inspector, Developer)
     settings/                 - Seções da página Settings: Launch, Keep in game, Accounts, Privacy & security, Updates, App, Backups, Checks e, em Advanced, Developer, WebServer, Watcher, Account Generator, Isolation, Versions, Optimization
     server-list/              - Diálogo Server List: Games, Servers, Favorites, Recent
     servers/                  - Aba Servers da Choose Game (varredura, preferência de servidor, região)
@@ -151,6 +153,7 @@ src/                          - Frontend React/TypeScript
   avatarBuilder.ts            - Lógica pura do construtor de avatares grátis (categorias, sorteio, validação)
   utils/                      - cookies.ts (parseImportLine), toastTone.ts, platform.ts, robloxErrors.ts, afkBeep.ts
   dev/harness/                - Dublês do Tauri para `bun run dev:ui` (cenários)
+  live/                       - Janela "MultiAlt Live" (`?view=live` em main.tsx): grade das contas para transmitir (liveGrid.ts); as imagens são miniaturas do DWM
   i18n/                       - Config react-i18next
 
 src-tauri/src/                - Backend Rust
@@ -172,6 +175,8 @@ src-tauri/src/                - Backend Rust
     batch.rs                  - Operações em lote + cache de imagens
     roblox/avatar_catalog.rs  - Catálogo oficial gratuito e resgate de itens grátis (nunca gasta Robux)
     server.rs, server/        - Servidor HTTP local opcional (axum, feature `webserver`): handlers, middleware de auth, state
+    discord_webhook.rs        - Avisos no Discord: URL, eventos, mensagem, fila com lote e limite, envio
+    discord_status.rs         - Status ao vivo (POST `?wait=true` e PATCH) e resumo do dia (soma do tempo de jogo)
   commands/                   - Comandos Tauri (IPC frontend→backend), `include!`-ados em lib.rs
     launch.rs, launch_shared.rs - Lançamento do Roblox com credenciais/place/job ID, fila de launch
     botting.rs                - Auto Rejoin (nome interno botting): timers de rejoin, papéis main/alt (player/bot no código)
@@ -189,12 +194,18 @@ src-tauri/src/                - Backend Rust
     watcher.rs                - Monitoramento de processo: timeout, memória, detecção de beta
     diagnostics.rs            - Diagnóstico de mutex, detecção de app legado
     generators.rs             - Gerador de contas (BloxGen)
-    updater.rs                - Checagem de atualização do app
+    updater.rs                - Checagem de atualização do app (a edição segue a instalada até a pessoa escolher outra)
+    webhook.rs, discord_status.rs - Cola dos avisos no Discord e do laço de status/resumo (`RAMDiscordStats.json`)
+    live_view.rs              - Janela Live: contas, seleção, grade, abrir/fechar (as miniaturas ficam em platform/windows/live_view.rs)
   platform/
     windows/                  - Windows-only: launch e canal (launch.rs), Multi Roblox (core.rs, singleton.rs), tracking de processo, isolation, registro, janelas, versões, otimização, SendInput do AFK — tecla e clique (input.rs — o único ponto)
     macos/                    - Implementação macOS (parcial)
   chromium/                   - Chromium via CDP: manager, commands, cdp.rs, download de binário, checagem do navegador (diagnose.rs), criação de contas (signup.rs, signup_session.rs)
   nexus/                      - Servidor WebSocket (feature `nexus`) para integração com Nexus.lua
+  python/                     - Automação Python (módulo de verdade, não `include!`): ponte JSON por linha, execuções, fila de foco, captura, inspetor, Python portátil, pipe do Modo desenvolvedor
+
+src-tauri/python-sdk/         - SDK Python, AGENTS.md/CLAUDE.md para IAs, docs/API.md, exemplos, modelos e blocos padrão copiados para a pasta de trabalho
+src-tauri/capabilities/       - Permissões das janelas: default.json (principal) e live.json (janela "MultiAlt Live")
 
 site/                         - Site de divulgação (HTML/CSS/JS puros, sem build), publicado no GitHub Pages pelo site.yml — ver site/README.md
 scripts/                      - Scripts de build/teste (extração de chaves i18n, mapa de suítes test-suites.ts)

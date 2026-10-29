@@ -10,10 +10,12 @@ STEPS = ["E", "F", "Space"]   # keys to tap, in order, for every account
 
 
 def run_steps(account: Account) -> None:
-    with account.focused():
-        for key in STEPS:
+    # One key per focus block, and the wait outside it: other accounts and AFK
+    # mode wait for the focus queue while the block is held.
+    for key in STEPS:
+        with account.focused():
             account.press(key)
-            sleep(0.5)
+        sleep(0.5)
 
 
 def main_all(accounts: list[Account]) -> None:

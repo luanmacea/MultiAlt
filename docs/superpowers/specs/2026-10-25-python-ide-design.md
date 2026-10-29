@@ -1,5 +1,7 @@
 # Python screen v2 — editor estilo VS Code, Global functions e exemplo — design
 
+> **Atualização (28/10/2026):** o dono liberou a funcionalidade; ela entrou na `develop` e não é mais secreta. O aviso abaixo é histórico.
+
 > Branch local e secreta `feature/python-scripts` (sem push). Trabalho na cópia
 > `C:\mwt\py`. Pedido do dono em 25/10/2026, aprovado com as opções recomendadas.
 

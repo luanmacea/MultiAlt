@@ -1,5 +1,7 @@
 # Roblox Player automation (Python) — Implementation Plan
 
+> **Atualização (28/10/2026):** o dono liberou a funcionalidade; ela entrou na `develop` e não é mais secreta. O aviso abaixo é histórico.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** a "Roblox Player automation (Python)" mode inside the Scripts page that runs user Python scripts against each account's Roblox window (focus, keys, clicks, pixels, image search), with a dashboard, an inspector, its own log terminal, editable default blocks and a developer mode with a terminal channel for AI agents.

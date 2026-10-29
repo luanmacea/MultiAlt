@@ -1,7 +1,7 @@
 # Automação do Roblox Player em Python
 
-> **Branch local e secreta** (`feature/python-scripts`): não citar em
-> commit/PR/notas públicas até o dono liberar (21/10/2026). Desenho em
+> Entrou na `develop` em 28/10/2026 (até então vivia na branch local
+> `feature/python-scripts`, liberada pelo dono para esta release). Desenho em
 > [specs/2026-10-21-python-automation-design.md](../superpowers/specs/2026-10-21-python-automation-design.md),
 > plano em [plans/2026-10-21-python-automation.md](../superpowers/plans/2026-10-21-python-automation.md).
 
@@ -96,7 +96,7 @@ scripts/        scripts do usuário (^[A-Za-z0-9_-]{1,64}\.py$, sem caminho)
 lib/            código compartilhado do usuário
 assets/         imagens do find_image (o inspetor salva aqui)
 multialt/       SDK; _core/ e __init__ são do app (reescritos a cada sincronização)
-  defaults/     BLOCOS PADRÃO: runner, focus, vision, actions, dashboard
+  defaults/     BLOCOS PADRÃO: runner, focus, vision, actions, dashboard, notify
   defaults/.originals.json   hash do original de onde cada bloco partiu
   _core/pipe.txt             nome do pipe, só com o Modo desenvolvedor ligado
 examples/ templates/ AGENTS.md CLAUDE.md docs/API.md   do app

@@ -145,6 +145,13 @@ Python runtime).
 - `stopped()` -> `bool` - True once Stop was pressed. Check it in loops:
   `while not stopped():`.
 
+From the default blocks (import them like any module):
+
+- `from multialt.defaults.actions import jitter_sleep` -
+  `jitter_sleep(base_ms, spread_ms=0)`: sleeps `base_ms` plus or minus up to
+  `spread_ms` milliseconds (so a loop is not perfectly regular) and wakes on
+  Stop like `sleep`. Use it outside `focused()`.
+
 ## Errors
 
 All are subclasses of `MultiAltError` (fields `code`, `message`, `hint`):
@@ -163,7 +170,12 @@ All are subclasses of `MultiAltError` (fields `code`, `message`, `hint`):
 | `BadArgs` | `bad_args` | A value is out of range or the wrong type (a fraction outside 0-1, a negative time). |
 | `CaptureFailed` | `capture_failed` | The window could not be captured. Make sure it is not minimized. |
 | `Stopped` | `stopped` | The run was stopped. Do not catch it; let it end the script. |
+| `MultiAltError` | `webhook_off` | `discord(...)` with Discord alerts off (or no webhook URL). No subclass: check `e.code == "webhook_off"`. The user turns it on in MultiAlt > Discord alerts; do not retry in a loop. |
 | `MultiAltError` | `internal` | MultiAlt itself failed while handling the call (a bug in the app, not in your script). The run goes on; report it. |
+
+Python-side errors: `FileNotFoundError: Image not found: ...` means the image
+is missing from `assets/`. `RuntimeError: ... numpy and opencv` means the
+Python runtime is not installed (the user installs it in the Scripts page).
 
 `Stopped` is an ordinary exception, so never write a bare `except:` or
 `except Exception: pass` around a loop: after a stop every later call raises
@@ -199,19 +211,6 @@ script, kept after the run ends until you press Clear.
 - `dashboard.report_status(account, text)`, `dashboard.report_loop(account)`,
   `dashboard.report_error(account, err)` - feed the farm report.
 
-### Discord block (`multialt.defaults.notify`)
-
-Ready-made Discord messages, on top of `discord(...)`:
-
-- `notify.send(text, title=None, account=None)` - one message.
-- `notify.send_report({"Loops": 12, "Coins": "3.4k"}, title="Report", account=None)`
-  - one line per value.
-- `notify.send_at_most_every(minutes, text, key=None, title=None, account=None)`
-  -> `bool` - skips it when the same `key` sent less than `minutes` ago (no
-  flood from a loop).
-- `with notify.notify_errors(title="Script error", account=None):` - posts the
-  error of the block and raises it again; a Stop is not posted.
-
 Widget types and the value each takes (text is plain text, up to 2 KB):
 
 | `type` | Value for `set` / `push` |
@@ -240,6 +239,45 @@ error, Running for), a `stat` called "Total loops" and a `line` called
 calls it for you, sets each account's status when it starts and ends, records
 errors, and counts one loop each time `main(account)` returns. If your `main`
 loops forever, call `dashboard.report_loop(account)` once per lap.
+
+## Discord
+
+Needs the user to turn on, in MultiAlt > **Discord alerts**: "Send
+notifications to Discord", the webhook URL and "A message from a Python
+script". The app posts the message, so the webhook URL never reaches the
+script.
+
+- `discord(text, *, title=None, account=None)` and `account.discord(text,
+  title=None)` - see "Module functions".
+- Close messages are grouped into one Discord message; Discord's rate limit,
+  quiet hours and the mention set for "A message from a Python script" apply.
+- Off (or no URL): `MultiAltError` with `code == "webhook_off"`. Catch that code
+  only if the script must go on without Discord; do not retry it in a loop.
+
+Ready-made messages in the `notify` block (`from multialt.defaults import notify`):
+
+- `notify.send(text, title=None, account=None)` - one message.
+- `notify.send_report(values, title="Report", account=None)` - a
+  `{"Loops": 12, "Coins": "3.4k"}` dict as one line per value.
+- `notify.send_at_most_every(minutes, text, key=None, title=None, account=None)`
+  -> `bool` - skips it when the same `key` (default: the text) sent less than
+  `minutes` ago. Use it inside loops: never send one message per lap.
+- `with notify.notify_errors(title="Script error", account=None):` - posts the
+  error of the block and raises it again; a Stop is not posted.
+
+```python
+from multialt import Account, stopped, sleep
+from multialt.defaults import notify
+
+def main(account: Account) -> None:
+    loops = 0
+    with notify.notify_errors(account=account):
+        while not stopped():
+            ...
+            loops += 1
+            notify.send_at_most_every(30, f"{account.name}: {loops} loops", key=account.name)
+            sleep(5)
+```
 
 ## Running a script
 
@@ -310,8 +348,9 @@ into `wait_pixel`/`click`.
 `multialt/defaults/` holds the parts you can rewrite, one by one, each with a
 "Restore default" button: `runner.py` (calls your `main`, one at a time or all
 together), `focus.py` (`account.focused()`), `vision.py` (pixels and images),
-`actions.py` (keys and clicks, `jitter_sleep(base_ms, spread_ms)`), and
-`dashboard.py` (`farm_report`). MultiAlt keeps enforcing its safety rules
+`actions.py` (keys and clicks, `jitter_sleep(base_ms, spread_ms)`),
+`dashboard.py` (`farm_report`) and `notify.py` (Discord messages: `send`,
+`send_report`, `send_at_most_every`, `notify_errors`). MultiAlt keeps enforcing its safety rules
 whatever the blocks do.
 
 ## Low-level primitives
@@ -321,5 +360,5 @@ rewriting blocks): `accounts`, `windows`, `focus_acquire`, `focus_renew`,
 `focus_release`, `window_bring_forward`, `window_restore_focus`, `input_key`,
 `input_key_down`, `input_key_up`, `input_type_text`, `input_click`,
 `screen_pixel`, `screen_capture`, `run_sleep`, `run_stopped`, `run_log`,
-`run_status`, `dashboard_define`, `dashboard_set`, `dashboard_push`,
-`dashboard_clear`. Do not edit `multialt/_core`: it is rewritten on every start.
+`run_status`, `discord_send`, `dashboard_define`, `dashboard_set`,
+`dashboard_push`, `dashboard_clear`. Do not edit `multialt/_core`: it is rewritten on every start.

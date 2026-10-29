@@ -7,7 +7,8 @@ Roblox Account Manager 4 (RAM4) é um gerenciador desktop de múltiplas contas R
 - navegar por jogos/servidores, manter favoritos (com vários links VIP por jogo) e jogos recentes;
 - automatizar re-join de contas (Auto Rejoin), mandar tecla de tempo em tempo para não perder o estado (AFK mode), vigiar processos (Watcher), isolar sessões antes do launch e fixar versões específicas do cliente Roblox;
 - expor uma API HTTP local (feature `webserver`) e um servidor WebSocket para scripts Lua (feature `nexus`);
-- rodar scripts JavaScript do usuário em um sandbox (Web Worker) dentro do app.
+- rodar scripts do usuário: em JavaScript, num sandbox (Web Worker) dentro do app, ou em Python, automatizando a janela do Roblox de cada conta (modo Python da página Scripts);
+- mandar avisos, status ao vivo e resumo do dia para o Discord do usuário, e mostrar as contas lado a lado numa janela para transmitir (Live).
 
 Plataforma principal: **Windows** (APIs Win32 para processos, registro, janelas, DPAPI). macOS é parcial.
 

@@ -1,5 +1,7 @@
 # Automação do Roblox Player em Python — design
 
+> **Atualização (28/10/2026):** o dono liberou a funcionalidade; ela entrou na `develop` e não é mais secreta. O aviso abaixo é histórico.
+
 > **Branch local e secreta** (`feature/python-scripts`): não dar push nem citar a
 > funcionalidade em commit/PR/notas públicas até o dono liberar (21/10/2026).
 

@@ -1,7 +1,7 @@
 """Default blocks: the parts of MultiAlt's scripting you may rewrite.
 
 App-owned folder. The files inside (``runner.py``, ``focus.py``, ``vision.py``,
-``actions.py``, ``dashboard.py``) are *blocks*: with developer mode on you can
+``actions.py``, ``dashboard.py``, ``notify.py``) are *blocks*: with developer mode on you can
 edit them in MultiAlt > Scripts > Roblox Player automation > Developer, and
 restore any one of them to the original with "Restore default".
 
