@@ -1405,6 +1405,9 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
         else {
             break;
         };
+        // Conta congelada (Freeze) pula a vez: a tecla só chegaria depois, e o
+        // foco numa janela parada não serve. Volta vencida quando soltar.
+        let targets: Vec<i64> = targets.into_iter().filter(|id| !client_is_frozen(*id)).collect();
 
         // Tela cheia de outro programa na frente: espera em vez de roubar o
         // foco (ideia 25). Confere de novo a cada tique, até o teto.

@@ -3025,5 +3025,17 @@
   "No account to show. Open the accounts in MultiAlt and pick them in the Live page.": "Ninguna cuenta para mostrar. Abre las cuentas en MultiAlt y elígelas en la página Live.",
   "Click to play on this account": "Haz clic para jugar en esta cuenta",
   "Play on": "Jugar en",
-  "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed.": "Elige si las actualizaciones usan la edición estándar o la Nexus/WebServer. Hasta que elijas, se mantiene la edición que instalaste."
+  "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed.": "Elige si las actualizaciones usan la edición estándar o la Nexus/WebServer. Hasta que elijas, se mantiene la edición que instalaste.",
+  "Until I unfreeze": "Hasta que lo descongele",
+  "{{count}} seconds": "{{count}} segundos",
+  "{{count}} minutes": "{{count}} minutos",
+  "Lets these clients run again": "Deja que estos clientes vuelvan a funcionar",
+  "Unfreeze ({{count}})": "Descongelar ({{count}})",
+  "Freeze": "Congelar",
+  "Freezes the game of these accounts: it stops drawing and using CPU and GPU, stays connected, and goes on from where it was when unfrozen.": "Congela el juego de estas cuentas: deja de dibujar y de usar CPU y GPU, sigue conectado y continúa donde estaba al descongelarlo.",
+  "Freeze for how long": "Congelar por cuánto tiempo",
+  "Freeze ({{count}})": "Congelar ({{count}})",
+  "{{name}} is frozen. Click to unfreeze.": "{{name}} está congelada. Haz clic para descongelar.",
+  "Frozen · {{left}}": "Congelada · {{left}}",
+  "Frozen": "Congelada"
 }

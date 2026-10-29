@@ -447,6 +447,11 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: ["src/components/servers", "src/components/server-list"],
   },
+  freeze: {
+    description: "Freeze: congelar o cliente das contas marcadas (thread da janela), tempo, soltar ao fechar/cair",
+    rust: ["freeze_tests", "freeze_thread_tests"],
+    front: ["src/components/session/FreezeControl.test.tsx"],
+  },
   live: {
     description: "Live: a janela MultiAlt Live com as contas numa grade para transmitir (miniaturas do DWM, seleção, grade)",
     rust: ["live_view_tests", "live_view_command_tests"],

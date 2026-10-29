@@ -1123,7 +1123,8 @@ impl ClientHealthOs for WindowsClientHealthOs {
         platform::windows::set_window_title(hwnd as _, title)
     }
     fn is_hung(&self, hwnd: isize) -> bool {
-        platform::windows::is_window_hung(hwnd as _)
+        // Congelada pelo Freeze: "Não respondendo" de propósito, não é defeito.
+        !window_is_frozen(hwnd) && platform::windows::is_window_hung(hwnd as _)
     }
 }
 

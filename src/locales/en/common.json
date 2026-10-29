@@ -3025,5 +3025,17 @@
   "No account to show. Open the accounts in MultiAlt and pick them in the Live page.": "No account to show. Open the accounts in MultiAlt and pick them in the Live page.",
   "Click to play on this account": "Click to play on this account",
   "Play on": "Play on",
-  "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed.": "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed."
+  "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed.": "Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed.",
+  "Until I unfreeze": "Until I unfreeze",
+  "{{count}} seconds": "{{count}} seconds",
+  "{{count}} minutes": "{{count}} minutes",
+  "Lets these clients run again": "Lets these clients run again",
+  "Unfreeze ({{count}})": "Unfreeze ({{count}})",
+  "Freeze": "Freeze",
+  "Freezes the game of these accounts: it stops drawing and using CPU and GPU, stays connected, and goes on from where it was when unfrozen.": "Freezes the game of these accounts: it stops drawing and using CPU and GPU, stays connected, and goes on from where it was when unfrozen.",
+  "Freeze for how long": "Freeze for how long",
+  "Freeze ({{count}})": "Freeze ({{count}})",
+  "{{name}} is frozen. Click to unfreeze.": "{{name}} is frozen. Click to unfreeze.",
+  "Frozen · {{left}}": "Frozen · {{left}}",
+  "Frozen": "Frozen"
 }

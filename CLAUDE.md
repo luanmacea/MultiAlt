@@ -196,6 +196,7 @@ src-tauri/src/                - Backend Rust
     generators.rs             - Gerador de contas (BloxGen)
     updater.rs                - Checagem de atualização do app (a edição segue a instalada até a pessoa escolher outra)
     webhook.rs, discord_status.rs - Cola dos avisos no Discord e do laço de status/resumo (`RAMDiscordStats.json`)
+    freeze.rs                 - Freeze: congelar/soltar o cliente das contas (estado, relógio, `RAMFrozen.json`); o mecanismo (SuspendThread da thread da janela) em platform/windows/freeze.rs
     live_view.rs              - Janela Live: contas, seleção, grade, abrir/fechar (as miniaturas ficam em platform/windows/live_view.rs)
   platform/
     windows/                  - Windows-only: launch e canal (launch.rs), Multi Roblox (core.rs, singleton.rs), tracking de processo, isolation, registro, janelas, versões, otimização, SendInput do AFK — tecla e clique (input.rs — o único ponto)

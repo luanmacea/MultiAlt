@@ -46,6 +46,7 @@ include!("commands/tray.rs");
 include!("commands/webhook.rs");
 include!("commands/discord_status.rs");
 include!("commands/live_view.rs");
+include!("commands/freeze.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
@@ -475,6 +476,8 @@ pub fn run() {
             // Status ao vivo e resumo diário no mesmo webhook (desligados por
             // padrão) — ver commands/discord_status.rs.
             start_discord_status_loop(app.handle().clone());
+            // O app caiu com contas congeladas: solta as que sobraram.
+            freeze_recover_on_start();
             // Otimização que segue o foco: o laço só age com a opção ligada.
             #[cfg(target_os = "windows")]
             start_focus_follow_loop(app.handle().clone());
@@ -716,6 +719,9 @@ pub fn run() {
             send_discord_status_now,
             get_running_feature_channel,
             live_accounts,
+            freeze_clients,
+            unfreeze_clients,
+            frozen_clients,
             live_tiles,
             set_live_accounts,
             live_set_layout,
@@ -879,6 +885,8 @@ pub fn run() {
                 python::shutdown_on_exit();
                 // A Live devolve as janelas que tirou do minimizado.
                 live_cleanup();
+                // Nenhum cliente fica congelado sem o app (commands/freeze.rs).
+                freeze_release_all();
                 // Antes da limpeza do Multi Roblox, que esvazia o rastreamento.
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
@@ -895,6 +903,7 @@ pub fn run() {
             tauri::RunEvent::Exit => {
                 python::shutdown_on_exit();
                 live_cleanup();
+                freeze_release_all();
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]

@@ -48,6 +48,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/multi-launch.md](features/multi-launch.md) — lançamento de várias contas / multi-Roblox.
 - [features/presets.md](features/presets.md) — presets de launch (contas → jogo/servidor num clique, ou todas as contas de um grupo), horário de abrir/fechar que fecha só o que o preset abriu, e o submenu da bandeja.
 - [features/webhook.md](features/webhook.md) — página Discord alerts (desligada por padrão): avisos (queda, ban, lote, memória, mensagem de script Python), menção por evento, horário silencioso, status ao vivo e resumo do dia.
+- [features/freeze.md](features/freeze.md) — Freeze na página Sessão: congela o cliente das contas marcadas (pausa a thread da janela), por um tempo ou até soltar, sem desconectar.
 - [features/live.md](features/live.md) — página Live e a janela "MultiAlt Live": as contas lado a lado numa grade para transmitir no OBS, sem mostrar o resto da tela.
 - [features/external-clients.md](features/external-clients.md) — clientes abertos pelo site (ou antes de o app abrir) reconhecidos pelo log do Roblox; identificação manual.
 - [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico) e a tela do **Modo AFK**, que junta Auto Rejoin e cliques AFK em abas.
