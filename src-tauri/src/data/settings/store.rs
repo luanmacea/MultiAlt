@@ -513,6 +513,7 @@ impl SettingsStore {
             ("NotifyBatchFinished", "false"),
             ("NotifyMemoryClosed", "true"),
             ("NotifySystemLowMemory", "false"),
+            ("NotifyScriptMessage", "true"),
             ("MaskNames", "false"),
             ("QuietHours", "false"),
             ("QuietStart", "23:00"),
