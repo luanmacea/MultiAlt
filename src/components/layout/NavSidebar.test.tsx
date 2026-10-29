@@ -78,7 +78,7 @@ describe("NavSidebar — items", () => {
       .filter(Boolean);
     // Console logo abaixo de Session: o que o app fez, ao lado do que roda agora.
     // Discord alerts logo depois do AFK Mode: é como saber das contas sem olhar o PC.
-    const expected = ["accounts", "session", "console", "afk", "discord", "avatars", "scripts", "theme"];
+    const expected = ["accounts", "session", "console", "afk", "discord", "live", "avatars", "scripts", "theme"];
     if (ENABLE_NEXUS) expected.push("nexus");
     expected.push("settings");
     // "What's new" mora no rodapé, ao lado do recolher: é sobre o app, não trabalho do dia.

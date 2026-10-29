@@ -45,6 +45,7 @@ include!("commands/launch_presets.rs");
 include!("commands/tray.rs");
 include!("commands/webhook.rs");
 include!("commands/discord_status.rs");
+include!("commands/live_view.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
@@ -713,6 +714,14 @@ pub fn run() {
             set_app_locked,
             send_test_webhook,
             send_discord_status_now,
+            live_accounts,
+            live_tiles,
+            set_live_accounts,
+            live_set_layout,
+            open_live_window,
+            close_live_window,
+            live_window_open,
+            live_focus_account,
             send_discord_summary_now,
             get_session_history,
             get_current_sessions,
@@ -867,6 +876,8 @@ pub fn run() {
             tauri::RunEvent::ExitRequested { .. } => {
                 // Para os scripts Python e solta tecla presa (não fecha cliente).
                 python::shutdown_on_exit();
+                // A Live devolve as janelas que tirou do minimizado.
+                live_cleanup();
                 // Antes da limpeza do Multi Roblox, que esvazia o rastreamento.
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
@@ -882,6 +893,7 @@ pub fn run() {
             }
             tauri::RunEvent::Exit => {
                 python::shutdown_on_exit();
+                live_cleanup();
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]
