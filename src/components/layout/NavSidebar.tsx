@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   BellRing,
   CircleHelp,
+  Radio,
   Gamepad2,
   Keyboard,
   Layers,
@@ -87,6 +88,8 @@ const navGroups = (): NavItemDef[][] => [
     { page: "afk", label: "AFK Mode", icon: Keyboard, tour: "nav-afk" },
     // Avisos, status ao vivo e resumo no webhook do usuário (docs/features/webhook.md).
     { page: "discord", label: "Discord alerts", icon: BellRing },
+    // A janela "MultiAlt Live" para transmitir as contas (docs/features/live.md).
+    { page: "live", label: "Live", icon: Radio },
   ],
   [
     { page: "avatars", label: "Avatars", icon: Shirt },

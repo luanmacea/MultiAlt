@@ -108,6 +108,7 @@ export type AppPage =
   | "console"
   | "afk"
   | "discord"
+  | "live"
   | "avatars"
   | "groups"
   | "scripts"
