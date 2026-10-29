@@ -30,6 +30,8 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   "Discord",
   // Nome do perfil pronto de FastFlags (escolhido pelo dono, 28/10/2026).
   "Nuke rendering",
+  // Nome da página e da janela de transmissão (28/10/2026).
+  "Live",
   // FastFlags: multiplicadores e nomes de API gráfica, iguais em todo idioma.
   "1x",
   "2x",
@@ -183,6 +185,8 @@ const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   "Discord",
   // Nome do perfil pronto de FastFlags (escolhido pelo dono, 28/10/2026).
   "Nuke rendering",
+  // Nome da página e da janela de transmissão (28/10/2026).
+  "Live",
   // FastFlags: multiplicadores e nomes de API gráfica, iguais em todo idioma.
   "1x",
   "2x",

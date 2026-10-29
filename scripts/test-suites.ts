@@ -447,6 +447,11 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: ["src/components/servers", "src/components/server-list"],
   },
+  live: {
+    description: "Live: a janela MultiAlt Live com as contas numa grade para transmitir (miniaturas do DWM, seleção, grade)",
+    rust: ["live_view_tests", "live_view_command_tests"],
+    front: ["src/live/liveGrid.test.ts", "src/components/pages/LivePage.test.tsx"],
+  },
   webhook: {
     description: "Página Discord alerts: URL, eventos, menção por evento, horário silencioso, lote/limite, status ao vivo, resumo do dia, envio mockado",
     rust: [

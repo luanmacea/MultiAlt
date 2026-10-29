@@ -276,6 +276,17 @@ Página **Discord alerts** (na barra lateral; até 27/10/2026 era a seção Sett
 | `MentionSummary` | `""` | Menção no resumo; vazia = sem menção. |
 | `MaskNames` | `false` | "Hide account names in messages": nome mascarado como no "Names hidden" (usa `General.HiddenNameLetters`), sem foto nem link do perfil. Desligado (padrão desde 15/10/2026), vai Alias ou Username com foto e link. Substituiu o `HideNames` (ligado), nunca publicado. |
 
+### `[Live]` — detalhes em [live.md](live.md)
+
+Página **Live** e a janela "MultiAlt Live" (para transmitir as contas).
+
+| Chave | Default | Significado |
+|---|---|---|
+| `Accounts` | `""` | Quais contas aparecem: ids separados por vírgula; vazio = todas as abertas (inclusive as que abrirem depois); `none` = nenhuma. |
+| `ShowNames` | `true` | O nome de cada conta em cima do quadro (mascarado com "Names hidden"). |
+| `KeepMinimized` | `true` | Conta minimizada é restaurada invisível enquanto a Live está aberta (o Windows não desenha janela minimizada) e volta a minimizar quando ela fecha. |
+| `Background` | `dark` | Fundo da janela: `dark`, `black` ou `green` (chroma key no OBS). |
+
 ### `[Generator]` / `[BloxGen]`
 
 | Chave | Default | Significado |

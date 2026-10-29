@@ -1,0 +1,7 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicovank/tauri-v2/main/packages/cli/schema.json",
+  "identifier": "live",
+  "description": "The MultiAlt Live window: shows the accounts in a grid for streaming (docs/features/live.md)",
+  "windows": ["live"],
+  "permissions": ["core:default"]
+}

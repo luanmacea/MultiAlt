@@ -524,6 +524,15 @@ impl SettingsStore {
             ("SummaryEnabled", "false"),
             ("SummaryTime", "23:00"),
         ];
+        // Live (docs/features/live.md). `Accounts` vazio = todas as abertas.
+        let live_defaults: &[(&str, &str)] = &[("ShowNames", "true"), ("KeepMinimized", "true"), ("Background", "dark")];
+        let live = ini.section("Live");
+        for (key, value) in live_defaults {
+            if !live.exists(key) {
+                live.set(key, value, None);
+            }
+        }
+
         let webhook = ini.section("Webhook");
         for (key, value) in webhook_defaults {
             if !webhook.exists(key) {
@@ -906,6 +915,12 @@ mod settings_store_tests {
 
         push(
             &mut out,
+            "Live",
+            &[("ShowNames", "true"), ("KeepMinimized", "true"), ("Background", "dark")],
+        );
+
+        push(
+            &mut out,
             "Webhook",
             &[
                 ("Enabled", "false"),
@@ -1000,6 +1015,7 @@ mod settings_store_tests {
         ("Webhook", "Url"),
         ("Webhook", "Mention"),
         ("Webhook", "MentionSummary"),
+        ("Live", "Accounts"),
         ("Webhook", "StatusMessageId"),
     ];
 
