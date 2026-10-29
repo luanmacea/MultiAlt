@@ -263,6 +263,7 @@ Página **Discord alerts** (na barra lateral; até 27/10/2026 era a seção Sett
 | `NotifyBatchFinished` | `false` | Um lote de launch de 2+ contas terminou (abertas/falharam/canceladas). |
 | `NotifyMemoryClosed` | `true` | Um cliente foi fechado por memória (teto da Optimization ou mínimo do Watcher). |
 | `NotifySystemLowMemory` | `false` | O Windows ficou com menos de 10% de memória livre. |
+| `NotifyScriptMessage` | `true` | Mensagem de um script Python (`multialt.discord`, bloco `notify`). |
 | `Mention<evento>` | `""` | Menção só daquele evento (ex.: `MentionModerated`), até 100 caracteres; vazia usa `Mention`. |
 | `QuietHours` | `false` | Horário silencioso: as mensagens saem sem menção. |
 | `QuietStart` / `QuietEnd` | `23:00` / `08:00` | Início e fim do horário silencioso (`HH:MM`, hora do PC; pode atravessar a meia-noite). O `update_setting` recusa outro formato. |

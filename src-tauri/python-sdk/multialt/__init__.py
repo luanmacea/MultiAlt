@@ -50,6 +50,7 @@ __all__ = [
     "run_context",
     "log",
     "status",
+    "discord",
     "sleep",
     "stopped",
     "dashboard",
@@ -231,6 +232,10 @@ class Account:
         """Log a line tagged with this account (filterable in the log terminal)."""
         _p.run_log(level, _join(args), self.user_id)
 
+    def discord(self, text: str, title: Optional[str] = None) -> None:
+        """Post a message about this account on your Discord (see ``multialt.discord``)."""
+        _p.discord_send(text, title, self.user_id)
+
 
 @dataclass
 class RunContext:
@@ -295,6 +300,21 @@ def log(*args: object, level: str = "log") -> None:
 def status(text: str) -> None:
     """Set the status line of the run shown in the app."""
     _p.run_status(text)
+
+
+def discord(text: str, *, title: Optional[str] = None, account: Union[Account, int, None] = None) -> None:
+    """Post a message on your Discord channel, through the webhook set in MultiAlt.
+
+    Set it up in the app first: Discord alerts > "Send notifications to Discord",
+    the webhook URL and "A message from a Python script". The app sends it (the
+    URL never reaches the script), in the same queue as the other alerts: close
+    messages are grouped, Discord's rate limit is respected, quiet hours and the
+    mention of that event apply. ``@`` in the text never pings anyone.
+
+    Up to 1500 characters; ``title`` up to 100. Raises ``MultiAltError`` with
+    code ``"webhook_off"`` when the alerts are off.
+    """
+    _p.discord_send(text, title, _uid(account))
 
 
 def sleep(seconds: float) -> None:

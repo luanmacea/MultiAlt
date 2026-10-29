@@ -31,6 +31,7 @@ def default_handlers() -> dict[str, Handler]:
         "screen.pixel": lambda a: [0, 0, 0],
         "run.sleep": lambda a: True,
         "run.stopped": lambda a: False,
+        "discord.send": lambda a: True,
         "dashboard.define": lambda a: True,
         "dashboard.set": lambda a: True,
         "dashboard.push": lambda a: True,

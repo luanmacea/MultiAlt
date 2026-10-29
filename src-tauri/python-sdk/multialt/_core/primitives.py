@@ -160,6 +160,21 @@ def run_status(text: str, user_id: Optional[int] = None) -> None:
     protocol.notify("run.status", args)
 
 
+def discord_send(text: str, title: Optional[str] = None, user_id: Optional[int] = None) -> bool:
+    """Post a message on the Discord webhook set in MultiAlt (Discord alerts).
+
+    The app sends it: the webhook URL never reaches the script. Raises
+    ``MultiAltError`` (code ``webhook_off``) when the alerts are off.
+    """
+    args: dict[str, Any] = {"text": text}
+    if title:
+        args["title"] = title
+    uid = user_id if user_id is not None else protocol.current_user()
+    if uid is not None:
+        args["user_id"] = uid
+    return bool(protocol.call("discord.send", args))
+
+
 # -- dashboard --------------------------------------------------------------
 
 

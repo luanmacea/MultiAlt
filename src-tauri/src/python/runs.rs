@@ -36,6 +36,7 @@ pub trait RunEvents: Send + Sync {
     fn log(&self, line: PythonLogLine);
     fn run_update(&self, info: &PythonRunInfo);
     fn dashboard(&self, script: &str, op: &str, args: &Value) -> Result<Value, PyError>;
+    fn discord(&self, script: &str, user_id: Option<i64>, title: Option<String>, text: String) -> Result<Value, PyError>;
 }
 
 /// Como o final de uma rodada aconteceu.
@@ -99,6 +100,9 @@ impl RunSink for ExecSink {
     fn dashboard(&self, op: &str, args: &Value) -> Result<Value, PyError> {
         self.events.dashboard(&self.script, op, args)
     }
+    fn discord(&self, user_id: Option<i64>, title: Option<String>, text: String) -> Result<Value, PyError> {
+        self.events.discord(&self.script, user_id, title, text)
+    }
 }
 
 /// O sink de uma execução marca o id dela em cada linha.
@@ -127,6 +131,9 @@ impl RunSink for RunTagged {
     }
     fn dashboard(&self, op: &str, args: &Value) -> Result<Value, PyError> {
         self.inner.dashboard(op, args)
+    }
+    fn discord(&self, user_id: Option<i64>, title: Option<String>, text: String) -> Result<Value, PyError> {
+        self.inner.discord(user_id, title, text)
     }
 }
 
@@ -629,6 +636,9 @@ pub mod python_runs_tests {
         fn dashboard(&self, _script: &str, _op: &str, _args: &Value) -> Result<Value, PyError> {
             Ok(json!(true))
         }
+        fn discord(&self, _script: &str, _user_id: Option<i64>, _title: Option<String>, _text: String) -> Result<Value, PyError> {
+            Ok(json!(true))
+        }
     }
 
     /// Uma "rodada" que dura `ms` ou até o Parar.
@@ -910,6 +920,9 @@ mod python_e2e_tests {
         }
         fn dashboard(&self, op: &str, args: &Value) -> Result<Value, PyError> {
             self.dashboard.lock().unwrap().push((op.to_string(), args.clone()));
+            Ok(json!(true))
+        }
+        fn discord(&self, _user_id: Option<i64>, _title: Option<String>, _text: String) -> Result<Value, PyError> {
             Ok(json!(true))
         }
     }

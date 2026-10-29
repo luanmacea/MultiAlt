@@ -69,6 +69,12 @@ const EVENTS: EventDef[] = [
     defaultOn: true,
   },
   {
+    key: "ScriptMessage",
+    label: "A message from a Python script",
+    description: "What your scripts send with multialt.discord(...) or the notify block. Grouped and rate limited like the other alerts.",
+    defaultOn: true,
+  },
+  {
     key: "SystemLowMemory",
     label: "Windows is almost out of memory",
     description: "Under 10% free. Sent again only after it goes back over 15%.",

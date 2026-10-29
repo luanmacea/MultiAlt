@@ -18,6 +18,8 @@ pub enum PyErrorCode {
     Stopped,
     /// O app falhou ao atender (pânico): bug do MultiAlt, não do script.
     Internal,
+    /// `discord.send` com os avisos do Discord desligados (ou sem URL).
+    WebhookOff,
 }
 
 impl PyErrorCode {
@@ -34,6 +36,7 @@ impl PyErrorCode {
             PyErrorCode::CaptureFailed => "capture_failed",
             PyErrorCode::Stopped => "stopped",
             PyErrorCode::Internal => "internal",
+            PyErrorCode::WebhookOff => "webhook_off",
         }
     }
 
@@ -121,6 +124,10 @@ impl PyError {
             format!("Key \"{key}\" is not supported."),
             Some("See docs/API.md, \"Keys\"."),
         )
+    }
+
+    pub fn webhook_off(message: &str) -> Self {
+        Self::new(PyErrorCode::WebhookOff, message.to_string(), Some("Open Discord alerts in MultiAlt."))
     }
 
     pub fn bad_args(op: &str, detail: &str) -> Self {

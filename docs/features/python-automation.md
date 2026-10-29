@@ -170,6 +170,22 @@ a task morria calada e o Python esperava a resposta para sempre
 (`a_panic_answers_internal_instead_of_hanging`). O SDK entrega como
 `MultiAltError` com `code == "internal"` (sem classe própria).
 
+## Mensagens no Discord (`multialt.discord`, bloco `notify`)
+
+Pedido do dono (28/10/2026): mandar mensagem pelo webhook a partir dos scripts.
+O script pede (`discord.send` com `text`, `title` e `user_id` opcionais) e o
+**app** manda pelo webhook da página Discord alerts: a URL nunca chega ao
+Python. Entra na mesma fila dos avisos (lote, limite do Discord, horário
+silencioso, a menção do evento "A message from a Python script"); `@` no texto
+nunca menciona. Conta de fora da execução é recusada como nas outras ops; com o
+envio desligado, `MultiAltError` com `code == "webhook_off"`.
+
+O bloco padrão `multialt/defaults/notify.py` (editável no Modo desenvolvedor):
+`send`, `send_report({nome: valor})`, `send_at_most_every(minutos, texto,
+key=...)` (não inunda o canal num laço) e `with notify_errors(...)` (manda o
+erro e o relança; o Parar não conta). Testes em `python-sdk/tests/test_notify.py`
+e `a_discord_message_goes_to_the_app_checked`.
+
 ## Travas (valem com qualquer bloco reescrito)
 
 - Só as contas da execução; conta de fora ou sem cliente aberto pelo MultiAlt

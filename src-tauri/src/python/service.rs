@@ -49,6 +49,11 @@ impl RunEvents for AppEvents {
     fn dashboard(&self, script: &str, op: &str, args: &Value) -> Result<Value, PyError> {
         self.dashboard.apply(script, op, args, super::types::now_ms())
     }
+    fn discord(&self, script: &str, user_id: Option<i64>, title: Option<String>, text: String) -> Result<Value, PyError> {
+        crate::notify_script_webhook(&self.app, script, user_id, title, text)
+            .map(|()| serde_json::json!(true))
+            .map_err(|message| PyError::webhook_off(&message))
+    }
 }
 
 pub fn existing() -> Option<&'static Service> {

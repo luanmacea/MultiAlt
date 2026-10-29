@@ -120,6 +120,8 @@ Python runtime).
 - `account.status(text)` - the status line shown for this account.
 - `account.log(*args, level="log")` - a log line tagged with the account
   (filterable in the log terminal). `level` is `"log"`, `"warn"` or `"error"`.
+- `account.discord(text, title=None)` - a Discord message about this account
+  (see `discord` below).
 
 ## Module functions
 
@@ -130,6 +132,14 @@ Python runtime).
 - `log(*args, level="log")` - same as `print`, with a level. `print()` also
   works and is logged.
 - `status(text)` - the status line of the whole run.
+- `discord(text, *, title=None, account=None)` - post a message on your Discord
+  channel through the webhook set in MultiAlt (Discord alerts page: turn on
+  "Send notifications to Discord", paste the webhook URL and keep "A message
+  from a Python script" on). The app sends it, so the URL never reaches the
+  script; messages close together are grouped and Discord's rate limit, quiet
+  hours and that event's mention apply. Text up to 1500 characters (bold and
+  links work; `@` never pings), `title` up to 100. Raises `MultiAltError` with
+  `code == "webhook_off"` when the alerts are off.
 - `sleep(seconds)` - sleeps; wakes immediately and raises `Stopped` on Stop.
   **Use it instead of `time.sleep`.**
 - `stopped()` -> `bool` - True once Stop was pressed. Check it in loops:
@@ -188,6 +198,19 @@ script, kept after the run ends until you press Clear.
 - `dashboard.farm_report()` - the ready-made report (see below).
 - `dashboard.report_status(account, text)`, `dashboard.report_loop(account)`,
   `dashboard.report_error(account, err)` - feed the farm report.
+
+### Discord block (`multialt.defaults.notify`)
+
+Ready-made Discord messages, on top of `discord(...)`:
+
+- `notify.send(text, title=None, account=None)` - one message.
+- `notify.send_report({"Loops": 12, "Coins": "3.4k"}, title="Report", account=None)`
+  - one line per value.
+- `notify.send_at_most_every(minutes, text, key=None, title=None, account=None)`
+  -> `bool` - skips it when the same `key` sent less than `minutes` ago (no
+  flood from a loop).
+- `with notify.notify_errors(title="Script error", account=None):` - posts the
+  error of the block and raises it again; a Stop is not posted.
 
 Widget types and the value each takes (text is plain text, up to 2 KB):
 

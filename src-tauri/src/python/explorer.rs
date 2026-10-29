@@ -716,7 +716,7 @@ mod python_fs_tests {
         let blocks = find(&tree, "multialt/defaults").unwrap();
         assert!(blocks.pinned && !blocks.writable);
         let names: Vec<&str> = blocks.children.as_ref().unwrap().iter().map(|n| n.name.as_str()).collect();
-        assert_eq!(names, vec!["runner.py", "focus.py", "vision.py", "actions.py", "dashboard.py"]);
+        assert_eq!(names, vec!["runner.py", "focus.py", "vision.py", "actions.py", "dashboard.py", "notify.py"]);
         let runner = find(&tree, "multialt/defaults/runner.py").unwrap();
         assert!(runner.pinned && !runner.writable && runner.size > 0);
         let dev = super::tree(&ws.0, true).unwrap();

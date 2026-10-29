@@ -27,6 +27,9 @@ pub trait RunSink: Send + Sync {
     fn log(&self, line: PythonLogLine);
     fn status(&self, user_id: Option<i64>, text: &str);
     fn dashboard(&self, op: &str, args: &Value) -> Result<Value, PyError>;
+    /// `discord.send`: mensagem do script no webhook do Discord (texto já
+    /// conferido e cortado; a conta, se houver, já é desta execução).
+    fn discord(&self, user_id: Option<i64>, title: Option<String>, text: String) -> Result<Value, PyError>;
 }
 
 /// O que o app sabe agora do cliente de uma conta (`accounts` lê isto a cada
@@ -239,6 +242,7 @@ pub const OPS: &[&str] = &[
     "dashboard.set",
     "dashboard.push",
     "dashboard.clear",
+    "discord.send",
 ];
 
 fn is_forbidden(op: &str) -> bool {
@@ -405,6 +409,22 @@ fn pixel_at(w: u32, h: u32, pixels: &[u8], x: f64, y: f64) -> [u8; 3] {
     let i = ((py * w + px) * 4) as usize;
     // BGRA -> RGB
     [pixels[i + 2], pixels[i + 1], pixels[i]]
+}
+
+/// Os argumentos de `discord.send`: o texto (obrigatório; cortado e sem
+/// menção), o título e a conta (opcionais).
+fn discord_args(args: &Value) -> Result<(Option<i64>, Option<String>, String), PyError> {
+    let text = args.get("text").and_then(Value::as_str).unwrap_or("");
+    if text.trim().is_empty() {
+        return Err(PyError::bad_args("discord.send", "\"text\" is empty"));
+    }
+    let title = args
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|t| !t.trim().is_empty())
+        .map(crate::api::discord_webhook::script_message_title);
+    let user_id = args.get("user_id").and_then(Value::as_i64);
+    Ok((user_id, title, crate::api::discord_webhook::script_message_text(text)))
 }
 
 /// Ops que valem mesmo depois do Parar: soltar o que está preso e conversar.
@@ -655,6 +675,13 @@ pub async fn dispatch(ctx: &RunCtx, op: &str, args: Value) -> Result<Value, PyEr
             Ok(Value::Null)
         }
         op if op.starts_with("dashboard.") => ctx.sink.dashboard(op, &args),
+        "discord.send" => {
+            let (user_id, title, text) = discord_args(&args)?;
+            if let Some(uid) = user_id {
+                member(ctx, uid)?;
+            }
+            ctx.sink.discord(user_id, title, text)
+        }
         _ => Err(PyError::forbidden()),
     }
 }
@@ -877,6 +904,7 @@ pub mod python_primitives_tests {
     #[derive(Default)]
     pub struct NullSink {
         pub lines: Mutex<Vec<PythonLogLine>>,
+        pub discord: Mutex<Vec<(Option<i64>, Option<String>, String)>>,
     }
     impl RunSink for NullSink {
         fn log(&self, line: PythonLogLine) {
@@ -884,6 +912,10 @@ pub mod python_primitives_tests {
         }
         fn status(&self, _user_id: Option<i64>, _text: &str) {}
         fn dashboard(&self, _op: &str, _args: &Value) -> Result<Value, PyError> {
+            Ok(json!(true))
+        }
+        fn discord(&self, user_id: Option<i64>, title: Option<String>, text: String) -> Result<Value, PyError> {
+            self.discord.lock().unwrap().push((user_id, title, text));
             Ok(json!(true))
         }
     }
@@ -1070,6 +1102,27 @@ pub mod python_primitives_tests {
         assert_eq!(lines[2].2, "Focus taken (2 turns not shown).");
         assert!(lines[3].2.starts_with("Focus released after "));
         assert_eq!(lines.len(), 4);
+    }
+
+    /// `multialt.discord` (pedido do dono, 28/10/2026): o texto vai cortado e
+    /// sem menção; conta de fora da execução e texto vazio são recusados.
+    #[tokio::test]
+    async fn a_discord_message_goes_to_the_app_checked() {
+        let sink = Arc::new(NullSink::default());
+        let ctx = RunCtx::new("r1", vec![account(1, "Main_01")], Arc::new(AtomicBool::new(false)), sink.clone(), FakeDesk::with_window(1, 11), own_queue());
+        dispatch(&ctx, "discord.send", json!({"text": " Egg hatched @everyone ", "title": "Farm", "user_id": 1})).await.unwrap();
+        dispatch(&ctx, "discord.send", json!({"text": "no account"})).await.unwrap();
+        let sent = sink.discord.lock().unwrap().clone();
+        assert_eq!(sent[0].0, Some(1));
+        assert_eq!(sent[0].1.as_deref(), Some("Farm"));
+        assert_eq!(sent[0].2, "Egg hatched @\u{200B}everyone");
+        assert_eq!(sent[1], (None, None, "no account".to_string()));
+
+        let outsider = dispatch(&ctx, "discord.send", json!({"text": "hi", "user_id": 99})).await.unwrap_err();
+        assert_eq!(outsider.code.as_str(), "untracked_window");
+        let empty = dispatch(&ctx, "discord.send", json!({"text": "   "})).await.unwrap_err();
+        assert_eq!(empty.code.as_str(), "bad_args");
+        assert_eq!(sink.discord.lock().unwrap().len(), 2);
     }
 
     /// Uma linha gigante de `print` não vira 1 MB no log da tela.

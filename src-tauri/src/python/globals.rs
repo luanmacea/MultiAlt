@@ -478,6 +478,7 @@ def no_doc(a, *args, **kwargs): return a
                 "multialt.defaults.vision",
                 "multialt.defaults.actions",
                 "multialt.defaults.dashboard",
+                "multialt.defaults.notify",
                 "lib.helpers",
                 "lib.menus.shop",
             ]

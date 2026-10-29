@@ -189,10 +189,12 @@ pub enum WebhookEventKind {
     MemoryClosed,
     /// O Windows está quase sem memória livre. Sem conta.
     SystemLowMemory,
+    /// Mensagem de um script Python (`multialt.discord`, op `discord.send`).
+    ScriptMessage,
 }
 
 impl WebhookEventKind {
-    pub const ALL: [WebhookEventKind; 10] = [
+    pub const ALL: [WebhookEventKind; 11] = [
         Self::Dropped,
         Self::ReconnectFailed,
         Self::NotResponding,
@@ -203,12 +205,13 @@ impl WebhookEventKind {
         Self::BatchFinished,
         Self::MemoryClosed,
         Self::SystemLowMemory,
+        Self::ScriptMessage,
     ];
 
     /// Gravidade, para a cor da mensagem: a pior linha decide.
     fn severity(self) -> u8 {
         match self {
-            Self::Reconnected | Self::BatchFinished => 0,
+            Self::Reconnected | Self::BatchFinished | Self::ScriptMessage => 0,
             Self::NotResponding | Self::SystemLowMemory => 1,
             Self::LaunchFailed | Self::MemoryClosed => 2,
             Self::Dropped | Self::ReconnectFailed | Self::WrongAccount | Self::Moderated => 3,
@@ -229,6 +232,7 @@ impl WebhookEventKind {
             Self::BatchFinished => "BatchFinished",
             Self::MemoryClosed => "MemoryClosed",
             Self::SystemLowMemory => "SystemLowMemory",
+            Self::ScriptMessage => "ScriptMessage",
         }
     }
 
@@ -271,6 +275,30 @@ pub enum WebhookReason {
     MemoryOverLimit { memory_mb: u64, limit_mb: u64 },
     MemoryBelowMinimum { memory_mb: u64, min_mb: u64 },
     SystemMemoryLow { free_mb: u64, total_mb: u64 },
+    /// O texto já passou por `script_message_text` / `script_message_title`.
+    ScriptMessage { script: String, title: Option<String>, text: String },
+}
+
+/// Teto do texto de uma mensagem de script (o Discord aceita 4096 na descrição).
+pub const MAX_SCRIPT_TEXT_CHARS: usize = 1_500;
+/// Teto do título de uma mensagem de script (o Discord aceita 256).
+pub const MAX_SCRIPT_TITLE_CHARS: usize = 100;
+
+/// O `@` nunca menciona: ganha um espaço invisível, como no resto da mensagem.
+/// Negrito, itálico e link continuam (o canal é do próprio usuário).
+fn no_pings(text: &str) -> String {
+    // Idempotente: o texto já limpo pelo `discord.send` passa de novo pelo cartão.
+    text.replace("@\u{200B}", "@").replace('@', "@\u{200B}")
+}
+
+/// O texto de uma mensagem de script: sem espaço nas pontas, cortado no teto e
+/// sem menção.
+pub fn script_message_text(text: &str) -> String {
+    no_pings(&truncate_chars(text.trim(), MAX_SCRIPT_TEXT_CHARS))
+}
+
+pub fn script_message_title(title: &str) -> String {
+    no_pings(&truncate_chars(title.trim(), MAX_SCRIPT_TITLE_CHARS))
 }
 
 /// Um aviso pronto para a fila. `account` já vem mascarado (ou não) conforme
@@ -493,6 +521,11 @@ fn event_title(kind: WebhookEventKind, lang: WebhookLang) -> &'static str {
             "🧠 O Windows está quase sem memória",
             "🧠 Windows casi no tiene memoria",
         ),
+        WebhookEventKind::ScriptMessage => lang.pick(
+            "📜 Message from a Python script",
+            "📜 Mensagem de um script Python",
+            "📜 Mensaje de un script de Python",
+        ),
     }
 }
 
@@ -546,8 +579,10 @@ fn event_sentence(kind: WebhookEventKind, name: &str, lang: WebhookLang) -> Stri
             WebhookLang::Pt => format!("O MultiAlt fechou o cliente do Roblox de {n}."),
             WebhookLang::Es => format!("MultiAlt cerró el cliente de Roblox de {n}."),
         },
-        // Do app inteiro: a frase sai do motivo (`event_embed`).
-        WebhookEventKind::BatchFinished | WebhookEventKind::SystemLowMemory => String::new(),
+        // Do app inteiro: a frase sai do motivo (`event_embed`); a do script é o texto dele.
+        WebhookEventKind::BatchFinished | WebhookEventKind::SystemLowMemory | WebhookEventKind::ScriptMessage => {
+            String::new()
+        }
     }
 }
 
@@ -660,6 +695,7 @@ pub fn reason_text(reason: &WebhookReason, lang: WebhookLang) -> String {
             WebhookLang::Pt => format!("A memória caiu para {memory_mb} MB, abaixo do mínimo de {min_mb} MB (cliente travado)"),
             WebhookLang::Es => format!("La memoria bajó a {memory_mb} MB, por debajo del mínimo de {min_mb} MB (cliente congelado)"),
         },
+        WebhookReason::ScriptMessage { text, .. } => text.clone(),
         WebhookReason::SystemMemoryLow { free_mb, total_mb } => match lang {
             WebhookLang::En => format!("{free_mb} MB free of {total_mb} MB."),
             WebhookLang::Pt => format!("{free_mb} MB livres de {total_mb} MB."),
@@ -686,6 +722,9 @@ fn field(name: &str, value: String, inline: bool) -> serde_json::Value {
 /// o nome vira link do perfil e a foto da conta aparece; mascarado, nenhum dos
 /// dois (a foto e o perfil identificariam a conta).
 pub fn event_embed(event: &WebhookEvent, lang: WebhookLang, extra: &WebhookEnrichment) -> serde_json::Value {
+    if let Some(WebhookReason::ScriptMessage { script, title, text }) = &event.reason {
+        return script_embed(event, script, title.as_deref(), text, lang, extra);
+    }
     let name = escape_markdown(&event.account);
     let mut fields = Vec::new();
 
@@ -748,6 +787,56 @@ pub fn event_embed(event: &WebhookEvent, lang: WebhookLang, extra: &WebhookEnric
 /// Teto do texto de menção de uma mensagem (o de vários eventos junto). O
 /// Discord aceita 2000 no `content`.
 const MAX_CONTENT_MENTION_CHARS: usize = 1_000;
+
+/// O cartão de uma mensagem de script: o título que o script deu (ou "Mensagem
+/// de <script>"), o texto dele como descrição e os campos Script / Conta /
+/// Quando. Conta e foto só quando a mensagem é de uma conta e o nome está à mostra.
+fn script_embed(
+    event: &WebhookEvent,
+    script: &str,
+    title: Option<&str>,
+    text: &str,
+    lang: WebhookLang,
+    extra: &WebhookEnrichment,
+) -> serde_json::Value {
+    let script_name = escape_markdown(script);
+    let title = match title.filter(|t| !t.trim().is_empty()) {
+        Some(t) => format!("📜 {t}"),
+        None => match lang {
+            WebhookLang::En => format!("📜 Message from {script_name}"),
+            WebhookLang::Pt => format!("📜 Mensagem de {script_name}"),
+            WebhookLang::Es => format!("📜 Mensaje de {script_name}"),
+        },
+    };
+    let mut fields = vec![field("Script", script_name, true)];
+    if event.user_id > 0 {
+        let name = escape_markdown(&event.account);
+        let value = if event.masked {
+            name
+        } else {
+            format!("[{name}](https://www.roblox.com/users/{}/profile)", event.user_id)
+        };
+        fields.push(field(lang.pick("Account", "Conta", "Cuenta"), value, true));
+    }
+    let secs = event.at_ms.div_euclid(1_000);
+    fields.push(field(lang.pick("When", "Quando", "Cuándo"), format!("<t:{secs}:R> · <t:{secs}:T>"), true));
+    let mut embed = serde_json::json!({
+        "title": no_pings(&title),
+        "description": no_pings(text),
+        "color": 0x58_65_f2,
+        "fields": fields,
+        "footer": { "text": "MultiAlt" },
+    });
+    if let Some(ts) = chrono::DateTime::from_timestamp_millis(event.at_ms) {
+        embed["timestamp"] = serde_json::Value::String(ts.to_rfc3339());
+    }
+    if !event.masked && event.user_id > 0 {
+        if let Some(url) = extra.avatars.get(&event.user_id) {
+            embed["thumbnail"] = serde_json::json!({ "url": url });
+        }
+    }
+    embed
+}
 
 fn mention_and_allowed(mention: &str) -> (String, serde_json::Value) {
     let mention: String = mention.trim().chars().take(MAX_CONTENT_MENTION_CHARS).collect();
@@ -1219,6 +1308,48 @@ mod discord_webhook_message_tests {
         let card = &build_message(&[low], "", WebhookLang::En, &WebhookEnrichment::default())["embeds"][0];
         assert_eq!(card["title"], "🧠 Windows is almost out of memory");
         assert_eq!(card["description"], "700 MB free of 16000 MB.");
+    }
+
+    /// Pedido do dono (28/10/2026): função padrão para mandar mensagem pelo
+    /// webhook a partir dos scripts Python.
+    #[test]
+    fn a_script_message_is_its_own_card_and_cannot_ping() {
+        let on = settings(&[("Enabled", "true"), ("Url", URL)]);
+        assert!(on.wants(WebhookEventKind::ScriptMessage), "on by default: the script asked for it");
+        let e = WebhookEvent {
+            reason: Some(WebhookReason::ScriptMessage {
+                script: "farm".into(),
+                title: Some("Night run".into()),
+                text: "**12** loops @everyone <@&99>".into(),
+            }),
+            ..event(WebhookEventKind::ScriptMessage, "Farm 1")
+        };
+        let card = &build_message(&[e.clone()], "", WebhookLang::En, &extra())["embeds"][0];
+        assert_eq!(card["title"], "📜 Night run");
+        let text = card["description"].as_str().unwrap();
+        assert!(text.starts_with("**12** loops"), "formatting stays: {text}");
+        assert!(!text.contains("@everyone") && !text.contains("<@&"), "{text}");
+        let names: Vec<&str> = card["fields"].as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"Script"), "{names:?}");
+        assert!(names.contains(&"Account"));
+        // Sem conta e sem título: o nome do script no título, sem campo Conta.
+        let bare = WebhookEvent {
+            user_id: 0,
+            account: String::new(),
+            reason: Some(WebhookReason::ScriptMessage { script: "farm".into(), title: None, text: "done".into() }),
+            ..event(WebhookEventKind::ScriptMessage, "")
+        };
+        let card = &build_message(&[bare], "", WebhookLang::Pt, &WebhookEnrichment::default())["embeds"][0];
+        assert_eq!(card["title"], "📜 Mensagem de farm");
+        assert!(!card.to_string().contains("\"Conta\""));
+    }
+
+    #[test]
+    fn a_script_message_is_cut_to_the_limit() {
+        let long = "x".repeat(MAX_SCRIPT_TEXT_CHARS + 50);
+        assert_eq!(script_message_text(&long).chars().count(), MAX_SCRIPT_TEXT_CHARS + 1, "cut with an ellipsis");
+        assert_eq!(script_message_text("  hi  "), "hi");
+        assert_eq!(script_message_title("t".repeat(300).as_str()).chars().count(), MAX_SCRIPT_TITLE_CHARS + 1);
     }
 
     fn extra() -> WebhookEnrichment {

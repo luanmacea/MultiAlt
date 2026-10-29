@@ -54,6 +54,7 @@ pub const SDK_FILES: &[SdkFile] = &[
     sdk!("multialt/defaults/vision.py", Block),
     sdk!("multialt/defaults/actions.py", Block),
     sdk!("multialt/defaults/dashboard.py", Block),
+    sdk!("multialt/defaults/notify.py", Block),
     sdk!("AGENTS.md", AppOwned),
     sdk!("CLAUDE.md", AppOwned),
     sdk!("docs/API.md", AppOwned),
@@ -710,7 +711,7 @@ mod python_workspace_tests {
     fn the_sdk_ships_every_contract_file_and_no_tests() {
         assert!(SDK_FILES.iter().all(|f| !f.path.starts_with("tests/")));
         let blocks: Vec<&str> = block_files().map(block_name).collect();
-        assert_eq!(blocks, vec!["runner.py", "focus.py", "vision.py", "actions.py", "dashboard.py"]);
+        assert_eq!(blocks, vec!["runner.py", "focus.py", "vision.py", "actions.py", "dashboard.py", "notify.py"]);
         assert!(SDK_FILES.iter().all(|f| !f.contents.trim().is_empty()), "every SDK file has content");
     }
 }
