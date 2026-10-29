@@ -51,6 +51,7 @@ include!("windows/focus_follow.rs");
 include!("windows/live_audio.rs");
 include!("windows/windowing.rs");
 include!("windows/hidden_focus.rs");
+include!("windows/live_view.rs");
 include!("windows/memory_trim.rs");
 include!("windows/input.rs");
 include!("windows/tracker.rs");
