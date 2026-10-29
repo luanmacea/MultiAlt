@@ -14,7 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
  * sempre, sem limpeza. Qualquer **outro** erro do Windows (área de
  * transferência ocupada) não cai no caminho sem proteção: vira erro na tela.
  */
-export type SecretKind = "cookie" | "password" | "userpass";
+export type SecretKind = "cookie" | "password" | "userpass" | "userpasscookie";
 
 export const SECRET_CLEAR_SECONDS = 30;
 export const CLIPBOARD_UNSUPPORTED = "CLIPBOARD_UNSUPPORTED";
