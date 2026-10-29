@@ -31,7 +31,11 @@ pub const DATA_FILES: &[&str] = &[
     "RAMSessionHistory.jsonl",
     "AccountControlData.json",
 ];
-pub const DATA_DIRS: &[&str] = &["RAMThemeFonts"];
+/// `python`: a pasta de trabalho da automação Python (scripts, `lib/`,
+/// `assets/`, blocos padrão, configurações das execuções e dashboard). O
+/// Python portátil mora fora, em `python-runtime/` do `app_local_data_dir`, e
+/// não entra em backup nem migração.
+pub const DATA_DIRS: &[&str] = &["RAMThemeFonts", "python"];
 
 /// Pasta do executável (onde as versões antigas guardavam tudo).
 pub fn exe_dir() -> PathBuf {
@@ -193,6 +197,11 @@ pub fn get_recordings_path() -> PathBuf {
 /// Histórico de sessões (`data/session_history.rs`).
 pub fn get_session_history_path() -> PathBuf {
     get_runtime_data_dir().join(crate::data::session_history::SESSION_HISTORY_FILE_NAME)
+}
+
+/// Pasta de trabalho da automação Python (docs/features/python-automation.md).
+pub fn get_python_workspace_dir() -> PathBuf {
+    get_runtime_data_dir().join("python")
 }
 
 pub fn get_theme_fonts_dir() -> PathBuf {

@@ -513,6 +513,7 @@ impl SettingsStore {
             ("NotifyBatchFinished", "false"),
             ("NotifyMemoryClosed", "true"),
             ("NotifySystemLowMemory", "false"),
+            ("NotifyScriptMessage", "true"),
             ("MaskNames", "false"),
             ("QuietHours", "false"),
             ("QuietStart", "23:00"),
@@ -528,6 +529,14 @@ impl SettingsStore {
             if !webhook.exists(key) {
                 webhook.set(key, value, None);
             }
+        }
+
+        // Automação do Roblox Player em Python (docs/features/python-automation.md):
+        // o Modo desenvolvedor (editar os blocos padrão e o canal do terminal)
+        // nasce desligado.
+        let python = ini.section("Python");
+        if !python.exists("DeveloperMode") {
+            python.set("DeveloperMode", "false", None);
         }
 
         ini.section("Prompts");
