@@ -6,6 +6,7 @@ mod data;
 #[cfg(feature = "nexus")]
 mod nexus;
 mod platform;
+mod python;
 mod roblox_log;
 #[cfg(target_os = "windows")]
 mod webview_recovery;
@@ -482,6 +483,10 @@ pub fn run() {
             // Devolver as configurações do Roblox sem esperar o app fechar.
             #[cfg(target_os = "windows")]
             start_settings_restore_loop(app.handle().clone());
+            // Automação Python: com o Modo desenvolvedor ligado, reabre o canal
+            // do terminal (python/mod.rs).
+            #[cfg(feature = "python-scripts")]
+            python::on_app_start(app.handle());
             // Navegador anônimo (o padrão): os perfis que sobraram de antes —
             // de quando ele era persistente, ou de uma janela fechada com o app
             // fora — somem ao abrir. Em segundo plano: pode haver muitos.
@@ -819,11 +824,49 @@ pub fn run() {
             open_feedback_form,
             get_report_environment,
             sync_windows_navbar_theme,
+            // Automação do Roblox Player em Python (python/commands.rs).
+            python::commands::python_runtime_status,
+            python::commands::python_install_runtime,
+            python::commands::python_reinstall_runtime,
+            python::commands::python_workspace_info,
+            python::commands::python_list_scripts,
+            python::commands::python_read_script,
+            python::commands::python_write_script,
+            python::commands::python_create_script,
+            python::commands::python_delete_script,
+            python::commands::python_list_default_blocks,
+            python::commands::python_read_default_block,
+            python::commands::python_write_default_block,
+            python::commands::python_restore_default_block,
+            python::commands::python_fs_tree,
+            python::commands::python_fs_read,
+            python::commands::python_fs_read_image,
+            python::commands::python_fs_write,
+            python::commands::python_fs_create,
+            python::commands::python_fs_rename,
+            python::commands::python_fs_delete,
+            python::commands::python_list_global_functions,
+            python::commands::python_open_workspace_folder,
+            python::commands::python_open_in_editor,
+            python::commands::python_get_run_configs,
+            python::commands::python_save_run_config,
+            python::commands::python_start_run,
+            python::commands::python_stop_run,
+            python::commands::python_stop_all_runs,
+            python::commands::python_list_runs,
+            python::commands::python_get_dashboard,
+            python::commands::python_clear_dashboard,
+            python::commands::python_inspector_capture,
+            python::commands::python_save_asset,
+            python::commands::python_set_developer_mode,
+            python::commands::python_get_logs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
             tauri::RunEvent::ExitRequested { .. } => {
+                // Para os scripts Python e solta tecla presa (não fecha cliente).
+                python::shutdown_on_exit();
                 // Antes da limpeza do Multi Roblox, que esvazia o rastreamento.
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
@@ -838,6 +881,7 @@ pub fn run() {
                 cleanup_multi_roblox_on_exit(app);
             }
             tauri::RunEvent::Exit => {
+                python::shutdown_on_exit();
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]

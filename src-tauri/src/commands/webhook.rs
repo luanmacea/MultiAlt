@@ -207,6 +207,40 @@ pub(crate) fn notify_webhook(
     with_webhook_queue(|queue| queue.push(event, now_ms));
 }
 
+/// Mensagem de um script Python (`multialt.discord`, op `discord.send`): entra
+/// na mesma fila dos avisos (lote, limite do Discord, horário silencioso, a
+/// menção deste evento). O texto chega já cortado e sem menção.
+/// Erro quando o envio está desligado: o script recebe o motivo.
+pub(crate) fn notify_script_webhook(
+    app: &tauri::AppHandle,
+    script: &str,
+    user_id: Option<i64>,
+    title: Option<String>,
+    text: String,
+) -> Result<(), String> {
+    let config = webhook_config(app);
+    if !config.wants(WebhookEventKind::ScriptMessage) {
+        return Err(SCRIPT_WEBHOOK_OFF.to_string());
+    }
+    let user_id = user_id.filter(|id| *id > 0).unwrap_or(0);
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let event = WebhookEvent {
+        kind: WebhookEventKind::ScriptMessage,
+        user_id,
+        account: if user_id > 0 { webhook_account_label(app, &config, user_id) } else { String::new() },
+        masked: config.mask_names,
+        reason: Some(WebhookReason::ScriptMessage { script: script.to_string(), title, text }),
+        place_id: if user_id > 0 { webhook_place_of(user_id) } else { None },
+        at_ms: now_ms,
+    };
+    with_webhook_queue(|queue| queue.push(event, now_ms));
+    Ok(())
+}
+
+/// O que o script ouve quando o envio para o Discord está desligado.
+pub(crate) const SCRIPT_WEBHOOK_OFF: &str =
+    "Discord alerts are off: turn on \"Send notifications to Discord\", paste the webhook URL and turn on \"A message from a Python script\" in the Discord alerts page.";
+
 /// Motivo da queda, como código (a mensagem traduz). O texto cru do kick do
 /// Roblox pode citar o nome real de outro jogador ("kicked by <username>"): com
 /// "Hide account names" ligado, só a CATEGORIA; o texto só com os nomes à mostra.

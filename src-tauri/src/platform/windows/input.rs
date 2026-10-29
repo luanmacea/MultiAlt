@@ -16,7 +16,9 @@
 // - as Gravações (docs/features/recordings.md) usam as mesmas duas formas:
 //   `press_recording_key` recebe **nome** de tecla da lista fechada das
 //   gravações (`RECORDING_KEYS`) e `click_recording_point` é o clique do AFK,
-//   com o clique de foco opcional.
+//   com o clique de foco opcional;
+// - a automação Python usa `press_python_key`: a lista das gravações mais o
+//   `Escape` (`PYTHON_ONLY_KEYS`), que as gravações e o AFK continuam recusando.
 // Ler teclado ou botão do usuário é proibido aqui; a posição do cursor é lida só
 // para devolvê-lo, para o Marcar e para a parada de emergência por chacoalhar
 // (`commands/shake_stop.rs`), que também sabe, por `app_cursor_move`, quando
@@ -74,8 +76,8 @@ pub fn window_exists(hwnd: HWND) -> bool {
 /// `up = true` solta; `extended` marca tecla estendida (as setas). Devolve
 /// `false` quando o Windows recusou o envio.
 ///
-/// Privado: quem chama passa **nome** de tecla por `tap_afk_key` ou
-/// `press_recording_key`, nunca um virtual key cru.
+/// Privado: quem chama passa **nome** de tecla por `tap_afk_key`,
+/// `press_recording_key` ou `press_python_key`, nunca um virtual key cru.
 fn send_key_flags(vk: u16, scan: u16, up: bool, extended: bool) -> bool {
     let mut flags = if up { KEYEVENTF_KEYUP } else { 0 };
     if extended {
@@ -173,6 +175,31 @@ pub fn press_recording_key(key: &str, up: bool) -> bool {
     let Some((vk, scan, extended)) = recording_vk_and_scan(key) else {
         return false;
     };
+    press_named_key(vk, scan, extended, up)
+}
+
+/// `(virtual key, scan code, estendida)` de uma tecla que a automação Python
+/// pode mandar (a lista das gravações mais o `Escape`), ou `None`.
+fn python_vk_and_scan(key: &str) -> Option<(u16, u16, bool)> {
+    let (_, vk, extended) = crate::data::recordings::python_key(key)?;
+    let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
+    Some((vk, scan, extended))
+}
+
+/// A porta da automação Python: a das gravações mais o `Escape`
+/// (`data::recordings::PYTHON_ONLY_KEYS`). Tecla fora da lista: `false`, sem
+/// enviar nada.
+#[cfg_attr(not(feature = "python-scripts"), allow(dead_code))]
+pub fn press_python_key(key: &str, up: bool) -> bool {
+    let Some((vk, scan, extended)) = python_vk_and_scan(key) else {
+        return false;
+    };
+    press_named_key(vk, scan, extended, up)
+}
+
+/// Aperta ou solta uma tecla já resolvida por uma das listas fechadas. O
+/// "solta" é tentado até três vezes.
+fn press_named_key(vk: u16, scan: u16, extended: bool, up: bool) -> bool {
     if !up {
         return send_key_flags(vk, scan, false, extended);
     }
@@ -447,6 +474,22 @@ mod win_input_tests {
             assert!(recording_vk_and_scan(outside).is_none(), "{outside:?}");
             // Recusado antes de qualquer envio.
             assert!(!press_recording_key(outside, true), "{outside:?}");
+        }
+    }
+
+    #[test]
+    fn python_keys_add_escape_but_recordings_still_refuse_it() {
+        for name in ["Escape", "escape", "Esc", "ESC"] {
+            let (vk, scan, extended) = python_vk_and_scan(name).expect("Escape is a Python key");
+            assert_eq!(vk, 0x1B);
+            assert!(!extended);
+            assert_ne!(scan, 0);
+            assert!(recording_vk_and_scan(name).is_none(), "{name}: recordings never send it");
+        }
+        assert_eq!(python_vk_and_scan("Up").map(|k| k.0), Some(0x26));
+        for outside in ["Enter", "F4", "Tab", "LWin", "Alt", ""] {
+            assert!(python_vk_and_scan(outside).is_none(), "{outside:?}");
+            assert!(!press_python_key(outside, true), "{outside:?}");
         }
     }
 

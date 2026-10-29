@@ -1,0 +1,615 @@
+// Comandos da tela Python (`python_*`). Sempre registrados no
+// `generate_handler!`; sem a feature `python-scripts` os de ação respondem
+// `NOT_AVAILABLE` e os de leitura devolvem vazio, para a tela não quebrar.
+
+#![allow(unused_variables)]
+
+use std::collections::HashMap;
+
+use super::types::*;
+
+pub const NOT_AVAILABLE: &str = "Python automation is not available in this build";
+
+#[cfg(feature = "python-scripts")]
+const UNAVAILABLE: &str = "not implemented yet";
+#[cfg(not(feature = "python-scripts"))]
+const UNAVAILABLE: &str = NOT_AVAILABLE;
+
+#[allow(unused_macros)]
+macro_rules! unavailable {
+    () => {
+        Err(UNAVAILABLE.to_string())
+    };
+}
+
+#[tauri::command]
+pub async fn python_runtime_status(app: tauri::AppHandle) -> Result<PythonRuntimeStatus, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::runtime::status(&app));
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(PythonRuntimeStatus::default())
+}
+
+/// Baixa e instala o Python portátil. Só roda pelo clique em "Install Python";
+/// uma segunda chamada com a primeira em andamento é recusada.
+#[tauri::command]
+pub async fn python_install_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return install_runtime(app).await;
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Reinstala: o runtime novo substitui o atual só no fim (os scripts nunca são
+/// tocados — moram na pasta de trabalho).
+#[tauri::command]
+pub async fn python_reinstall_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return install_runtime(app).await;
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[cfg(feature = "python-scripts")]
+async fn install_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    use super::runtime;
+    use tauri::Emitter;
+    let Some(_guard) = runtime::begin_install() else {
+        return Err("Python is already being installed".into());
+    };
+    // Depois de marcar "instalando" (o Run recusa a partir daqui): nenhuma
+    // execução nasce entre a conferência e a troca.
+    runtime::install_allowed(super::runs_active())?;
+    let base = runtime::runtime_dir(&app);
+    let workspace = crate::data::settings::get_python_workspace_dir();
+    let emitter = app.clone();
+    let mut on_progress = move |p: PythonInstallProgress| {
+        // Os passos também vão para o terminal da tela (linhas `system`).
+        if let Some(line) = runtime::install_log_line(&p) {
+            super::service::system_log(&emitter, None, line);
+        }
+        let _ = emitter.emit("python-install-progress", p);
+    };
+    // O pip roda bloqueando (minutos): a instalação inteira vai para uma
+    // thread de bloqueio.
+    let result = tokio::task::spawn_blocking(move || {
+        let spec = runtime::RuntimeSpec::official();
+        tauri::async_runtime::block_on(runtime::install_into(
+            &base,
+            &workspace,
+            &spec,
+            &runtime::RealStepRunner,
+            &mut on_progress,
+        ))
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("The install stopped unexpectedly: {e}")));
+    if let Err(error) = &result {
+        super::service::system_log(&app, None, format!("Python install failed: {error}"));
+        let _ = app.emit(
+            "python-install-progress",
+            PythonInstallProgress {
+                stage: "error".into(),
+                message: error.clone(),
+                downloaded: 0,
+                total: 0,
+            },
+        );
+    }
+    result
+}
+
+#[cfg(feature = "python-scripts")]
+fn ws_root() -> std::path::PathBuf {
+    crate::data::settings::get_python_workspace_dir()
+}
+
+#[cfg(feature = "python-scripts")]
+fn developer_mode_on(app: &tauri::AppHandle) -> bool {
+    use tauri::Manager;
+    app.state::<crate::data::settings::SettingsStore>()
+        .get_bool("Python", "DeveloperMode")
+}
+
+/// O comando que a tela mostra para rodar um script pelo terminal.
+#[cfg(feature = "python-scripts")]
+pub fn cli_command(python_exe: Option<&std::path::Path>) -> String {
+    let exe = python_exe
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "python".into());
+    format!("\"{exe}\" -m multialt run scripts/farm.py --account Main_01 --mode one_at_a_time")
+}
+
+#[tauri::command]
+pub async fn python_workspace_info(app: tauri::AppHandle) -> Result<PythonWorkspaceInfo, String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        let exe = super::runtime::python_exe(&app);
+        return Ok(PythonWorkspaceInfo {
+            root: root.to_string_lossy().to_string(),
+            scripts_dir: root.join(super::workspace::SCRIPTS_DIR).to_string_lossy().to_string(),
+            assets_dir: root.join(super::workspace::ASSETS_DIR).to_string_lossy().to_string(),
+            python_exe: exe.as_ref().map(|p| p.to_string_lossy().to_string()),
+            cli_command: cli_command(exe.as_deref()),
+        });
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(PythonWorkspaceInfo::default())
+}
+
+#[tauri::command]
+pub fn python_list_scripts() -> Result<Vec<PythonScriptFile>, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::list_scripts(&ws_root());
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(Vec::new())
+}
+
+#[tauri::command]
+pub fn python_read_script(name: String) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::read_script(&ws_root(), &name);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[tauri::command]
+pub fn python_write_script(name: String, source: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::write_script(&ws_root(), &name, &source);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// `template`: "blank" | "per_account" | "controller" | "dashboard".
+#[tauri::command]
+pub fn python_create_script(name: String, template: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        return super::workspace::create_script(&root, &name, &template);
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[tauri::command]
+pub fn python_delete_script(name: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::delete_script(&ws_root(), &name);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[tauri::command]
+pub fn python_list_default_blocks() -> Result<Vec<DefaultBlockInfo>, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::list_blocks(&ws_root());
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(Vec::new())
+}
+
+#[tauri::command]
+pub fn python_read_default_block(name: String) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::read_block(&ws_root(), &name);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Só com o Modo desenvolvedor ligado.
+#[tauri::command]
+pub fn python_write_default_block(
+    app: tauri::AppHandle,
+    name: String,
+    source: String,
+) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return write_block_gated(developer_mode_on(&app), &ws_root(), &name, &source);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// O caminho único de gravação de um bloco (a aba Developer e o editor da
+/// aba Code): recusado sem o Modo desenvolvedor.
+#[cfg(feature = "python-scripts")]
+fn write_block_gated(developer_mode: bool, root: &std::path::Path, name: &str, source: &str) -> Result<(), String> {
+    if !developer_mode {
+        return Err(super::workspace::DEVELOPER_MODE_OFF.into());
+    }
+    super::workspace::write_block(root, name, source)
+}
+
+/// Restaurar também mexe no bloco: recusado sem o Modo desenvolvedor.
+#[cfg(feature = "python-scripts")]
+fn restore_block_gated(developer_mode: bool, root: &std::path::Path, name: &str) -> Result<(), String> {
+    if !developer_mode {
+        return Err(super::workspace::DEVELOPER_MODE_OFF.into());
+    }
+    super::workspace::restore_block(root, name)
+}
+
+/// Restaura **um** bloco (a tela confirma antes).
+#[tauri::command]
+pub fn python_restore_default_block(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return restore_block_gated(developer_mode_on(&app), &ws_root(), &name);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+// ── Explorer e editor da aba Code (docs/features/python-automation.md) ────
+
+/// A árvore da pasta de trabalho (só o que a tela mostra).
+#[tauri::command]
+pub fn python_fs_tree(app: tauri::AppHandle) -> Result<FsNode, String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        return super::explorer::tree(&root, developer_mode_on(&app));
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(FsNode::default())
+}
+
+/// O texto de um arquivo da árvore (até 1 MB; binário é recusado).
+#[tauri::command]
+pub fn python_fs_read(path: String) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::read_text(&ws_root(), &path);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Uma imagem de `assets/` como data URL, para a prévia.
+#[tauri::command]
+pub fn python_fs_read_image(path: String) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::read_image(&ws_root(), &path);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Grava em `scripts/`, `lib/` ou `assets/`; bloco padrão vai pelo caminho do
+/// `python_write_default_block` (Modo desenvolvedor).
+#[tauri::command]
+pub fn python_fs_write(app: tauri::AppHandle, path: String, content: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        use super::explorer::{self, WriteTarget};
+        let root = ws_root();
+        return match explorer::write_target(&root, &path)? {
+            WriteTarget::File(file) => explorer::write_file(&file, &content),
+            WriteTarget::Block(name) => write_block_gated(developer_mode_on(&app), &root, &name, &content),
+        };
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// `kind` = "file" | "dir", só dentro de `scripts/`, `lib/` e `assets/`.
+#[tauri::command]
+pub fn python_fs_create(path: String, kind: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::create(&ws_root(), &path, &kind);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Renomeia ou move dentro da mesma pasta gravável de topo.
+#[tauri::command]
+pub fn python_fs_rename(from: String, to: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::rename(&ws_root(), &from, &to);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Não apaga: move para `.trash/<ms>-<nome>` (a tela confirma antes).
+#[tauri::command]
+pub fn python_fs_delete(path: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::explorer::delete(&ws_root(), &path).map(|_| ());
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Os módulos importáveis (blocos padrão e `lib/`) com as funções de cada um.
+#[tauri::command]
+pub fn python_list_global_functions() -> Result<Vec<GlobalModule>, String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        return super::globals::list_global_functions(&root);
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(Vec::new())
+}
+
+#[tauri::command]
+pub fn python_open_workspace_folder() -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let root = ws_root();
+        super::workspace::sync_workspace(&root)?;
+        return super::workspace::open_folder(&root);
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[tauri::command]
+pub fn python_open_in_editor(name: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let path = super::workspace::script_path(&ws_root(), &name)?;
+        if !path.is_file() {
+            return Err(format!("{name} does not exist"));
+        }
+        return super::workspace::open_in_editor(&path);
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[tauri::command]
+pub fn python_get_run_configs() -> Result<HashMap<String, PythonRunConfig>, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::workspace::load_run_configs(&ws_root()));
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(HashMap::new())
+}
+
+#[tauri::command]
+pub fn python_save_run_config(config: PythonRunConfig) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::workspace::save_run_config(&ws_root(), &config);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Começa uma execução pelo app. Devolve o id.
+#[tauri::command]
+pub async fn python_start_run(app: tauri::AppHandle, config: PythonRunConfig) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return start_app_run(&app, config);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[cfg(feature = "python-scripts")]
+fn start_app_run(app: &tauri::AppHandle, config: PythonRunConfig) -> Result<String, String> {
+    use super::{runs, service, workspace};
+    workspace::validate_script_name(&config.script)?;
+    if config.accounts.is_empty() {
+        return Err("Pick at least one account".into());
+    }
+    if let PythonTrigger::Interval { minutes } = config.trigger {
+        if minutes == 0 {
+            return Err("The interval must be at least 1 minute".into());
+        }
+    }
+    if super::runtime::status(app).installing {
+        return Err("Python is being installed. Wait for it to finish, then press Run.".into());
+    }
+    let python_exe = super::runtime::python_exe(app)
+        .ok_or("Python is not installed yet. Click \"Install Python\" first.")?;
+    let root = ws_root();
+    service::prepare_workspace(app, &root)?;
+    if !workspace::script_path(&root, &config.script)?.is_file() {
+        return Err(format!("{} does not exist in scripts/", config.script));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<i64> = config.accounts.iter().copied().filter(|id| seen.insert(*id)).collect();
+    let accounts = service::account_views(app, &ids)?;
+    let svc = service::service(app);
+    let executor = std::sync::Arc::new(runs::ProcessExecutor {
+        python_exe,
+        workspace: root,
+    });
+    let id = svc.manager.start(config, accounts, "app", executor)?;
+    // Chacoalhar o mouse para as execuções (`Afk.ShakeToStop`).
+    #[cfg(target_os = "windows")]
+    crate::ensure_shake_watch(app);
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn python_stop_run(app: tauri::AppHandle, run_id: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    return super::service::service(&app).manager.stop(&run_id);
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[tauri::command]
+pub async fn python_stop_all_runs(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        super::service::service(&app).manager.stop_all();
+        return Ok(());
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+#[tauri::command]
+pub fn python_list_runs(app: tauri::AppHandle) -> Result<Vec<PythonRunInfo>, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::service::service(&app).manager.list());
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(Vec::new())
+}
+
+#[tauri::command]
+pub fn python_get_dashboard(app: tauri::AppHandle) -> Result<Vec<DashboardSection>, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::service::service(&app).dashboard.sections());
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(Vec::new())
+}
+
+#[tauri::command]
+pub fn python_clear_dashboard(app: tauri::AppHandle, script: String) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        let svc = super::service::service(&app);
+        svc.dashboard.clear_section(&script);
+        let _ = svc.dashboard.save_if_dirty();
+        return Ok(());
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// A captura da janela de uma conta (só cliente aberto pelo MultiAlt), para o
+/// inspetor. Imagem grande sai reduzida (as frações não mudam).
+#[tauri::command]
+pub async fn python_inspector_capture(user_id: i64) -> Result<InspectorFrame, String> {
+    #[cfg(feature = "python-scripts")]
+    return tokio::task::spawn_blocking(move || super::inspector::capture_frame(user_id))
+    .await
+    .map_err(|e| e.to_string())?;
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Salva o recorte `rect` (frações) do quadro `frame_id` que o inspetor
+/// mostrou (o último da conta) em `assets/<name>`. Devolve o caminho salvo.
+#[tauri::command]
+pub async fn python_save_asset(user_id: i64, rect: FracRect, name: String, frame_id: u64) -> Result<String, String> {
+    #[cfg(feature = "python-scripts")]
+    return tokio::task::spawn_blocking(move || {
+        let root = ws_root();
+        let path = super::inspector::asset_path(&root, &name)?;
+        super::inspector::frames().save(user_id, frame_id, &rect, &path)?;
+        Ok(path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Liga/desliga o Modo desenvolvedor: grava `Python.DeveloperMode` e abre ou
+/// fecha o canal do terminal. Se o canal não abre (ou não fecha), a gravação
+/// é desfeita: o que fica gravado é o que está valendo.
+#[tauri::command]
+pub async fn python_set_developer_mode(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(feature = "python-scripts")]
+    {
+        use tauri::Manager;
+        let settings = app.state::<crate::data::settings::SettingsStore>();
+        let previous = settings.get_bool("Python", "DeveloperMode");
+        return persist_then_apply(
+            previous,
+            enabled,
+            &mut |value| settings.set("Python", "DeveloperMode", if value { "true" } else { "false" }),
+            &mut |value| super::apply_developer_mode(&app, value),
+        );
+    }
+    #[cfg(not(feature = "python-scripts"))]
+    unavailable!()
+}
+
+/// Grava `enabled`, aplica, e volta a gravar `previous` se aplicar falhou.
+#[cfg(feature = "python-scripts")]
+fn persist_then_apply(
+    previous: bool,
+    enabled: bool,
+    save: &mut dyn FnMut(bool) -> Result<(), String>,
+    apply: &mut dyn FnMut(bool) -> Result<(), String>,
+) -> Result<(), String> {
+    save(enabled)?;
+    if let Err(error) = apply(enabled) {
+        let _ = save(previous);
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn python_get_logs(app: tauri::AppHandle) -> Result<Vec<PythonLogLine>, String> {
+    #[cfg(feature = "python-scripts")]
+    return Ok(super::service::service(&app).logs.all());
+    #[cfg(not(feature = "python-scripts"))]
+    Ok(Vec::new())
+}
+
+#[cfg(all(test, feature = "python-scripts"))]
+mod python_commands_tests {
+    use super::*;
+
+    /// O editor da aba Code grava um bloco pelo mesmo caminho da aba
+    /// Developer: sem o Modo desenvolvedor, recusado e o arquivo intacto.
+    #[test]
+    fn block_writes_from_the_editor_need_developer_mode() {
+        let ws = std::env::temp_dir().join(format!("ram-pycmd-{}", now_ms()));
+        super::super::workspace::sync_workspace(&ws).unwrap();
+        let runner = ws.join("multialt/defaults/runner.py");
+        let before = std::fs::read_to_string(&runner).unwrap();
+        let error = write_block_gated(false, &ws, "runner.py", "# mine\n").unwrap_err();
+        assert_eq!(error, super::super::workspace::DEVELOPER_MODE_OFF);
+        assert_eq!(std::fs::read_to_string(&runner).unwrap(), before);
+        write_block_gated(true, &ws, "runner.py", "# mine\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&runner).unwrap(), "# mine\n");
+        assert!(write_block_gated(true, &ws, "protocol.py", "x").is_err());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    /// Restore default também é edição de bloco: sem o Modo desenvolvedor,
+    /// recusado e o arquivo do usuário fica como está (spec v2, 25/10/2026).
+    #[test]
+    fn restoring_a_block_needs_developer_mode() {
+        let ws = std::env::temp_dir().join(format!("ram-pyrestore-{}", now_ms()));
+        super::super::workspace::sync_workspace(&ws).unwrap();
+        let runner = ws.join("multialt/defaults/runner.py");
+        write_block_gated(true, &ws, "runner.py", "# mine
+").unwrap();
+        let error = restore_block_gated(false, &ws, "runner.py").unwrap_err();
+        assert_eq!(error, super::super::workspace::DEVELOPER_MODE_OFF);
+        assert_eq!(std::fs::read_to_string(&runner).unwrap(), "# mine
+");
+        restore_block_gated(true, &ws, "runner.py").unwrap();
+        assert_ne!(std::fs::read_to_string(&runner).unwrap(), "# mine
+");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    /// Ligar o Modo desenvolvedor e o canal não abrir (nome de pipe ocupado,
+    /// workspace sem escrita) não pode deixar `DeveloperMode = true` gravado:
+    /// no próximo boot o app tentaria abrir o canal que a pessoa viu falhar.
+    #[test]
+    fn developer_mode_is_rolled_back_when_it_cannot_be_applied() {
+        let mut stored = false;
+        let failing = persist_then_apply(
+            stored,
+            true,
+            &mut |value| {
+                stored = value;
+                Ok(())
+            },
+            &mut |_| Err("Could not open the terminal channel: busy".to_string()),
+        );
+        assert_eq!(failing.unwrap_err(), "Could not open the terminal channel: busy");
+        assert!(!stored, "the setting goes back to what it was");
+
+        let mut stored = false;
+        persist_then_apply(
+            stored,
+            true,
+            &mut |value| {
+                stored = value;
+                Ok(())
+            },
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+        assert!(stored);
+    }
+}

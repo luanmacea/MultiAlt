@@ -3001,5 +3001,7 @@
   "Windows is almost out of memory": "Windows casi no tiene memoria",
   "Status sent. Check the Discord channel.": "Estado enviado. Revisa el canal de Discord.",
   "Preview sent. The day keeps counting.": "Vista previa enviada. El día sigue contando.",
-  "Use the 24-hour format, like 07:30.": "Usa el formato de 24 horas, como 07:30."
+  "Use the 24-hour format, like 07:30.": "Usa el formato de 24 horas, como 07:30.",
+  "A message from a Python script": "Un mensaje de un script de Python",
+  "What your scripts send with multialt.discord(...) or the notify block. Grouped and rate limited like the other alerts.": "Lo que tus scripts envían con multialt.discord(...) o el bloque notify. Agrupado y con límite como los otros avisos."
 }

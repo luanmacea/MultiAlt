@@ -238,6 +238,12 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 
 A biblioteca de gravações e qual vale para cada conta em cada vaga (global e por conta) ficam em `RAMRecordings.json`, não no INI. Nenhuma chave do INI mudou com as duas vagas; a terceira vaga (After launch) trouxe `AfterLaunch` e `AfterLaunchDelaySeconds`.
 
+### `[Python]` — detalhes em [python-automation.md](python-automation.md)
+
+| Chave | Default | Significado |
+|---|---|---|
+| `DeveloperMode` | `false` | Modo desenvolvedor da automação Python (Scripts › Roblox Player automation › Developer): deixa editar os blocos padrão e abre o canal do terminal (named pipe só do usuário atual) para `python -m multialt run`. |
+
 ### `[Webhook]` — detalhes em [webhook.md](webhook.md)
 
 Página **Discord alerts** (na barra lateral; até 27/10/2026 era a seção Settings › Notifications). Avisos, status ao vivo e resumo do dia no Discord, **desligados** por padrão (saem do PC).
@@ -257,6 +263,7 @@ Página **Discord alerts** (na barra lateral; até 27/10/2026 era a seção Sett
 | `NotifyBatchFinished` | `false` | Um lote de launch de 2+ contas terminou (abertas/falharam/canceladas). |
 | `NotifyMemoryClosed` | `true` | Um cliente foi fechado por memória (teto da Optimization ou mínimo do Watcher). |
 | `NotifySystemLowMemory` | `false` | O Windows ficou com menos de 10% de memória livre. |
+| `NotifyScriptMessage` | `true` | Mensagem de um script Python (`multialt.discord`, bloco `notify`). |
 | `Mention<evento>` | `""` | Menção só daquele evento (ex.: `MentionModerated`), até 100 caracteres; vazia usa `Mention`. |
 | `QuietHours` | `false` | Horário silencioso: as mensagens saem sem menção. |
 | `QuietStart` / `QuietEnd` | `23:00` / `08:00` | Início e fim do horário silencioso (`HH:MM`, hora do PC; pode atravessar a meia-noite). O `update_setting` recusa outro formato. |

@@ -135,6 +135,7 @@ describe("Discord alerts page (webhook)", () => {
     expect(on("A client was closed for memory")).toBe("true");
     expect(on("A launch batch finished")).toBe("false");
     expect(on("Windows is almost out of memory")).toBe("false");
+    expect(on("A message from a Python script")).toBe("true");
   });
 
   /** Pedido do dono (27/10/2026): cada evento pode chamar alguém diferente. */
