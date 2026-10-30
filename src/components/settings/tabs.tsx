@@ -3,7 +3,6 @@ import {
   AppWindow,
   Code,
   DatabaseBackup,
-  Bell,
   Download,
   Eye,
   Gauge,
@@ -29,7 +28,6 @@ import { ENABLE_ACCOUNT_GENERATOR, ENABLE_WEBSERVER } from "../../featureFlags";
 export type TabId =
   | "launch"
   | "keep-in-game"
-  | "notifications"
   | "accounts"
   | "privacy"
   | "updates"
@@ -47,7 +45,6 @@ export type TabId =
 const ALL_TABS: TabId[] = [
   "launch",
   "keep-in-game",
-  "notifications",
   "accounts",
   "privacy",
   "updates",
@@ -92,8 +89,7 @@ export const SETTINGS_TABS: TabDef[] = [
   // Nomes em sentence case, como no resto do app.
   { id: "launch", label: "Launch", icon: <Rocket {...ICON} /> },
   { id: "keep-in-game", label: "Keep in game", icon: <Repeat {...ICON} /> },
-  // Avisos no Discord (webhook), desligados por padrão — docs/features/webhook.md.
-  { id: "notifications", label: "Notifications", icon: <Bell {...ICON} /> },
+  // Os avisos no Discord saíram daqui para a página Discord alerts (27/10/2026).
   { id: "accounts", label: "Accounts", icon: <Users {...ICON} /> },
   { id: "privacy", label: "Privacy & security", icon: <Lock {...ICON} /> },
   { id: "updates", label: "Updates", icon: <Download {...ICON} /> },

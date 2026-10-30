@@ -7,7 +7,8 @@ Roblox Account Manager 4 (RAM4) é um gerenciador desktop de múltiplas contas R
 - navegar por jogos/servidores, manter favoritos (com vários links VIP por jogo) e jogos recentes;
 - automatizar re-join de contas (Auto Rejoin), mandar tecla de tempo em tempo para não perder o estado (AFK mode), vigiar processos (Watcher), isolar sessões antes do launch e fixar versões específicas do cliente Roblox;
 - expor uma API HTTP local (feature `webserver`) e um servidor WebSocket para scripts Lua (feature `nexus`);
-- rodar scripts JavaScript do usuário em um sandbox (Web Worker) dentro do app.
+- rodar scripts do usuário: em JavaScript, num sandbox (Web Worker) dentro do app, ou em Python, automatizando a janela do Roblox de cada conta (modo Python da página Scripts);
+- mandar avisos, status ao vivo e resumo do dia para o Discord do usuário, e mostrar as contas lado a lado numa janela para transmitir (Live).
 
 Plataforma principal: **Windows** (APIs Win32 para processos, registro, janelas, DPAPI). macOS é parcial.
 
@@ -46,11 +47,13 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/launch.md](features/launch.md) — lançamento de uma conta.
 - [features/multi-launch.md](features/multi-launch.md) — lançamento de várias contas / multi-Roblox.
 - [features/presets.md](features/presets.md) — presets de launch (contas → jogo/servidor num clique, ou todas as contas de um grupo), horário de abrir/fechar que fecha só o que o preset abriu, e o submenu da bandeja.
-- [features/webhook.md](features/webhook.md) — avisos no Discord por webhook (desligado por padrão): queda, reconexão, janela travada, launch que falhou; nomes mascarados, fila com lote e limite do Discord.
+- [features/webhook.md](features/webhook.md) — página Discord alerts (desligada por padrão): avisos (queda, ban, lote, memória, mensagem de script Python), menção por evento, horário silencioso, status ao vivo e resumo do dia.
+- [features/live.md](features/live.md) — página Live e a janela "MultiAlt Live": as contas lado a lado numa grade para transmitir no OBS, sem mostrar o resto da tela.
 - [features/external-clients.md](features/external-clients.md) — clientes abertos pelo site (ou antes de o app abrir) reconhecidos pelo log do Roblox; identificação manual.
 - [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico) e a tela do **Modo AFK**, que junta Auto Rejoin e cliques AFK em abas.
 - [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.
 - [features/recordings.md](features/recordings.md) — Gravações: sequências de teclas, cliques e esperas tocadas na janela de cada conta, uma por vez (Modo AFK, depois da reconexão, ou na hora).
+- [features/python-automation.md](features/python-automation.md) — Automação do Roblox Player em Python (página Scripts): Python portátil baixado sob demanda, pasta de trabalho com blocos padrão editáveis, primitivas com travas (fila de foco do AFK, só cliente do tracker), execuções com gatilho, dashboard, inspetor e o canal do terminal do Modo desenvolvedor.
 - [features/avatars.md](features/avatars.md) — avatares grátis: montar avatares só com itens oficiais gratuitos do Roblox e distribuí-los entre as contas (resgata o que falta de graça, nunca gasta Robux).
 - [features/groups.md](features/groups.md) — página Groups: busca de grupos do Roblox e entrada das contas marcadas, uma por vez; captcha resolvido pela pessoa no navegador da conta.
 - [features/isolation.md](features/isolation.md) — isolamento pré-launch (cache, registro, MachineGuid/MAC).

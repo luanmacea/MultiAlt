@@ -541,6 +541,11 @@ pub async fn open_login_browser(
             return Err(e);
         }
     };
+    // A resposta do login diz quem entrou: é o que liga a senha do campo à
+    // conta do cookie (ver `browser_login_password`).
+    let watch_since_ms = chrono::Utc::now().timestamp_millis() - 1_000;
+    let _ = cdp.watch_login_response().await;
+
     if let Err(e) = setup_login_session(&mut cdp, stealth, persistent, start_url).await {
         chromium.close_login_session();
         return Err(e);
@@ -549,12 +554,14 @@ pub async fn open_login_browser(
     let app_task = app.clone();
     tauri::async_runtime::spawn(async move {
         let chromium = app_task.state::<ChromiumManager>();
+        let mut typed_password: Option<String> = None;
         for _ in 0..480 {
             if !chromium.is_alive(LOGIN_KEY) {
                 return;
             }
             if let Ok(Some(cookie)) = cdp.get_roblosecurity().await {
-                chromium.set_login_cookie(Some(cookie));
+                let login_user = read_login_user(&mut cdp, watch_since_ms).await;
+                chromium.set_login_cookie(Some(cookie.clone()));
                 // A janela (e com ela a porta de debug) fecha no instante em
                 // que o cookie aparece: é o único ponto do fluxo em que uma
                 // sessão autenticada e um endpoint CDP aberto coexistem.
@@ -564,8 +571,21 @@ pub async fn open_login_browser(
                         let _ = wipe_profile_dir(&profile);
                     }
                 }
+                // Relato de 26/10/2026: o Browser Login só guardava o cookie, e
+                // a senha digitada nunca chegava na conta.
+                if typed_password.is_some() {
+                    if let Ok(info) = crate::api::auth::validate_cookie(&cookie).await {
+                        let login_user_id = login_user.map(|(id, _)| id);
+                        chromium.set_login_password(browser_login_password(typed_password, login_user_id, info.user_id));
+                    }
+                }
                 let _ = app_task.emit("browser-login-detected", ());
                 return;
+            }
+            if let Ok(serde_json::Value::String(value)) = cdp.eval(READ_LOGIN_PASSWORD_SCRIPT).await {
+                if !value.is_empty() {
+                    typed_password = Some(value);
+                }
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
@@ -597,9 +617,40 @@ pub async fn close_login_browser(
     Ok(())
 }
 
+/// A senha do "Browser Login" (`open_login_browser`), uma vez só: a store a
+/// busca junto com o cookie e a manda no `add_account`. `None` quando não há
+/// prova de que a senha do campo é a da conta que entrou.
+#[tauri::command]
+pub async fn extract_browser_login_password(chromium: State<'_, ChromiumManager>) -> Result<Option<String>, String> {
+    Ok(chromium.take_login_password())
+}
+
 /// O valor do campo de senha do login, se houver.
 const READ_LOGIN_PASSWORD_SCRIPT: &str =
     "(function(){var el=document.querySelector('#login-password');return el?el.value:null;})()";
+
+/// A conta da resposta do login. Ela chega junto com o cookie e o gancho grava
+/// logo depois — espera um pouco por ela.
+async fn read_login_user(cdp: &mut CdpClient, watch_since_ms: i64) -> Option<(i64, String)> {
+    for _ in 0..8 {
+        if let Ok(stored) = cdp.eval(super::cdp::READ_LOGIN_USER_SCRIPT).await {
+            if let Some(user) = super::cdp::parse_login_user(&stored, watch_since_ms) {
+                return Some(user);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    None
+}
+
+/// A senha do campo só vai para a conta quando a resposta do login é da mesma
+/// conta do cookie: no Browser Login a pessoa pode ter digitado a senha de uma
+/// conta e entrado em outra (ou pelo código de login rápido, sem senha). Ver
+/// "Senha guardada nunca se perde", regra 3, no CLAUDE.md.
+fn browser_login_password(typed: Option<String>, login_user_id: Option<i64>, cookie_user_id: i64) -> Option<String> {
+    let typed = typed.filter(|t| !t.is_empty())?;
+    (login_user_id? == cookie_user_id).then_some(typed)
+}
 
 /// O que o navegador de login devolve quando a sessão aparece.
 pub struct BrowserSignIn {
@@ -684,17 +735,7 @@ async fn sign_in_in_browser(
             return Err("Login window was closed before sign-in completed".into());
         }
         if let Ok(Some(cookie)) = cdp.get_roblosecurity().await {
-            // A resposta do login chega junto com o cookie; o gancho grava
-            // logo depois — espera um pouco por ela antes de fechar.
-            for _ in 0..8 {
-                if let Ok(stored) = cdp.eval(super::cdp::READ_LOGIN_USER_SCRIPT).await {
-                    login_user = super::cdp::parse_login_user(&stored, watch_since_ms);
-                }
-                if login_user.is_some() {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(250)).await;
-            }
+            login_user = read_login_user(&mut cdp, watch_since_ms).await;
             captured = Some(cookie);
             break;
         }
@@ -858,6 +899,25 @@ pub async fn relogin_account(
 #[cfg(test)]
 mod chromium_commands_tests {
     use super::*;
+
+    // ── senha do Browser Login (relato de 26/10/2026) ───────────────────────
+
+    #[test]
+    fn the_browser_login_keeps_the_typed_password_only_for_the_account_that_signed_in() {
+        // A resposta do login e o cookie são da mesma conta: a senha vai.
+        assert_eq!(
+            browser_login_password(Some("typed".into()), Some(7), 7).as_deref(),
+            Some("typed")
+        );
+        // A resposta do login é de outra conta: a senha do campo não é desta.
+        assert_eq!(browser_login_password(Some("typed".into()), Some(8), 7), None);
+        // Sem a resposta do login (código de login rápido, gancho que não pegou):
+        // não há prova de que a senha do campo foi a que entrou.
+        assert_eq!(browser_login_password(Some("typed".into()), None, 7), None);
+        // Campo vazio ou nunca lido.
+        assert_eq!(browser_login_password(Some(String::new()), Some(7), 7), None);
+        assert_eq!(browser_login_password(None, Some(7), 7), None);
+    }
 
     // ── navegador anônimo (Login.PersistentProfile desligado) ────────────────
 

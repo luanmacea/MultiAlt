@@ -28,6 +28,18 @@ function placeholders(text: string): string[] {
 const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   // Marca: o servidor da comunidade no Discord (barra lateral).
   "Discord",
+  // Nome do perfil pronto de FastFlags (escolhido pelo dono, 28/10/2026).
+  "Nuke rendering",
+  // Nome da página e da janela de transmissão (28/10/2026).
+  "Live",
+  // FastFlags: multiplicadores e nomes de API gráfica, iguais em todo idioma.
+  "1x",
+  "2x",
+  "4x",
+  "Direct3D 11",
+  "OpenGL",
+  "Vulkan",
+  "Anti-aliasing",
   // Gravações: "global" é a mesma palavra (a gravação que vale para toda conta).
   "global",
   // Presets de launch: "place" e "VIP" não se traduzem (glossário).
@@ -171,6 +183,18 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
 const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   // Marca: o servidor da comunidade no Discord (barra lateral).
   "Discord",
+  // Nome do perfil pronto de FastFlags (escolhido pelo dono, 28/10/2026).
+  "Nuke rendering",
+  // Nome da página e da janela de transmissão (28/10/2026).
+  "Live",
+  // FastFlags: multiplicadores e nomes de API gráfica, iguais em todo idioma.
+  "1x",
+  "2x",
+  "4x",
+  "Direct3D 11",
+  "OpenGL",
+  "Vulkan",
+  "Anti-aliasing",
   // Gravações: "global" é a mesma palavra (a gravação que vale para toda conta).
   "global",
   // Presets de launch: "place" e "VIP" não se traduzem (glossário).

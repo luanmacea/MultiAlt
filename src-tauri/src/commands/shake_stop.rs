@@ -212,6 +212,9 @@ struct EmergencyStopPayload {
     afk: bool,
     /// Havia gravação tocando avulsa, e ela recebeu o parar.
     recordings: bool,
+    /// Quantas execuções da automação Python receberam o parar
+    /// (docs/features/python-automation.md).
+    python: usize,
 }
 
 /// Liga as bandeiras dos botões Parar: a da sessão do Modo AFK (quando há) e a
@@ -234,6 +237,7 @@ fn apply_emergency_stop(
         reason: "shake".to_string(),
         afk: afk_stop.is_some(),
         recordings: playbacks_running > 0,
+        python: 0,
     }
 }
 
@@ -254,7 +258,9 @@ fn afk_session_stop_flag() -> Option<Arc<AtomicBool>> {
 /// Há algo que o chacoalhar para?
 #[cfg(target_os = "windows")]
 fn shake_watch_needed() -> bool {
-    afk_session_stop_flag().is_some() || RECORDING_PLAYBACKS.load(Ordering::SeqCst) > 0
+    afk_session_stop_flag().is_some()
+        || RECORDING_PLAYBACKS.load(Ordering::SeqCst) > 0
+        || python::runs_active() > 0
 }
 
 #[cfg(target_os = "windows")]
@@ -316,12 +322,14 @@ fn run_shake_watch(app: &tauri::AppHandle) {
 #[cfg(target_os = "windows")]
 fn trigger_emergency_stop(app: &tauri::AppHandle) {
     let afk_stop = afk_session_stop_flag();
-    let payload = apply_emergency_stop(
+    let mut payload = apply_emergency_stop(
         afk_stop.as_deref(),
         &RECORDING_PLAYBACK_STOP,
         &RECORDING_PLAYBACK_STOP_GEN,
         RECORDING_PLAYBACKS.load(Ordering::SeqCst),
     );
+    // As execuções Python também param (todas).
+    payload.python = python::emergency_stop();
     emit_session_log(
         app,
         "warn",
@@ -651,6 +659,7 @@ mod shake_stop_tests {
                 reason: "shake".into(),
                 afk: true,
                 recordings: true,
+                python: 0,
             }
         );
     }
@@ -672,9 +681,13 @@ mod shake_stop_tests {
             reason: "shake".into(),
             afk: true,
             recordings: false,
+            python: 2,
         })
         .unwrap();
-        assert_eq!(json, serde_json::json!({ "reason": "shake", "afk": true, "recordings": false }));
+        assert_eq!(
+            json,
+            serde_json::json!({ "reason": "shake", "afk": true, "recordings": false, "python": 2 })
+        );
         assert_eq!(SHAKE_STOP_EVENT, "afk-emergency-stop");
     }
 

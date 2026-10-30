@@ -64,6 +64,15 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
                     serde_json::json!({ "userId": user_id, "group": MODERATED_GROUP }),
                 );
                 record_moderated_history(app, user_id);
+                // Só na primeira vez (a conta acabou de ir para o grupo): o
+                // aviso não se repete a cada launch recusado.
+                notify_webhook(
+                    app,
+                    WebhookEventKind::Moderated,
+                    user_id,
+                    Some(WebhookReason::Banned),
+                    webhook_place_of(user_id),
+                );
             }
         }
     }
@@ -695,10 +704,16 @@ fn windows_client_overrides(
 
     let optimization_profile = platform::windows::load_optimization_profile(settings, profile);
     let fast_flags = if optimization_profile.experimental.enable_fast_flags {
-        match platform::windows::parse_allowlisted_fast_flags_json(
+        // Chave fora da lista do Roblox sai (ele a ignoraria); as outras valem.
+        match platform::windows::split_allowlisted_fast_flags_json(
             &optimization_profile.experimental.fast_flags_json,
         ) {
-            Ok(flags) => Some(flags),
+            Ok((flags, ignored)) => {
+                if !ignored.is_empty() {
+                    eprintln!("Ignored fast flags Roblox does not accept for {:?}: {}", profile, ignored.join(", "));
+                }
+                Some(flags)
+            }
             Err(err) => {
                 eprintln!("Skipped allowlisted fast flags for {:?}: {}", profile, err);
                 None

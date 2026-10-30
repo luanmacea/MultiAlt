@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveUpdaterFeatureChannel,
   getUpdaterSkipVersionKey,
   normalizeUpdaterFeatureChannel,
   normalizeUpdaterReleaseChannel,
@@ -46,5 +47,24 @@ describe("getUpdaterSkipVersionKey", () => {
     expect(getUpdaterSkipVersionKey("beta", "standard")).not.toBe(
       getUpdaterSkipVersionKey("beta", "nexus-ws")
     );
+  });
+});
+
+/**
+ * Pedido do dono (28/10/2026): quem instalou a completa atualizava para a
+ * padrão sem saber, porque sem escolha nenhuma o canal caía em "standard".
+ * Agora, sem escolha, vale a edição que está instalada.
+ */
+describe("resolveUpdaterFeatureChannel", () => {
+  it("follows the installed edition until the user picks one", () => {
+    expect(resolveUpdaterFeatureChannel(undefined, undefined, "nexus-ws")).toBe("nexus-ws");
+    // O caso do dono: "standard" no INI de uma instalação antiga, sem escolha.
+    expect(resolveUpdaterFeatureChannel("standard", undefined, "nexus-ws")).toBe("nexus-ws");
+    expect(resolveUpdaterFeatureChannel("nexus-ws", "false", "standard")).toBe("standard");
+  });
+
+  it("keeps the edition the user picked", () => {
+    expect(resolveUpdaterFeatureChannel("standard", "true", "nexus-ws")).toBe("standard");
+    expect(resolveUpdaterFeatureChannel("full", "true", "standard")).toBe("nexus-ws");
   });
 });

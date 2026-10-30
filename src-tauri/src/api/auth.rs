@@ -520,7 +520,31 @@ pub async fn change_password(
     current_password: &str,
     new_password: &str,
 ) -> Result<Option<String>, String> {
-    let csrf = get_csrf_token(security_token).await?;
+    change_password_attempt(security_token, current_password, new_password)
+        .await
+        .map_err(|failure| failure.message)
+}
+
+/// Uma troca de senha que não deu certo, e se ela **pode** ter trocado mesmo
+/// assim: a resposta não chegou (rede, teto de tempo) ou veio um erro do
+/// servidor (5xx). `maybe_changed: false` = o Roblox recusou com certeza
+/// (respondeu 4xx) ou o pedido nem saiu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasswordChangeFailure {
+    pub message: String,
+    pub maybe_changed: bool,
+}
+
+/// O mesmo que `change_password`, dizendo se a senha pode ter trocado numa
+/// falha. A troca para senha aleatória precisa disso: a senha nova não é
+/// digitada pelo dono, e uma resposta perdida não pode apagá-la.
+pub async fn change_password_attempt(
+    security_token: &str,
+    current_password: &str,
+    new_password: &str,
+) -> Result<Option<String>, PasswordChangeFailure> {
+    let not_sent = |message: String| PasswordChangeFailure { message, maybe_changed: false };
+    let csrf = get_csrf_token(security_token).await.map_err(not_sent)?;
 
     let client = build_client();
 
@@ -534,10 +558,14 @@ pub async fn change_password(
             urlencoding::encode(current_password),
             urlencoding::encode(new_password)
         ));
-    let response = send_with_csrf_retry(request, &csrf).await?;
+    // Sem resposta: o pedido pode ter chegado e trocado a senha.
+    let response = send_with_csrf_retry(request, &csrf)
+        .await
+        .map_err(|message| PasswordChangeFailure { message, maybe_changed: true })?;
 
     if !response.status().is_success() {
-        return Err(credential_failure(response).await);
+        let maybe_changed = response.status().is_server_error();
+        return Err(PasswordChangeFailure { message: credential_failure(response).await, maybe_changed });
     }
 
     let new_cookie = response

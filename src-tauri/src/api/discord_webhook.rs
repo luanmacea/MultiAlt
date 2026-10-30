@@ -139,10 +139,27 @@ pub fn validate_setting(section: &str, key: &str, value: &str) -> Result<(), Str
     if section == "Webhook" && key == "Url" && !value.trim().is_empty() {
         parse_webhook_url(value)?;
     }
-    if section == "Webhook" && key == "Mention" && value.chars().count() > MAX_MENTION_CHARS {
+    if section == "Webhook" && key.starts_with("Mention") && value.chars().count() > MAX_MENTION_CHARS {
         return Err(format!("The text before messages is too long (max {MAX_MENTION_CHARS} characters)."));
     }
+    if section == "Webhook"
+        && matches!(key, "QuietStart" | "QuietEnd" | "SummaryTime")
+        && !value.trim().is_empty()
+        && parse_clock(value).is_none()
+    {
+        return Err("Use the 24-hour format, like 07:30.".to_string());
+    }
     Ok(())
+}
+
+/// "HH:MM" (24 h) → minuto do dia. Qualquer outra coisa: `None`.
+pub fn parse_clock(value: &str) -> Option<u32> {
+    let (h, m) = value.trim().split_once(':')?;
+    if h.len() != 2 || m.len() != 2 {
+        return None;
+    }
+    let (h, m): (u32, u32) = (h.parse().ok()?, m.parse().ok()?);
+    (h < 24 && m < 60).then_some(h * 60 + m)
 }
 
 /// O que pode virar aviso. Cada um tem a sua caixa na tela.
@@ -161,17 +178,75 @@ pub enum WebhookEventKind {
     /// O cliente lançado para uma conta entrou logado em outra conta do
     /// Roblox (client_health, `roblox-client-wrong-account`).
     WrongAccount,
+    /// O Roblox está bloqueando a conta (ban ou análise): a conta foi para o
+    /// grupo das moderadas (`mark_account_moderated`).
+    Moderated,
+    /// Um lote de launch (2 contas ou mais) terminou. Sem conta: o motivo traz
+    /// a contagem (`BatchResult`).
+    BatchFinished,
+    /// O app fechou um cliente por memória: acima do teto (Optimization) ou
+    /// abaixo do mínimo do Watcher.
+    MemoryClosed,
+    /// O Windows está quase sem memória livre. Sem conta.
+    SystemLowMemory,
+    /// Mensagem de um script Python (`multialt.discord`, op `discord.send`).
+    ScriptMessage,
 }
 
 impl WebhookEventKind {
+    pub const ALL: [WebhookEventKind; 11] = [
+        Self::Dropped,
+        Self::ReconnectFailed,
+        Self::NotResponding,
+        Self::Reconnected,
+        Self::LaunchFailed,
+        Self::WrongAccount,
+        Self::Moderated,
+        Self::BatchFinished,
+        Self::MemoryClosed,
+        Self::SystemLowMemory,
+        Self::ScriptMessage,
+    ];
+
     /// Gravidade, para a cor da mensagem: a pior linha decide.
     fn severity(self) -> u8 {
         match self {
-            Self::Reconnected => 0,
-            Self::NotResponding => 1,
-            Self::LaunchFailed => 2,
-            Self::Dropped | Self::ReconnectFailed | Self::WrongAccount => 3,
+            Self::Reconnected | Self::BatchFinished | Self::ScriptMessage => 0,
+            Self::NotResponding | Self::SystemLowMemory => 1,
+            Self::LaunchFailed | Self::MemoryClosed => 2,
+            Self::Dropped | Self::ReconnectFailed | Self::WrongAccount | Self::Moderated => 3,
         }
+    }
+
+    /// O nome do evento nas chaves da seção `[Webhook]`: `Notify<nome>` liga a
+    /// caixa, `Mention<nome>` é o texto de menção só dele.
+    pub fn setting_key(self) -> &'static str {
+        match self {
+            Self::Dropped => "Dropped",
+            Self::Reconnected => "Reconnected",
+            Self::ReconnectFailed => "ReconnectFailed",
+            Self::NotResponding => "NotResponding",
+            Self::LaunchFailed => "LaunchFailed",
+            Self::WrongAccount => "WrongAccount",
+            Self::Moderated => "Moderated",
+            Self::BatchFinished => "BatchFinished",
+            Self::MemoryClosed => "MemoryClosed",
+            Self::SystemLowMemory => "SystemLowMemory",
+            Self::ScriptMessage => "ScriptMessage",
+        }
+    }
+
+    /// Caixa ligada quando a chave não existe.
+    fn default_on(self) -> bool {
+        !matches!(
+            self,
+            Self::Reconnected | Self::LaunchFailed | Self::BatchFinished | Self::SystemLowMemory
+        )
+    }
+
+    /// Evento de uma conta (leva o campo Conta e a foto) ou do app inteiro.
+    pub fn has_account(self) -> bool {
+        !matches!(self, Self::BatchFinished | Self::SystemLowMemory)
     }
 }
 
@@ -196,6 +271,34 @@ pub enum WebhookReason {
     AuthTicketFailed,
     ClientDidNotOpen,
     OtherAccount,
+    BatchResult { done: u32, failed: u32, cancelled: u32 },
+    MemoryOverLimit { memory_mb: u64, limit_mb: u64 },
+    MemoryBelowMinimum { memory_mb: u64, min_mb: u64 },
+    SystemMemoryLow { free_mb: u64, total_mb: u64 },
+    /// O texto já passou por `script_message_text` / `script_message_title`.
+    ScriptMessage { script: String, title: Option<String>, text: String },
+}
+
+/// Teto do texto de uma mensagem de script (o Discord aceita 4096 na descrição).
+pub const MAX_SCRIPT_TEXT_CHARS: usize = 1_500;
+/// Teto do título de uma mensagem de script (o Discord aceita 256).
+pub const MAX_SCRIPT_TITLE_CHARS: usize = 100;
+
+/// O `@` nunca menciona: ganha um espaço invisível, como no resto da mensagem.
+/// Negrito, itálico e link continuam (o canal é do próprio usuário).
+fn no_pings(text: &str) -> String {
+    // Idempotente: o texto já limpo pelo `discord.send` passa de novo pelo cartão.
+    text.replace("@\u{200B}", "@").replace('@', "@\u{200B}")
+}
+
+/// O texto de uma mensagem de script: sem espaço nas pontas, cortado no teto e
+/// sem menção.
+pub fn script_message_text(text: &str) -> String {
+    no_pings(&truncate_chars(text.trim(), MAX_SCRIPT_TEXT_CHARS))
+}
+
+pub fn script_message_title(title: &str) -> String {
+    no_pings(&truncate_chars(title.trim(), MAX_SCRIPT_TITLE_CHARS))
 }
 
 /// Um aviso pronto para a fila. `account` já vem mascarado (ou não) conforme
@@ -255,16 +358,25 @@ pub struct WebhookEnrichment {
 pub struct WebhookConfig {
     pub enabled: bool,
     pub target: Option<WebhookTarget>,
-    pub dropped: bool,
-    pub reconnected: bool,
-    pub reconnect_failed: bool,
-    pub not_responding: bool,
-    pub launch_failed: bool,
-    pub wrong_account: bool,
+    /// A caixa de cada evento (`Notify<evento>`).
+    boxes: std::collections::HashMap<WebhookEventKind, bool>,
+    /// O texto antes de toda mensagem (`Mention`).
     pub mention: String,
+    /// O texto só de um evento (`Mention<evento>`); vazio = o `mention`.
+    mentions: std::collections::HashMap<WebhookEventKind, String>,
     /// "Hide account names in messages" (`MaskNames`, padrão **desligado**:
     /// o canal é do próprio usuário, e o nome é o que mais importa no aviso).
     pub mask_names: bool,
+    /// Horário silencioso (`QuietHours` + `QuietStart`/`QuietEnd`, minuto do
+    /// dia na hora local). `None` desligado, com horário inválido ou início = fim.
+    quiet: Option<(u32, u32)>,
+    /// No horário silencioso, segurar os avisos em vez de só tirar a menção
+    /// (`QuietSkip`, padrão desligado).
+    quiet_skip: bool,
+}
+
+fn clean_mention(text: &str) -> String {
+    text.trim().chars().take(MAX_MENTION_CHARS).collect()
 }
 
 impl WebhookConfig {
@@ -276,22 +388,31 @@ impl WebhookConfig {
             _ => default,
         };
         let url = get("Url").unwrap_or_default();
+        let quiet = match (
+            get("QuietStart").as_deref().and_then(parse_clock),
+            get("QuietEnd").as_deref().and_then(parse_clock),
+        ) {
+            (Some(start), Some(end)) if flag("QuietHours", false) && start != end => Some((start, end)),
+            _ => None,
+        };
         Self {
             enabled: flag("Enabled", false),
             target: if url.trim().is_empty() { None } else { parse_webhook_url(&url).ok() },
-            dropped: flag("NotifyDropped", true),
-            reconnected: flag("NotifyReconnected", false),
-            reconnect_failed: flag("NotifyReconnectFailed", true),
-            not_responding: flag("NotifyNotResponding", true),
-            launch_failed: flag("NotifyLaunchFailed", false),
-            wrong_account: flag("NotifyWrongAccount", true),
-            mention: get("Mention")
-                .unwrap_or_default()
-                .trim()
-                .chars()
-                .take(MAX_MENTION_CHARS)
+            boxes: WebhookEventKind::ALL
+                .into_iter()
+                .map(|k| (k, flag(&format!("Notify{}", k.setting_key()), k.default_on())))
+                .collect(),
+            mention: clean_mention(&get("Mention").unwrap_or_default()),
+            mentions: WebhookEventKind::ALL
+                .into_iter()
+                .filter_map(|k| {
+                    let text = clean_mention(&get(&format!("Mention{}", k.setting_key())).unwrap_or_default());
+                    (!text.is_empty()).then_some((k, text))
+                })
                 .collect(),
             mask_names: flag("MaskNames", false),
+            quiet,
+            quiet_skip: flag("QuietSkip", false),
         }
     }
 
@@ -303,14 +424,38 @@ impl WebhookConfig {
     /// Só a caixa deste evento (a mensagem de teste lista as marcadas mesmo com
     /// a opção ainda desligada).
     pub fn wants_box(&self, kind: WebhookEventKind) -> bool {
-        match kind {
-            WebhookEventKind::Dropped => self.dropped,
-            WebhookEventKind::Reconnected => self.reconnected,
-            WebhookEventKind::ReconnectFailed => self.reconnect_failed,
-            WebhookEventKind::NotResponding => self.not_responding,
-            WebhookEventKind::LaunchFailed => self.launch_failed,
-            WebhookEventKind::WrongAccount => self.wrong_account,
+        self.boxes.get(&kind).copied().unwrap_or_else(|| kind.default_on())
+    }
+
+    /// `minute` (minuto do dia, hora local) cai no horário silencioso? O
+    /// horário pode atravessar a meia-noite (23:00 → 07:30).
+    pub fn is_quiet(&self, minute: u32) -> bool {
+        match self.quiet {
+            Some((start, end)) if start < end => minute >= start && minute < end,
+            Some((start, end)) => minute >= start || minute < end,
+            None => false,
         }
+    }
+
+    /// No horário silencioso, com "não mandar nada" ligado, o aviso não sai.
+    pub fn holds_messages(&self, minute: u32) -> bool {
+        self.quiet_skip && self.is_quiet(minute)
+    }
+
+    /// O texto de menção de um lote: o de cada evento (ou o geral), cada um
+    /// uma vez e na ordem. Nada no horário silencioso.
+    pub fn mention_for(&self, events: &[WebhookEvent], minute: u32) -> String {
+        if self.is_quiet(minute) {
+            return String::new();
+        }
+        let mut out: Vec<&str> = Vec::new();
+        for event in events {
+            let text = self.mentions.get(&event.kind).map(String::as_str).unwrap_or(&self.mention);
+            if !text.is_empty() && !out.contains(&text) {
+                out.push(text);
+            }
+        }
+        out.join(" ")
     }
 }
 
@@ -360,6 +505,27 @@ fn event_title(kind: WebhookEventKind, lang: WebhookLang) -> &'static str {
             "⚠️ Abriu em outra conta",
             "⚠️ Se abrió con otra cuenta",
         ),
+        WebhookEventKind::Moderated => lang.pick("⛔ Account banned", "⛔ Conta banida", "⛔ Cuenta baneada"),
+        WebhookEventKind::BatchFinished => lang.pick(
+            "📋 Launch batch finished",
+            "📋 Lote de launch terminou",
+            "📋 Terminó el lote de inicio",
+        ),
+        WebhookEventKind::MemoryClosed => lang.pick(
+            "🧠 Client closed for memory",
+            "🧠 Cliente fechado por memória",
+            "🧠 Cliente cerrado por memoria",
+        ),
+        WebhookEventKind::SystemLowMemory => lang.pick(
+            "🧠 Windows is almost out of memory",
+            "🧠 O Windows está quase sem memória",
+            "🧠 Windows casi no tiene memoria",
+        ),
+        WebhookEventKind::ScriptMessage => lang.pick(
+            "📜 Message from a Python script",
+            "📜 Mensagem de um script Python",
+            "📜 Mensaje de un script de Python",
+        ),
     }
 }
 
@@ -403,6 +569,20 @@ fn event_sentence(kind: WebhookEventKind, name: &str, lang: WebhookLang) -> Stri
                 "El cliente abierto para {n} tiene sesión en otra cuenta de Roblox. La cola de inicio se pausó y el cliente quedó abierto."
             ),
         },
+        WebhookEventKind::Moderated => match lang {
+            WebhookLang::En => format!("Roblox is blocking {n}."),
+            WebhookLang::Pt => format!("O Roblox está bloqueando {n}."),
+            WebhookLang::Es => format!("Roblox está bloqueando a {n}."),
+        },
+        WebhookEventKind::MemoryClosed => match lang {
+            WebhookLang::En => format!("MultiAlt closed the Roblox client of {n}."),
+            WebhookLang::Pt => format!("O MultiAlt fechou o cliente do Roblox de {n}."),
+            WebhookLang::Es => format!("MultiAlt cerró el cliente de Roblox de {n}."),
+        },
+        // Do app inteiro: a frase sai do motivo (`event_embed`); a do script é o texto dele.
+        WebhookEventKind::BatchFinished | WebhookEventKind::SystemLowMemory | WebhookEventKind::ScriptMessage => {
+            String::new()
+        }
     }
 }
 
@@ -500,6 +680,27 @@ pub fn reason_text(reason: &WebhookReason, lang: WebhookLang) -> String {
                 "Con sesión en otra cuenta de Roblox",
             )
             .to_string(),
+        WebhookReason::BatchResult { done, failed, cancelled } => match lang {
+            WebhookLang::En => format!("{done} opened, {failed} failed, {cancelled} cancelled."),
+            WebhookLang::Pt => format!("{done} abertas, {failed} falharam, {cancelled} canceladas."),
+            WebhookLang::Es => format!("{done} abiertas, {failed} fallaron, {cancelled} canceladas."),
+        },
+        WebhookReason::MemoryOverLimit { memory_mb, limit_mb } => match lang {
+            WebhookLang::En => format!("Using {memory_mb} MB, over the {limit_mb} MB limit"),
+            WebhookLang::Pt => format!("Usando {memory_mb} MB, acima do limite de {limit_mb} MB"),
+            WebhookLang::Es => format!("Usando {memory_mb} MB, por encima del límite de {limit_mb} MB"),
+        },
+        WebhookReason::MemoryBelowMinimum { memory_mb, min_mb } => match lang {
+            WebhookLang::En => format!("Memory dropped to {memory_mb} MB, under the {min_mb} MB minimum (client frozen)"),
+            WebhookLang::Pt => format!("A memória caiu para {memory_mb} MB, abaixo do mínimo de {min_mb} MB (cliente travado)"),
+            WebhookLang::Es => format!("La memoria bajó a {memory_mb} MB, por debajo del mínimo de {min_mb} MB (cliente congelado)"),
+        },
+        WebhookReason::ScriptMessage { text, .. } => text.clone(),
+        WebhookReason::SystemMemoryLow { free_mb, total_mb } => match lang {
+            WebhookLang::En => format!("{free_mb} MB free of {total_mb} MB."),
+            WebhookLang::Pt => format!("{free_mb} MB livres de {total_mb} MB."),
+            WebhookLang::Es => format!("{free_mb} MB libres de {total_mb} MB."),
+        },
     }
 }
 
@@ -521,15 +722,21 @@ fn field(name: &str, value: String, inline: bool) -> serde_json::Value {
 /// o nome vira link do perfil e a foto da conta aparece; mascarado, nenhum dos
 /// dois (a foto e o perfil identificariam a conta).
 pub fn event_embed(event: &WebhookEvent, lang: WebhookLang, extra: &WebhookEnrichment) -> serde_json::Value {
+    if let Some(WebhookReason::ScriptMessage { script, title, text }) = &event.reason {
+        return script_embed(event, script, title.as_deref(), text, lang, extra);
+    }
     let name = escape_markdown(&event.account);
     let mut fields = Vec::new();
 
-    let account_value = if event.masked || event.user_id <= 0 {
-        name.clone()
-    } else {
-        format!("[{name}](https://www.roblox.com/users/{}/profile)", event.user_id)
-    };
-    fields.push(field(lang.pick("Account", "Conta", "Cuenta"), account_value, true));
+    let with_account = event.kind.has_account();
+    if with_account {
+        let account_value = if event.masked || event.user_id <= 0 {
+            name.clone()
+        } else {
+            format!("[{name}](https://www.roblox.com/users/{}/profile)", event.user_id)
+        };
+        fields.push(field(lang.pick("Account", "Conta", "Cuenta"), account_value, true));
+    }
 
     if let Some(place) = event.place_id.filter(|p| *p > 0) {
         let label = match extra.game_names.get(&place).map(|g| g.trim()).filter(|g| !g.is_empty()) {
@@ -543,9 +750,16 @@ pub fn event_embed(event: &WebhookEvent, lang: WebhookLang, extra: &WebhookEnric
         ));
     }
 
-    if let Some(reason) = &event.reason {
-        fields.push(field(lang.pick("Reason", "Motivo", "Motivo"), reason_text(reason, lang), false));
-    }
+    // Evento do app inteiro (lote, memória do Windows): o motivo é a frase.
+    let description = match (&event.reason, with_account) {
+        (Some(reason), false) => reason_text(reason, lang),
+        (reason, _) => {
+            if let Some(reason) = reason {
+                fields.push(field(lang.pick("Reason", "Motivo", "Motivo"), reason_text(reason, lang), false));
+            }
+            event_sentence(event.kind, &name, lang)
+        }
+    };
 
     // O Discord mostra `<t:…>` na hora local de quem lê: relativo ("há 2 min")
     // e a hora certa.
@@ -554,7 +768,7 @@ pub fn event_embed(event: &WebhookEvent, lang: WebhookLang, extra: &WebhookEnric
 
     let mut embed = serde_json::json!({
         "title": event_title(event.kind, lang),
-        "description": event_sentence(event.kind, &name, lang),
+        "description": description,
         "color": severity_color(event.kind.severity()),
         "fields": fields,
         "footer": { "text": "MultiAlt" },
@@ -562,7 +776,61 @@ pub fn event_embed(event: &WebhookEvent, lang: WebhookLang, extra: &WebhookEnric
     if let Some(ts) = chrono::DateTime::from_timestamp_millis(event.at_ms) {
         embed["timestamp"] = serde_json::Value::String(ts.to_rfc3339());
     }
-    if !event.masked {
+    if !event.masked && with_account {
+        if let Some(url) = extra.avatars.get(&event.user_id) {
+            embed["thumbnail"] = serde_json::json!({ "url": url });
+        }
+    }
+    embed
+}
+
+/// Teto do texto de menção de uma mensagem (o de vários eventos junto). O
+/// Discord aceita 2000 no `content`.
+const MAX_CONTENT_MENTION_CHARS: usize = 1_000;
+
+/// O cartão de uma mensagem de script: o título que o script deu (ou "Mensagem
+/// de <script>"), o texto dele como descrição e os campos Script / Conta /
+/// Quando. Conta e foto só quando a mensagem é de uma conta e o nome está à mostra.
+fn script_embed(
+    event: &WebhookEvent,
+    script: &str,
+    title: Option<&str>,
+    text: &str,
+    lang: WebhookLang,
+    extra: &WebhookEnrichment,
+) -> serde_json::Value {
+    let script_name = escape_markdown(script);
+    let title = match title.filter(|t| !t.trim().is_empty()) {
+        Some(t) => format!("📜 {t}"),
+        None => match lang {
+            WebhookLang::En => format!("📜 Message from {script_name}"),
+            WebhookLang::Pt => format!("📜 Mensagem de {script_name}"),
+            WebhookLang::Es => format!("📜 Mensaje de {script_name}"),
+        },
+    };
+    let mut fields = vec![field("Script", script_name, true)];
+    if event.user_id > 0 {
+        let name = escape_markdown(&event.account);
+        let value = if event.masked {
+            name
+        } else {
+            format!("[{name}](https://www.roblox.com/users/{}/profile)", event.user_id)
+        };
+        fields.push(field(lang.pick("Account", "Conta", "Cuenta"), value, true));
+    }
+    let secs = event.at_ms.div_euclid(1_000);
+    fields.push(field(lang.pick("When", "Quando", "Cuándo"), format!("<t:{secs}:R> · <t:{secs}:T>"), true));
+    let mut embed = serde_json::json!({
+        "title": no_pings(&title),
+        "description": no_pings(text),
+        "color": 0x58_65_f2,
+        "fields": fields,
+        "footer": { "text": "MultiAlt" },
+    });
+    if let Some(ts) = chrono::DateTime::from_timestamp_millis(event.at_ms) {
+        embed["timestamp"] = serde_json::Value::String(ts.to_rfc3339());
+    }
+    if !event.masked && event.user_id > 0 {
         if let Some(url) = extra.avatars.get(&event.user_id) {
             embed["thumbnail"] = serde_json::json!({ "url": url });
         }
@@ -571,7 +839,7 @@ pub fn event_embed(event: &WebhookEvent, lang: WebhookLang, extra: &WebhookEnric
 }
 
 fn mention_and_allowed(mention: &str) -> (String, serde_json::Value) {
-    let mention: String = mention.trim().chars().take(MAX_MENTION_CHARS).collect();
+    let mention: String = mention.trim().chars().take(MAX_CONTENT_MENTION_CHARS).collect();
     let allowed = if mention.is_empty() {
         serde_json::json!({ "parse": [] })
     } else {
@@ -909,6 +1177,179 @@ mod discord_webhook_message_tests {
         assert!(custom.wants(WebhookEventKind::Reconnected));
         assert!(custom.wants(WebhookEventKind::LaunchFailed));
         assert!(!custom.wants(WebhookEventKind::WrongAccount));
+    }
+
+    #[test]
+    fn the_new_events_have_their_own_boxes_and_defaults() {
+        let on = settings(&[("Enabled", "true"), ("Url", URL)]);
+        assert!(on.wants(WebhookEventKind::Moderated), "a ban is on by default");
+        assert!(on.wants(WebhookEventKind::MemoryClosed), "a client closed for memory is on by default");
+        assert!(!on.wants(WebhookEventKind::BatchFinished));
+        assert!(!on.wants(WebhookEventKind::SystemLowMemory));
+        let custom = settings(&[
+            ("Enabled", "true"),
+            ("Url", URL),
+            ("NotifyModerated", "false"),
+            ("NotifyBatchFinished", "true"),
+            ("NotifySystemLowMemory", "true"),
+        ]);
+        assert!(!custom.wants(WebhookEventKind::Moderated));
+        assert!(custom.wants(WebhookEventKind::BatchFinished));
+        assert!(custom.wants(WebhookEventKind::SystemLowMemory));
+    }
+
+    /// Pedido do dono (27/10/2026): cada evento pode chamar alguém diferente.
+    #[test]
+    fn each_event_can_ping_its_own_people_and_falls_back_to_the_global_text() {
+        let c = settings(&[
+            ("Enabled", "true"),
+            ("Url", URL),
+            ("Mention", "<@&1>"),
+            ("MentionModerated", "@everyone"),
+            ("MentionDropped", " <@2> "),
+        ]);
+        let noon = 12 * 60;
+        assert_eq!(c.mention_for(&[event(WebhookEventKind::Moderated, "A")], noon), "@everyone");
+        assert_eq!(c.mention_for(&[event(WebhookEventKind::Dropped, "A")], noon), "<@2>");
+        assert_eq!(c.mention_for(&[event(WebhookEventKind::NotResponding, "A")], noon), "<@&1>");
+        // Um lote com vários: cada um uma vez, na ordem.
+        let batch = [
+            event(WebhookEventKind::Dropped, "A"),
+            event(WebhookEventKind::Dropped, "B"),
+            event(WebhookEventKind::Moderated, "C"),
+            event(WebhookEventKind::NotResponding, "D"),
+        ];
+        assert_eq!(c.mention_for(&batch, noon), "<@2> @everyone <@&1>");
+    }
+
+    #[test]
+    fn quiet_hours_take_the_pings_out_and_can_hold_the_messages() {
+        let c = settings(&[
+            ("Enabled", "true"),
+            ("Url", URL),
+            ("Mention", "@everyone"),
+            ("QuietHours", "true"),
+            ("QuietStart", "23:00"),
+            ("QuietEnd", "07:30"),
+        ]);
+        let drop = [event(WebhookEventKind::Dropped, "A")];
+        // Atravessa a meia-noite.
+        assert!(c.is_quiet(23 * 60));
+        assert!(c.is_quiet(2 * 60));
+        assert!(c.is_quiet(7 * 60 + 29));
+        assert!(!c.is_quiet(7 * 60 + 30));
+        assert!(!c.is_quiet(12 * 60));
+        assert_eq!(c.mention_for(&drop, 2 * 60), "");
+        assert_eq!(c.mention_for(&drop, 12 * 60), "@everyone");
+        // Por padrão a mensagem sai, só sem menção.
+        assert!(!c.holds_messages(2 * 60));
+        let hold = settings(&[
+            ("Enabled", "true"),
+            ("Url", URL),
+            ("QuietHours", "true"),
+            ("QuietStart", "09:00"),
+            ("QuietEnd", "17:00"),
+            ("QuietSkip", "true"),
+        ]);
+        assert!(hold.holds_messages(10 * 60));
+        assert!(!hold.holds_messages(18 * 60));
+        // Desligado, horário inválido ou início = fim: nunca silencioso.
+        assert!(!settings(&[("QuietStart", "23:00"), ("QuietEnd", "07:00")]).is_quiet(2 * 60));
+        assert!(!settings(&[("QuietHours", "true"), ("QuietStart", "25:00"), ("QuietEnd", "07:00")]).is_quiet(2 * 60));
+        assert!(!settings(&[("QuietHours", "true"), ("QuietStart", "08:00"), ("QuietEnd", "08:00")]).is_quiet(8 * 60));
+    }
+
+    #[test]
+    fn times_and_per_event_mentions_are_checked_before_saving() {
+        assert!(validate_setting("Webhook", "QuietStart", "07:30").is_ok());
+        assert!(validate_setting("Webhook", "QuietStart", "7:3").is_err());
+        assert!(validate_setting("Webhook", "SummaryTime", "24:00").is_err());
+        assert!(validate_setting("Webhook", "SummaryTime", "").is_ok());
+        assert!(validate_setting("Webhook", "MentionDropped", &"x".repeat(MAX_MENTION_CHARS + 1)).is_err());
+        assert!(validate_setting("Webhook", "MentionDropped", "<@&1>").is_ok());
+    }
+
+    #[test]
+    fn a_ban_a_batch_and_memory_read_like_the_other_cards() {
+        let ban = WebhookEvent { reason: Some(WebhookReason::Banned), ..event(WebhookEventKind::Moderated, "Farm 1") };
+        let card = &build_message(&[ban], "", WebhookLang::Pt, &WebhookEnrichment::default())["embeds"][0];
+        assert_eq!(card["title"], "⛔ Conta banida");
+        assert_eq!(card["description"], "O Roblox está bloqueando **Farm 1**.");
+        assert_eq!(card["color"], 0xe7_4c_3c);
+
+        let batch = WebhookEvent {
+            user_id: 0,
+            account: String::new(),
+            reason: Some(WebhookReason::BatchResult { done: 8, failed: 1, cancelled: 0 }),
+            place_id: Some(42),
+            ..event(WebhookEventKind::BatchFinished, "")
+        };
+        let card = &build_message(&[batch], "", WebhookLang::En, &WebhookEnrichment::default())["embeds"][0];
+        assert_eq!(card["title"], "📋 Launch batch finished");
+        assert_eq!(card["description"], "8 opened, 1 failed, 0 cancelled.");
+        let names: Vec<&str> = card["fields"].as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap()).collect();
+        assert!(!names.contains(&"Account"), "a batch has no single account: {names:?}");
+        assert!(names.contains(&"Game"));
+
+        let memory = WebhookEvent {
+            reason: Some(WebhookReason::MemoryOverLimit { memory_mb: 3_100, limit_mb: 2_048 }),
+            ..event(WebhookEventKind::MemoryClosed, "Farm 2")
+        };
+        let card = &build_message(&[memory], "", WebhookLang::En, &WebhookEnrichment::default())["embeds"][0];
+        assert_eq!(card["title"], "🧠 Client closed for memory");
+        assert_eq!(card["fields"][1]["value"], "Using 3100 MB, over the 2048 MB limit");
+
+        let low = WebhookEvent {
+            user_id: 0,
+            account: String::new(),
+            reason: Some(WebhookReason::SystemMemoryLow { free_mb: 700, total_mb: 16_000 }),
+            ..event(WebhookEventKind::SystemLowMemory, "")
+        };
+        let card = &build_message(&[low], "", WebhookLang::En, &WebhookEnrichment::default())["embeds"][0];
+        assert_eq!(card["title"], "🧠 Windows is almost out of memory");
+        assert_eq!(card["description"], "700 MB free of 16000 MB.");
+    }
+
+    /// Pedido do dono (28/10/2026): função padrão para mandar mensagem pelo
+    /// webhook a partir dos scripts Python.
+    #[test]
+    fn a_script_message_is_its_own_card_and_cannot_ping() {
+        let on = settings(&[("Enabled", "true"), ("Url", URL)]);
+        assert!(on.wants(WebhookEventKind::ScriptMessage), "on by default: the script asked for it");
+        let e = WebhookEvent {
+            reason: Some(WebhookReason::ScriptMessage {
+                script: "farm".into(),
+                title: Some("Night run".into()),
+                text: "**12** loops @everyone <@&99>".into(),
+            }),
+            ..event(WebhookEventKind::ScriptMessage, "Farm 1")
+        };
+        let card = &build_message(&[e.clone()], "", WebhookLang::En, &extra())["embeds"][0];
+        assert_eq!(card["title"], "📜 Night run");
+        let text = card["description"].as_str().unwrap();
+        assert!(text.starts_with("**12** loops"), "formatting stays: {text}");
+        assert!(!text.contains("@everyone") && !text.contains("<@&"), "{text}");
+        let names: Vec<&str> = card["fields"].as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"Script"), "{names:?}");
+        assert!(names.contains(&"Account"));
+        // Sem conta e sem título: o nome do script no título, sem campo Conta.
+        let bare = WebhookEvent {
+            user_id: 0,
+            account: String::new(),
+            reason: Some(WebhookReason::ScriptMessage { script: "farm".into(), title: None, text: "done".into() }),
+            ..event(WebhookEventKind::ScriptMessage, "")
+        };
+        let card = &build_message(&[bare], "", WebhookLang::Pt, &WebhookEnrichment::default())["embeds"][0];
+        assert_eq!(card["title"], "📜 Mensagem de farm");
+        assert!(!card.to_string().contains("\"Conta\""));
+    }
+
+    #[test]
+    fn a_script_message_is_cut_to_the_limit() {
+        let long = "x".repeat(MAX_SCRIPT_TEXT_CHARS + 50);
+        assert_eq!(script_message_text(&long).chars().count(), MAX_SCRIPT_TEXT_CHARS + 1, "cut with an ellipsis");
+        assert_eq!(script_message_text("  hi  "), "hi");
+        assert_eq!(script_message_title("t".repeat(300).as_str()).chars().count(), MAX_SCRIPT_TITLE_CHARS + 1);
     }
 
     fn extra() -> WebhookEnrichment {

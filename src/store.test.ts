@@ -2219,6 +2219,40 @@ describe("backend events", () => {
     expect(toast?.tone).toBe("error");
   });
 
+  /**
+   * Relato de 26/10/2026: o "Browser Login" só guardava o cookie — a senha
+   * digitada no navegador nunca chegava na conta. O backend devolve a senha
+   * que entrou (só quando confere com a conta da sessão) e ela vai junto.
+   */
+  it("saves the password typed in the browser login with the account", async () => {
+    await renderStore();
+    await waitFor(() => expect(listenHandlers.has("browser-login-detected")).toBe(true));
+    results.set("extract_browser_cookie", "_|WARNING:-token");
+    results.set("extract_browser_login_password", "typed-in-browser");
+    results.set("validate_cookie", { user_id: 7, name: "BrowserUser" });
+
+    await act(async () => {
+      emit("browser-login-detected", {});
+    });
+
+    await waitFor(() => expect(lastArgs("add_account")).toMatchObject({ userId: 7, password: "typed-in-browser" }));
+  });
+
+  it("adds a browser login account without a password when none was captured", async () => {
+    await renderStore();
+    await waitFor(() => expect(listenHandlers.has("browser-login-detected")).toBe(true));
+    results.set("extract_browser_cookie", "_|WARNING:-token");
+    results.set("extract_browser_login_password", null);
+    results.set("validate_cookie", { user_id: 8, name: "NoPassword" });
+
+    await act(async () => {
+      emit("browser-login-detected", {});
+    });
+
+    await waitFor(() => expect(lastArgs("add_account")).toMatchObject({ userId: 8 }));
+    expect(lastArgs("add_account")).not.toHaveProperty("password");
+  });
+
   it("surfaces roblox build install progress", async () => {
     const { result } = await renderStore();
     await waitFor(() => expect(listenHandlers.has("roblox-build-install")).toBe(true));
@@ -2778,6 +2812,7 @@ describe("updates", () => {
         CheckForUpdates: "false",
         UpdaterReleaseChannel: "STABLE",
         UpdaterFeatureChannel: "nexus",
+        UpdaterFeatureChannelChosen: "true",
       },
     };
     const { result } = await renderStore();
@@ -2852,7 +2887,7 @@ describe("updates", () => {
   });
 
   it("the automatic check never asks for an edition switch", async () => {
-    settingsData = { General: { CheckForUpdates: "true", UpdaterFeatureChannel: "nexus-ws" } };
+    settingsData = { General: { CheckForUpdates: "true", UpdaterFeatureChannel: "nexus-ws", UpdaterFeatureChannelChosen: "true" } };
     const { result } = await renderStore();
 
     await act(async () => {
@@ -2884,11 +2919,10 @@ describe("updates", () => {
     });
 
     expect(opened).toBe(true);
-    expect(lastArgs("update_setting")).toEqual({
-      section: "General",
-      key: "UpdaterFeatureChannel",
-      value: "nexus-ws",
-    });
+    const writes = invokeMock.mock.calls.filter((c) => c[0] === "update_setting").map((c) => c[1]);
+    expect(writes).toContainEqual({ section: "General", key: "UpdaterFeatureChannel", value: "nexus-ws" });
+    // Escolha de propósito: as próximas atualizações continuam na completa.
+    expect(writes).toContainEqual({ section: "General", key: "UpdaterFeatureChannelChosen", value: "true" });
     expect(lastArgs("check_for_updates_with_channels")).toEqual({
       releaseChannel: "stable",
       featureChannel: "nexus-ws",

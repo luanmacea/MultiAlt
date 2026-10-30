@@ -64,34 +64,9 @@ fn webhook_lang(app: &tauri::AppHandle) -> WebhookLang {
 async fn webhook_enrich(app: &tauri::AppHandle, events: &[WebhookEvent]) -> WebhookEnrichment {
     let mut out = WebhookEnrichment::default();
 
-    let mut places: Vec<i64> = Vec::new();
-    for place in events.iter().filter_map(|e| e.place_id).filter(|p| *p > 0) {
-        let cached = WEBHOOK_GAME_NAMES.lock().ok().and_then(|m| m.get(&place).cloned());
-        match cached {
-            Some(name) => {
-                out.game_names.insert(place, name);
-            }
-            None if !places.contains(&place) => places.push(place),
-            None => {}
-        }
-    }
-    if !places.is_empty() {
-        let store = app.state::<AccountStore>();
-        let cookie = events.iter().find_map(|e| get_cookie(store.inner(), e.user_id).ok());
-        if let Ok(Ok(details)) =
-            tokio::time::timeout(WEBHOOK_ENRICH_TIMEOUT, api::roblox::get_place_details(&places, cookie.as_deref()))
-                .await
-        {
-            for d in details {
-                if !d.name.trim().is_empty() {
-                    if let Ok(mut cache) = WEBHOOK_GAME_NAMES.lock() {
-                        cache.insert(d.place_id, d.name.clone());
-                    }
-                    out.game_names.insert(d.place_id, d.name);
-                }
-            }
-        }
-    }
+    let places: Vec<i64> = events.iter().filter_map(|e| e.place_id).collect();
+    let users: Vec<i64> = events.iter().map(|e| e.user_id).collect();
+    out.game_names = webhook_game_names(app, &places, &users).await;
 
     let mut users: Vec<i64> = Vec::new();
     for e in events.iter().filter(|e| !e.masked && e.user_id > 0) {
@@ -108,6 +83,64 @@ async fn webhook_enrich(app: &tauri::AppHandle, events: &[WebhookEvent]) -> Webh
                     out.avatars.insert(t.target_id, url);
                 }
             }
+        }
+    }
+    out
+}
+
+/// O nome de cada jogo (Place ID → nome), do cache ou buscado de uma vez. O
+/// cookie é o da primeira destas contas que tiver um (só leitura, sem renovar
+/// sessão). Sem resposta no teto, o jogo fica de fora e a mensagem mostra o
+/// Place ID.
+async fn webhook_game_names(
+    app: &tauri::AppHandle,
+    places: &[i64],
+    cookie_users: &[i64],
+) -> std::collections::HashMap<i64, String> {
+    let mut out = std::collections::HashMap::new();
+    let mut missing: Vec<i64> = Vec::new();
+    for place in places.iter().copied().filter(|p| *p > 0) {
+        let cached = WEBHOOK_GAME_NAMES.lock().ok().and_then(|m| m.get(&place).cloned());
+        match cached {
+            Some(name) => {
+                out.insert(place, name);
+            }
+            None if !missing.contains(&place) => missing.push(place),
+            None => {}
+        }
+    }
+    if missing.is_empty() {
+        return out;
+    }
+    let store = app.state::<AccountStore>();
+    let saved: Vec<i64> = store.get_all().unwrap_or_default().iter().map(|a| a.user_id).collect();
+    let cookie = webhook_cookie_order(cookie_users, &saved)
+        .into_iter()
+        .find_map(|id| get_cookie(store.inner(), id).ok());
+    if let Ok(Ok(details)) =
+        tokio::time::timeout(WEBHOOK_ENRICH_TIMEOUT, api::roblox::get_place_details(&missing, cookie.as_deref())).await
+    {
+        for d in details {
+            if !d.name.trim().is_empty() {
+                if let Ok(mut cache) = WEBHOOK_GAME_NAMES.lock() {
+                    cache.insert(d.place_id, d.name.clone());
+                }
+                out.insert(d.place_id, d.name);
+            }
+        }
+    }
+    out
+}
+
+/// De quem pegar o cookie para o nome do jogo: as contas do aviso primeiro e,
+/// depois, qualquer conta salva. Aviso sem conta (lote de launch, memória do
+/// Windows) saía com "Place 123" porque não achava cookie (teste real,
+/// 28/10/2026).
+fn webhook_cookie_order(event_users: &[i64], saved: &[i64]) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::new();
+    for id in event_users.iter().chain(saved.iter()).copied().filter(|id| *id > 0) {
+        if !out.contains(&id) {
+            out.push(id);
         }
     }
     out
@@ -139,6 +172,14 @@ fn webhook_account_label(app: &tauri::AppHandle, config: &WebhookConfig, user_id
     }
 }
 
+/// O minuto do dia na hora local (o horário silencioso e o resumo são na hora
+/// de quem usa).
+fn local_minute_of_day() -> u32 {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    now.hour() * 60 + now.minute()
+}
+
 /// Põe um aviso na fila, se a opção e a caixa deste evento estiverem ligadas.
 /// Barato e sem rede: pode ser chamado do caminho de launch/reconexão.
 pub(crate) fn notify_webhook(
@@ -156,7 +197,8 @@ pub(crate) fn notify_webhook(
     let event = WebhookEvent {
         kind,
         user_id,
-        account: webhook_account_label(app, &config, user_id),
+        // Evento do app inteiro (lote, memória do Windows): sem conta.
+        account: if kind.has_account() { webhook_account_label(app, &config, user_id) } else { String::new() },
         masked: config.mask_names,
         reason,
         place_id,
@@ -164,6 +206,40 @@ pub(crate) fn notify_webhook(
     };
     with_webhook_queue(|queue| queue.push(event, now_ms));
 }
+
+/// Mensagem de um script Python (`multialt.discord`, op `discord.send`): entra
+/// na mesma fila dos avisos (lote, limite do Discord, horário silencioso, a
+/// menção deste evento). O texto chega já cortado e sem menção.
+/// Erro quando o envio está desligado: o script recebe o motivo.
+pub(crate) fn notify_script_webhook(
+    app: &tauri::AppHandle,
+    script: &str,
+    user_id: Option<i64>,
+    title: Option<String>,
+    text: String,
+) -> Result<(), String> {
+    let config = webhook_config(app);
+    if !config.wants(WebhookEventKind::ScriptMessage) {
+        return Err(SCRIPT_WEBHOOK_OFF.to_string());
+    }
+    let user_id = user_id.filter(|id| *id > 0).unwrap_or(0);
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let event = WebhookEvent {
+        kind: WebhookEventKind::ScriptMessage,
+        user_id,
+        account: if user_id > 0 { webhook_account_label(app, &config, user_id) } else { String::new() },
+        masked: config.mask_names,
+        reason: Some(WebhookReason::ScriptMessage { script: script.to_string(), title, text }),
+        place_id: if user_id > 0 { webhook_place_of(user_id) } else { None },
+        at_ms: now_ms,
+    };
+    with_webhook_queue(|queue| queue.push(event, now_ms));
+    Ok(())
+}
+
+/// O que o script ouve quando o envio para o Discord está desligado.
+pub(crate) const SCRIPT_WEBHOOK_OFF: &str =
+    "Discord alerts are off: turn on \"Send notifications to Discord\", paste the webhook URL and turn on \"A message from a Python script\" in the Discord alerts page.";
 
 /// Motivo da queda, como código (a mensagem traduz). O texto cru do kick do
 /// Roblox pode citar o nome real de outro jogador ("kicked by <username>"): com
@@ -243,13 +319,16 @@ pub(crate) fn webhook_after_health_tick(app: &tauri::AppHandle, notices: &[Healt
     let mask_names = webhook_config(app).mask_names;
     for notice in notices {
         match notice {
-            HealthNotice::Dropped { user_id, drop, .. } => notify_webhook(
-                app,
-                WebhookEventKind::Dropped,
-                *user_id,
-                Some(webhook_drop_reason(drop, mask_names)),
-                webhook_place_of(*user_id),
-            ),
+            HealthNotice::Dropped { user_id, drop, .. } => {
+                notify_webhook(
+                    app,
+                    WebhookEventKind::Dropped,
+                    *user_id,
+                    Some(webhook_drop_reason(drop, mask_names)),
+                    webhook_place_of(*user_id),
+                );
+                discord_stats_note_drop(app, *user_id);
+            }
             HealthNotice::NotResponding {
                 user_id,
                 not_responding: true,
@@ -295,8 +374,14 @@ pub(crate) fn start_webhook_dispatcher(app: tauri::AppHandle) {
             let Some(target) = config.target.clone().filter(|_| config.enabled) else {
                 continue;
             };
+            // Horário silencioso com "não mandar nada": o lote some.
+            let minute = local_minute_of_day();
+            if config.holds_messages(minute) {
+                continue;
+            }
             let extra = webhook_enrich(&app, &batch).await;
-            let body = build_message(&batch, &config.mention, webhook_lang(&app), &extra);
+            let mention = config.mention_for(&batch, minute);
+            let body = build_message(&batch, &mention, webhook_lang(&app), &extra);
             match send_webhook(&client, &target, &body).await {
                 Ok(SendOutcome::Sent) => {}
                 Ok(SendOutcome::RateLimited { retry_after_ms }) => {
@@ -318,17 +403,8 @@ async fn send_test_webhook(app: tauri::AppHandle, url: String, mention: Option<S
     let target = parse_webhook_url(&url)?;
     let config = webhook_config(&app);
     let lang = webhook_lang(&app);
-    let enabled: Vec<WebhookEventKind> = [
-        WebhookEventKind::Dropped,
-        WebhookEventKind::ReconnectFailed,
-        WebhookEventKind::NotResponding,
-        WebhookEventKind::Reconnected,
-        WebhookEventKind::LaunchFailed,
-        WebhookEventKind::WrongAccount,
-    ]
-    .into_iter()
-    .filter(|k| config.wants_box(*k))
-    .collect();
+    let enabled: Vec<WebhookEventKind> =
+        WebhookEventKind::ALL.into_iter().filter(|k| config.wants_box(*k)).collect();
 
     let first = app.state::<AccountStore>().get_all().unwrap_or_default().into_iter().next();
     let sample = first.map(|a| WebhookEvent {
@@ -360,6 +436,15 @@ async fn send_test_webhook(app: tauri::AppHandle, url: String, mention: Option<S
 #[cfg(test)]
 mod webhook_glue_tests {
     use super::*;
+
+    #[test]
+    fn an_event_without_an_account_still_finds_a_cookie_for_the_game_name() {
+        // Lote de launch: user_id 0, então vale qualquer conta salva.
+        assert_eq!(webhook_cookie_order(&[0], &[7, 8]), vec![7, 8]);
+        // Com conta no aviso, ela vem primeiro, sem repetir.
+        assert_eq!(webhook_cookie_order(&[8, 0, 8], &[7, 8]), vec![8, 7]);
+        assert!(webhook_cookie_order(&[0], &[]).is_empty());
+    }
 
     #[test]
     fn names_are_masked_like_the_hidden_names_mode() {
@@ -442,7 +527,7 @@ mod webhook_glue_tests {
         // A rede é do backend (CLAUDE.md): nenhum arquivo da tela fala com o
         // Discord diretamente.
         for source in [
-            include_str!("../../../src/components/settings/NotificationsTab.tsx"),
+            include_str!("../../../src/components/discord/DiscordSettings.tsx"),
             include_str!("../../../src/utils/discordWebhook.ts"),
         ] {
             assert!(!source.contains("fetch("), "frontend must not call fetch for the webhook");

@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, type ReactNode } from "react";
 
@@ -561,11 +561,32 @@ describe("Former General controls", () => {
     await expectSaved("General", "UpdaterReleaseChannel", "stable");
   });
 
+  /** Pedido do dono (28/10/2026): quem instalou a completa continua nela. */
+  it("without a choice, the feature channel is the edition that is installed", async () => {
+    setStore({ runningFeatureChannel: "nexus-ws" });
+    renderGeneral();
+    expect(await screen.findByText("Nexus + WebServer")).toBeInTheDocument();
+    expect(screen.queryByText("Standard (Non-Nexus/WebServer)")).not.toBeInTheDocument();
+  });
+
+  it("a value left by an older install does not count as a choice", async () => {
+    setStore({ runningFeatureChannel: "nexus-ws" });
+    renderGeneral({ General: { UpdaterFeatureChannel: "standard" } });
+    expect(await screen.findByText("Nexus + WebServer")).toBeInTheDocument();
+  });
+
+  it("a choice made on purpose wins over the installed edition", async () => {
+    setStore({ runningFeatureChannel: "nexus-ws" });
+    renderGeneral({ General: { UpdaterFeatureChannel: "standard", UpdaterFeatureChannelChosen: "true" } });
+    expect(await screen.findByText("Standard (Non-Nexus/WebServer)")).toBeInTheDocument();
+  });
+
   it("saves the updater feature channel", async () => {
     renderGeneral();
     await userEvent.click(await screen.findByText("Standard (Non-Nexus/WebServer)"));
     await userEvent.click(await screen.findByText("Nexus + WebServer"));
     await expectSaved("General", "UpdaterFeatureChannel", "nexus-ws");
+    await expectSaved("General", "UpdaterFeatureChannelChosen", "true");
   });
 
   /**
@@ -1177,18 +1198,18 @@ describe("OptimizationTab", () => {
     expect(screen.queryByRole("switch", { name: /Free memory from the windows you're not using/ })).not.toBeInTheDocument();
   });
 
-  it("rejects a fast flag key that is not on the backend allowlist", async () => {
+  /** Chave fora da lista do Roblox: aviso, e o launch aplica o resto (28/10/2026). */
+  it("warns about a fast flag key Roblox ignores without refusing the JSON", async () => {
     renderOptimization({
       Optimization: {
         NormalEnableFastFlags: "true",
-        NormalFastFlagsJson: '{"FFlagMadeUpByTheUser": true}',
+        NormalFastFlagsJson: '{"FFlagMadeUpByTheUser": true, "FFlagDebugSkyGray": "True"}',
       },
     });
     expect(
-      await screen.findByText(
-        "Only Roblox allowlisted keys are accepted: FFlagMadeUpByTheUser"
-      )
+      await screen.findByText(/Roblox ignores these, so they are left out at launch: FFlagMadeUpByTheUser/)
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Invalid allowlisted fast flags JSON/)).not.toBeInTheDocument();
   });
 
   it("accepts a JSON whose keys are all on the allowlist", async () => {
@@ -1199,15 +1220,48 @@ describe("OptimizationTab", () => {
       },
     });
     await screen.findByLabelText("Allowlisted fast flags JSON");
-    expect(
-      screen.queryByText(/Only Roblox allowlisted keys are accepted:/)
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Roblox ignores these/)).not.toBeInTheDocument();
   });
 
-  it("shows which keys the backend accepts instead of making the user guess", async () => {
+  it("shows the keys Roblox still reads, with what each one does", async () => {
     renderOptimization(FAST_FLAGS_ON);
-    expect(await screen.findByText("DFFlagTextureQualityOverrideEnabled")).toBeInTheDocument();
-    expect(screen.getByText("DFIntRenderShadowIntensity")).toBeInTheDocument();
+    const key = await screen.findByText("FIntFRMMaxGrassDistance");
+    expect(key).toHaveAttribute("title", "How far grass is drawn. 0 = no grass.");
+    // Fora da lista oficial do Roblox (DevForum, 29/09/2025): não aparece mais.
+    expect(screen.queryByText("DFIntRenderShadowIntensity")).not.toBeInTheDocument();
+  });
+
+  /** Menus simples como os do Fishstrap, com a dica "para que lado fica leve" (28/10/2026). */
+  it("a simple menu writes its flags and says which way is lighter", async () => {
+    renderOptimization({ Optimization: { NormalEnableFastFlags: "false", NormalFastFlagsJson: "" } });
+    const row = await screen.findByTestId("fastflag-control-textures");
+    expect(row).toHaveTextContent("Lower = lighter");
+    await userEvent.click(screen.getByRole("button", { name: "Texture quality" }));
+    await userEvent.click(await within(row).findByRole("button", { name: "Lowest" }));
+    await expectSaved("Optimization", "NormalEnableFastFlags", "true");
+    const saved = invokeMock.mock.calls
+      .filter((c) => c[0] === "update_setting" && (c[1] as { key: string }).key === "NormalFastFlagsJson")
+      .map((c) => JSON.parse((c[1] as { value: string }).value))
+      .pop();
+    expect(saved).toEqual({ DFFlagTextureQualityOverrideEnabled: "True", DFIntTextureQualityOverride: "0" });
+  });
+
+  /** Pedido do dono (28/10/2026): "quem entende pouco clica no + e pronto". */
+  it("the + adds a ready-made profile to this profile's JSON and turns fast flags on", async () => {
+    renderOptimization({
+      Optimization: { NormalEnableFastFlags: "false", NormalFastFlagsJson: '{"FFlagHandleAltEnterFullscreenManually": "False"}' },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Add Nuke rendering" }));
+    await expectSaved("Optimization", "NormalEnableFastFlags", "true");
+    const saved = invokeMock.mock.calls
+      .filter((c) => c[0] === "update_setting" && (c[1] as { key: string }).key === "NormalFastFlagsJson")
+      .map((c) => JSON.parse((c[1] as { value: string }).value))
+      .pop();
+    expect(saved).toMatchObject({
+      FFlagHandleAltEnterFullscreenManually: "False",
+      DFIntTextureQualityOverride: "0",
+      FFlagDebugSkyGray: "True",
+    });
   });
 
   /**

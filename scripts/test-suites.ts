@@ -447,16 +447,23 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: ["src/components/servers", "src/components/server-list"],
   },
+  live: {
+    description: "Live: a janela MultiAlt Live com as contas numa grade para transmitir (miniaturas do DWM, seleção, grade)",
+    rust: ["live_view_tests", "live_view_command_tests"],
+    front: ["src/live/liveGrid.test.ts", "src/components/pages/LivePage.test.tsx"],
+  },
   webhook: {
-    description: "Avisos no Discord por webhook: URL, filtro de eventos, lote/limite, mensagem com nomes ocultos, envio mockado",
+    description: "Página Discord alerts: URL, eventos, menção por evento, horário silencioso, lote/limite, status ao vivo, resumo do dia, envio mockado",
     rust: [
       "discord_webhook_url_tests",
       "discord_webhook_message_tests",
       "discord_webhook_queue_tests",
       "discord_webhook_http_tests",
+      "discord_status_tests",
+      "discord_status_http_tests",
       "webhook_glue_tests",
     ],
-    front: ["src/components/settings/NotificationsTab.test.tsx", "src/utils/discordWebhook.test.ts"],
+    front: ["src/components/discord/DiscordSettings.test.tsx", "src/utils/discordWebhook.test.ts"],
   },
   settings: {
     description: "RAMSettings.ini, defaults, temas e presets",
@@ -641,7 +648,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   performance: {
-    description: "Desempenho enquanto joga: otimização que segue a janela em uso, fundo mudo (live-audio), grade menor e sem moldura",
+    description: "Desempenho enquanto joga: otimização que segue a janela em uso, fundo mudo (live-audio), grade menor e sem moldura, FastFlags (lista do Roblox e perfis prontos)",
     rust: [
       "focus_follow_tests",
       "win_optimization_tests",
@@ -657,7 +664,12 @@ export const SUITES: Record<string, TestSuite> = {
       "settings_on_exit_tests",
       "settings_record_tests",
     ],
-    front: ["src/components/settings/settingsTabs.test.tsx", "src/components/console/WindowGridCard.test.tsx"],
+    front: [
+      "src/components/settings/settingsTabs.test.tsx",
+      "src/components/console/WindowGridCard.test.tsx",
+      // FastFlags: a lista oficial do Roblox e os perfis prontos com "+".
+      "src/utils/fastFlagPresets.test.ts",
+    ],
   },
   release: {
     description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",
@@ -670,6 +682,13 @@ export const SUITES: Record<string, TestSuite> = {
       ".github/scripts/ci-workflow.test.mjs",
       "src/appIdentity.test.ts",
     ],
+  },
+  python: {
+    description: "Automação do Roblox Player em Python: runtime, workspace, protocolo, primitivas, execuções, pipe, SDK e tela",
+    // O filtro `python_` casa com todo `mod python_*_tests` (src-tauri/src/python/
+    // e platform/windows/capture.rs).
+    rust: ["python_"],
+    front: ["src/components/python"],
   },
   scan: {
     description: "bun run scan: veredito do Defender e do VirusTotal por arquivo, com o portão de cada edição (padrão: nada; completa: só o Trapmine de ML)",

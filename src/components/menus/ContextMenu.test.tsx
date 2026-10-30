@@ -210,6 +210,7 @@ describe("ContextMenu — copy submenu", () => {
   it.each([
     ["Password", "password"],
     ["User:Pass", "userpass"],
+    ["User:Pass:Cookie", "userpasscookie"],
   ])("copies the %s through the backend too", async (label, kind) => {
     promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: false };
     setInvokeMap({ copy_account_secret: { count: 2, clearsInSecs: 30 } });

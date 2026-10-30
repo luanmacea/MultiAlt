@@ -4,7 +4,11 @@ import { Toggle } from "../ui/Toggle";
 import { Select } from "../ui/Select";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
-import { normalizeUpdaterReleaseChannel, normalizeUpdaterFeatureChannel } from "../../updaterChannels";
+import {
+  normalizeUpdaterReleaseChannel,
+  normalizeUpdaterFeatureChannel,
+  resolveUpdaterFeatureChannel,
+} from "../../updaterChannels";
 import { ActionCard } from "./settingsParts";
 
 /** Settings › Updates: o updater do app (saiu de General em 11/10/2026). */
@@ -13,8 +17,11 @@ export function UpdatesTab({ s }: { s: UseSettingsReturn }) {
   const store = useStore();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const updaterReleaseChannel = normalizeUpdaterReleaseChannel(s.get("General", "UpdaterReleaseChannel", "beta"));
-  const updaterFeatureChannel = normalizeUpdaterFeatureChannel(
-    s.get("General", "UpdaterFeatureChannel", "standard")
+  // Sem escolha, a edição instalada: quem baixou a completa continua nela.
+  const updaterFeatureChannel = resolveUpdaterFeatureChannel(
+    s.get("General", "UpdaterFeatureChannel", ""),
+    s.get("General", "UpdaterFeatureChannelChosen", ""),
+    store.runningFeatureChannel ?? "standard"
   );
 
   const handleManualUpdateCheck = async () => {
@@ -60,7 +67,7 @@ export function UpdatesTab({ s }: { s: UseSettingsReturn }) {
         <div className="min-w-0">
           <div className="text-[13px] text-zinc-300">{t("Update Feature Channel")}</div>
           <div className="mt-0.5 text-[12px] text-zinc-500">
-            {t("Choose whether updates use the standard or Nexus/WebServer build")}
+            {t("Choose whether updates use the standard or Nexus/WebServer build. Until you pick one, it keeps the edition you installed.")}
           </div>
         </div>
         <div className="ml-auto min-w-[220px]">
@@ -70,7 +77,11 @@ export function UpdatesTab({ s }: { s: UseSettingsReturn }) {
               { value: "standard", label: "Standard (Non-Nexus/WebServer)" },
               { value: "nexus-ws", label: "Nexus + WebServer" },
             ]}
-            onChange={(value) => s.set("General", "UpdaterFeatureChannel", normalizeUpdaterFeatureChannel(value))}
+            onChange={(value) => {
+              // Escolha de propósito: só ela vence a edição instalada.
+              s.set("General", "UpdaterFeatureChannel", normalizeUpdaterFeatureChannel(value));
+              s.set("General", "UpdaterFeatureChannelChosen", "true");
+            }}
           />
         </div>
       </div>
