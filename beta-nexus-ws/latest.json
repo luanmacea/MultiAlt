@@ -1,11 +1,11 @@
 {
-  "version": "2.4.0-beta",
-  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: df44c0f\nApp version: 2.4.0\n\n## What's Changed\n* Best window size per monitor, hidden AFK clicks, safer passwords and a clean login browser by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/39\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v2.3.0-beta...v2.4.0-beta",
-  "pub_date": "2026-10-26T18:52:27.4938777Z",
+  "version": "2.5.0-beta",
+  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: 916c42e\nApp version: 2.5.0\n\n## What's Changed\n* Python scripts, Live window, Discord alerts page and FastFlags profiles by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/42\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v2.4.0-beta...v2.5.0-beta",
+  "pub_date": "2026-10-30T01:56:28.5679307Z",
   "platforms": {
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclNZN3RuaEtLemh2eHBOWjdCNVZ5RnkyWUNKYmxadWh3clBwTWMveUxLQnVJRTFxd1hPNndUdS90Mmh2T1NnS21LZjNkbmJwcWN5WkYvYURISGV2Q3dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMDQwNzQ2CWZpbGU6TXVsdGlBbHRfMi40LjBfeDY0X2VuLVVTLm1zaQpMU2swTmM0VTlsMWxnQkJtSW1KeTlHU00wU0h0V0hZbG0wSmNmSitYNC9oR2xCTkFub21EK3d3eXNWc2ZkdEc0WXlteU5vZDB2MFQ1WWRqNFozVG1CZz09Cg==",
-      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v2.4.0-beta/MultiAlt_2.4.0_Full-Setup.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmQvb0VjQzBESmc2RnJmZmc0c3N3aTZONFJERGY2YkxZc1ozaWFLdlp2cDZHY21LNW9IZXBCc2pRVGtWdWhnSTVJd2pSNHBPVjljeHAzR1VXMTJGQndvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMzI1Mzg4CWZpbGU6TXVsdGlBbHRfMi41LjBfeDY0X2VuLVVTLm1zaQovTldScGhKRit4ZUhNUkM5MHJab1pBdmY5TmgvUi9ISnpRQ0VmL1pvYUtMS21EZk44enEzSzBPV2hDaTJzbTBPNUt2VVUvbDVRR3RoRTkrdTlRQTNDdz09Cg==",
+      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v2.5.0-beta/MultiAlt_2.5.0_Full-Setup.msi"
     }
   }
 }
