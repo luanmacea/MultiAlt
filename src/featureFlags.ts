@@ -62,3 +62,11 @@ export const ENABLE_HELP_BUTTON = parseBooleanEnv(import.meta.env.VITE_ENABLE_HE
  * padrão abaixo para `false`. Ver docs/features/groups.md.
  */
 export const ENABLE_GROUPS = parseBooleanEnv(import.meta.env.VITE_ENABLE_GROUPS, true);
+
+/**
+ * Modo "Roblox Player automation (Python)" da página Scripts. Anda junto com as
+ * features Rust `python-scripts` / `python-dev-pipe`. Desligado, a página
+ * Scripts fica só com a automação em JavaScript, sem o seletor de modo.
+ * Ver docs/features/python-automation.md (desenho em docs/superpowers/specs).
+ */
+export const ENABLE_PYTHON_SCRIPTS = parseBooleanEnv(import.meta.env.VITE_ENABLE_PYTHON_SCRIPTS, true);

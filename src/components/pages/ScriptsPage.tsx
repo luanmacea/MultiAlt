@@ -40,6 +40,9 @@ import {
 import { createScriptWorker } from "../../scripting/workerSource";
 import { Select } from "../ui/Select";
 import { MenuItemView } from "../menus/MenuItemView";
+import { ENABLE_PYTHON_SCRIPTS } from "../../featureFlags";
+import { PYTHON_PAGE_INTRO, PythonAutomationView } from "../python/PythonAutomationView";
+import { ScriptsModeSwitch, useScriptsMode } from "../python/ScriptsModeSwitch";
 import type { MenuItem } from "../menus/MenuItemView";
 import type {
   ManagedScript,
@@ -1310,6 +1313,7 @@ export function ScriptsPage({ active, onLeave }: ScriptsPageProps) {
   const prompt = usePrompt();
   const confirm = useConfirm();
   const visible = active;
+  const [scriptsMode, setScriptsMode] = useScriptsMode();
 
   const [scripts, setScripts] = useState<ManagedScript[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -3050,12 +3054,16 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
   return (
     <PageShell
       title={t("Scripts")}
-      description={intro}
+      description={scriptsMode === "python" ? PYTHON_PAGE_INTRO : intro}
+      toolbar={ENABLE_PYTHON_SCRIPTS ? <ScriptsModeSwitch mode={scriptsMode} onChange={setScriptsMode} /> : undefined}
       onLeave={onLeave}
       dataTour="scripts-page"
       tour="scripts"
       bodyClassName="flex"
     >
+      {scriptsMode === "python" ? (
+        <PythonAutomationView />
+      ) : (
         <div className="flex-1 min-h-0 min-w-0 flex">
           <aside data-tour="scripts-list" className="w-[320px] 2xl:w-[380px] border-r theme-border flex flex-col min-h-0">
             <div className="p-3 border-b theme-border flex items-center gap-2">
@@ -3849,6 +3857,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
             </div>
           )}
         </div>
+      )}
     </PageShell>
   );
 }

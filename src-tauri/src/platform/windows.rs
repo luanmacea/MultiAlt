@@ -51,6 +51,7 @@ include!("windows/focus_follow.rs");
 include!("windows/live_audio.rs");
 include!("windows/windowing.rs");
 include!("windows/hidden_focus.rs");
+include!("windows/live_view.rs");
 include!("windows/memory_trim.rs");
 include!("windows/input.rs");
 include!("windows/tracker.rs");
@@ -59,3 +60,6 @@ include!("windows/versions.rs");
 include!("windows/external_clients.rs");
 include!("windows/clipboard.rs");
 include!("windows/power.rs");
+// Captura de janela da automação Python (docs/features/python-automation.md).
+#[cfg(feature = "python-scripts")]
+include!("windows/capture.rs");

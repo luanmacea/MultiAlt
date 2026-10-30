@@ -107,6 +107,8 @@ export type AppPage =
   | "session"
   | "console"
   | "afk"
+  | "discord"
+  | "live"
   | "avatars"
   | "groups"
   | "scripts"
@@ -164,6 +166,7 @@ import {
   type UpdaterFeatureChannel,
   normalizeUpdaterReleaseChannel,
   normalizeUpdaterFeatureChannel,
+  resolveUpdaterFeatureChannel,
   getUpdaterSkipVersionKey,
 } from "./updaterChannels";
 import { addRecentJob, recordRecentGame } from "./components/server-list/types";
@@ -881,6 +884,8 @@ export interface StoreValue {
   setNexusOpen: (open: boolean) => void;
   setScriptsOpen: (open: boolean) => void;
 
+  /** A edição instalada (do backend): sem escolha em Settings › Updates, o updater segue esta. */
+  runningFeatureChannel: UpdaterFeatureChannel;
   updateInfo: {
     version: string;
     currentVersion: string;
@@ -1182,6 +1187,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     autoInstall?: boolean;
   } | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [runningFeatureChannel, setRunningFeatureChannel] = useState<UpdaterFeatureChannel>("standard");
+  useEffect(() => {
+    void invoke<string>("get_running_feature_channel")
+      .then((channel) => setRunningFeatureChannel(normalizeUpdaterFeatureChannel(channel)))
+      .catch(() => {});
+  }, []);
   const [joiningAccounts, setJoiningAccounts] = useState<Set<number>>(new Set());
   const [launchPreparing, setLaunchPreparing] = useState<LaunchPreparing | null>(null);
   const [launchProgress, setLaunchProgress] = useState<LaunchProgressState | null>(null);
@@ -3219,7 +3230,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      await addAccountByCookie(cookie);
+      // A senha que entrou no navegador (o backend só devolve quando a resposta
+      // do login é da mesma conta do cookie). Sem ela, a conta entra só com o
+      // cookie, como sempre.
+      const password = await invoke<string | null>("extract_browser_login_password").catch(() => null);
+      await addAccountByCookie(cookie, password ?? undefined);
       await invoke("close_login_browser").catch(() => {});
     });
     return () => {
@@ -3947,9 +3962,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const releaseChannel = normalizeUpdaterReleaseChannel(
       channels?.releaseChannel ?? settings?.General?.UpdaterReleaseChannel ?? "beta"
     );
-    const featureChannel = normalizeUpdaterFeatureChannel(
-      channels?.featureChannel ?? settings?.General?.UpdaterFeatureChannel ?? "standard"
-    );
+    // Sem escolha da pessoa, a edição instalada (relato do dono, 28/10/2026).
+    const featureChannel = channels?.featureChannel
+      ? normalizeUpdaterFeatureChannel(channels.featureChannel)
+      : resolveUpdaterFeatureChannel(
+          settings?.General?.UpdaterFeatureChannel,
+          settings?.General?.UpdaterFeatureChannelChosen,
+          runningFeatureChannel
+        );
 
     try {
       const update = await invoke<{
@@ -3997,7 +4017,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [
     settings?.General?.CheckForUpdates,
     settings?.General?.UpdaterFeatureChannel,
+    settings?.General?.UpdaterFeatureChannelChosen,
     settings?.General?.UpdaterReleaseChannel,
+    runningFeatureChannel,
     addToast,
   ]);
 
@@ -4007,13 +4029,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // automática do boot, na edição completa) continua no canal completo.
     try {
       await invoke("update_setting", { section: "General", key: "UpdaterFeatureChannel", value: "nexus-ws" });
+      await invoke("update_setting", { section: "General", key: "UpdaterFeatureChannelChosen", value: "true" });
     } catch (e) {
       addToast(tr("Could not switch to the complete edition: {{error}}", { error: String(e) }), "error");
       return false;
     }
     setSettings((prev) => ({
       ...(prev || {}),
-      General: { ...(prev?.General || {}), UpdaterFeatureChannel: "nexus-ws" },
+      General: { ...(prev?.General || {}), UpdaterFeatureChannel: "nexus-ws", UpdaterFeatureChannelChosen: "true" },
     }));
     return checkForUpdates(
       true,
@@ -4282,6 +4305,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setMissingAssets,
     setNexusOpen,
     setScriptsOpen,
+    runningFeatureChannel,
     updateInfo,
     updateDialogOpen,
     setUpdateDialogOpen,

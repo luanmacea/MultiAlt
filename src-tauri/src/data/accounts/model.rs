@@ -198,6 +198,28 @@ impl Account {
         self.password = new_password.to_string();
     }
 
+    /// Guarda no histórico uma senha que **pode** ser a que vale no Roblox, sem
+    /// trocar a guardada: a troca para senha aleatória a põe aqui antes de pedir
+    /// ao Roblox, para uma resposta perdida (ou uma gravação que falhou depois)
+    /// não a apagar. Quando o Roblox confirma, `replace_password` a promove.
+    pub fn remember_possible_password(&mut self, password: &str) {
+        if password.is_empty() || password == self.password {
+            return;
+        }
+        self.password_history.retain(|p| p != password);
+        self.password_history.insert(0, password.to_string());
+        self.password_history.truncate(PASSWORD_HISTORY_MAX);
+    }
+
+    /// Tira do histórico uma senha que o Roblox recusou com certeza (nunca
+    /// valeu). Nunca mexe na guardada.
+    pub fn forget_refused_password(&mut self, password: &str) {
+        if password.is_empty() || password == self.password {
+            return;
+        }
+        self.password_history.retain(|p| p != password);
+    }
+
     /// O cookie, a senha e o histórico de senhas vêm sempre do que está
     /// guardado, nunca de uma cópia da tela (que pode estar velha ou sem o
     /// histórico): editar apelido ou grupo não pode mexer em credencial.

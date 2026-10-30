@@ -509,13 +509,43 @@ impl SettingsStore {
             ("NotifyNotResponding", "true"),
             ("NotifyLaunchFailed", "false"),
             ("NotifyWrongAccount", "true"),
+            ("NotifyModerated", "true"),
+            ("NotifyBatchFinished", "false"),
+            ("NotifyMemoryClosed", "true"),
+            ("NotifySystemLowMemory", "false"),
+            ("NotifyScriptMessage", "true"),
             ("MaskNames", "false"),
+            ("QuietHours", "false"),
+            ("QuietStart", "23:00"),
+            ("QuietEnd", "08:00"),
+            ("QuietSkip", "false"),
+            ("StatusEnabled", "false"),
+            ("StatusInterval", "5"),
+            ("SummaryEnabled", "false"),
+            ("SummaryTime", "23:00"),
         ];
+        // Live (docs/features/live.md). `Accounts` vazio = todas as abertas.
+        let live_defaults: &[(&str, &str)] = &[("ShowNames", "true"), ("KeepMinimized", "true"), ("Background", "dark")];
+        let live = ini.section("Live");
+        for (key, value) in live_defaults {
+            if !live.exists(key) {
+                live.set(key, value, None);
+            }
+        }
+
         let webhook = ini.section("Webhook");
         for (key, value) in webhook_defaults {
             if !webhook.exists(key) {
                 webhook.set(key, value, None);
             }
+        }
+
+        // Automação do Roblox Player em Python (docs/features/python-automation.md):
+        // o Modo desenvolvedor (editar os blocos padrão e o canal do terminal)
+        // nasce desligado.
+        let python = ini.section("Python");
+        if !python.exists("DeveloperMode") {
+            python.set("DeveloperMode", "false", None);
         }
 
         ini.section("Prompts");

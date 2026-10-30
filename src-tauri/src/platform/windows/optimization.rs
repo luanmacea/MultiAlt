@@ -21,22 +21,33 @@ const MEMORY_PRIORITY_VERY_LOW: u32 = 1;
 const MEMORY_PRIORITY_LOW: u32 = 3;
 const MEMORY_PRIORITY_NORMAL: u32 = 5;
 
+/// As FastFlags que o cliente do Roblox ainda lê do `ClientAppSettings.json`:
+/// a lista oficial ("Allowlist for local client configuration via Fast Flags",
+/// DevForum, 29/09/2025). Qualquer outra o Roblox ignora (o log do cliente diz
+/// "Denied local configuration for: <flag>"). O Roblox pode mudar a lista; ver
+/// docs/features/performance.md ("FastFlags").
 pub(crate) const WINDOWS_FASTFLAG_ALLOWLIST: &[&str] = &[
+    // Geometria: distância em que as peças trocam para um modelo mais simples.
+    "DFIntCSGLevelOfDetailSwitchingDistance",
+    "DFIntCSGLevelOfDetailSwitchingDistanceL12",
+    "DFIntCSGLevelOfDetailSwitchingDistanceL23",
+    "DFIntCSGLevelOfDetailSwitchingDistanceL34",
+    // Renderização.
+    "FFlagHandleAltEnterFullscreenManually",
     "DFFlagTextureQualityOverrideEnabled",
     "DFIntTextureQualityOverride",
-    "DFFlagDebugRenderForceTechnologyVoxel",
-    "DFFlagDebugRenderForceTechnologyFuture",
-    "DFFlagRenderForceLowQualityLightmaps",
-    "DFFlagDisableDPIScale",
-    "FFlagDebugGraphicsDisableDirect3D11",
-    "FFlagDebugGraphicsPreferD3D11FL10",
     "FIntDebugForceMSAASamples",
+    "DFFlagDisableDPIScale",
+    "FFlagDebugGraphicsPreferD3D11",
     "FFlagDebugSkyGray",
     "DFFlagDebugPauseVoxelizer",
-    "DFFlagDebugRenderForceMoonAngularSize",
-    "DFIntDebugRenderForceMoonTextureSize",
     "DFIntDebugFRMQualityLevelOverride",
-    "DFIntRenderShadowIntensity",
+    "FIntFRMMaxGrassDistance",
+    "FIntFRMMinGrassDistance",
+    "FFlagDebugGraphicsPreferVulkan",
+    "FFlagDebugGraphicsPreferOpenGL",
+    // Interface: movimento da grama no modo de movimento reduzido.
+    "FIntGrassMovementReducedMotionFactor",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,34 +245,32 @@ pub(crate) fn load_optimization_profile(
     }
 }
 
-pub(crate) fn parse_allowlisted_fast_flags_json(
+/// O JSON do launch: as chaves da lista valem, as de fora saem (e voltam em
+/// `ignored`, para o log). Nenhuma chave fora da lista chega ao cliente. Só
+/// JSON quebrado (ou que não é objeto) é erro — aí nada é aplicado.
+pub(crate) fn split_allowlisted_fast_flags_json(
     payload: &str,
-) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+) -> Result<(serde_json::Map<String, serde_json::Value>, Vec<String>), String> {
     let trimmed = payload.trim();
     if trimmed.is_empty() {
         return Err("Allowlisted fast flags JSON cannot be empty while enabled".into());
     }
-
     let value: serde_json::Value = serde_json::from_str(trimmed)
         .map_err(|e| format!("Invalid allowlisted fast flags JSON: {}", e))?;
     let object = value
         .as_object()
         .ok_or_else(|| "Allowlisted fast flags JSON must be a JSON object".to_string())?;
-
-    let invalid_keys: Vec<String> = object
-        .keys()
-        .filter(|key| !WINDOWS_FASTFLAG_ALLOWLIST.contains(&key.as_str()))
-        .cloned()
-        .collect();
-
-    if !invalid_keys.is_empty() {
-        return Err(format!(
-            "Only Roblox allowlisted keys are accepted: {}",
-            invalid_keys.join(", ")
-        ));
+    let mut flags = serde_json::Map::new();
+    let mut ignored = Vec::new();
+    for (key, value) in object {
+        if WINDOWS_FASTFLAG_ALLOWLIST.contains(&key.as_str()) {
+            flags.insert(key.clone(), value.clone());
+        } else {
+            ignored.push(key.clone());
+        }
     }
-
-    Ok(object.clone())
+    ignored.sort();
+    Ok((flags, ignored))
 }
 
 fn power_throttling_mask(profile: &WindowsProcessPolicy) -> u32 {

@@ -25,6 +25,9 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub struct ChromiumManager {
     children: Mutex<HashMap<i64, Child>>,
     login_cookie: Mutex<Option<String>>,
+    /// A senha que entrou no "Browser Login" (já conferida com a conta do
+    /// cookie). Sai uma vez só, por `take_login_password`.
+    login_password: Mutex<Option<String>>,
 }
 
 impl ChromiumManager {
@@ -88,6 +91,7 @@ impl ChromiumManager {
     pub fn close_login_session(&self) {
         self.kill(LOGIN_KEY);
         *lock(&self.login_cookie) = None;
+        *lock(&self.login_password) = None;
     }
 
     pub fn set_login_cookie(&self, cookie: Option<String>) {
@@ -96,5 +100,13 @@ impl ChromiumManager {
 
     pub fn login_cookie(&self) -> Option<String> {
         lock(&self.login_cookie).clone()
+    }
+
+    pub fn set_login_password(&self, password: Option<String>) {
+        *lock(&self.login_password) = password;
+    }
+
+    pub fn take_login_password(&self) -> Option<String> {
+        lock(&self.login_password).take()
     }
 }
