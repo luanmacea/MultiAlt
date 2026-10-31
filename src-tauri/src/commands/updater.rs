@@ -9,7 +9,10 @@
 /// O manifesto fica no branch `update-manifests`, um arquivo por canal:
 /// `update-manifests/<canal>/latest.json`. O canal vem de
 /// [`resolve_manifest_channel`] (`stable`, `beta`, `stable-nexus-ws`,
-/// `beta-nexus-ws`). Quem publica e o workflow `.github/workflows/release.yml`.
+/// `beta-nexus-ws`); no Linux o canal ganha o sufixo `-linux` antes do da
+/// edicao (`stable-linux`, `beta-linux-nexus-ws`) — ver
+/// [`PLATFORM_CHANNEL_SUFFIX`]. Quem publica e o workflow
+/// `.github/workflows/release-v4.yml`.
 const UPDATER_MANIFEST_BASE: &str =
     "https://raw.githubusercontent.com/luanmacea/MultiAlt/update-manifests";
 
@@ -92,12 +95,24 @@ fn update_is_offered(
     }
 }
 
-fn resolve_manifest_channel(release_channel: &str, feature_channel: &str) -> String {
+/// Sufixo do canal por sistema. O Linux tem manifestos proprios
+/// (`<canal>-linux`, `<canal>-linux-nexus-ws`), publicados pelo job `linux` do
+/// release-v4.yml: uma instalacao Linux nunca le o manifesto do Windows (e o
+/// inverso), entao nenhum dos dois recebe o instalador do outro. O Windows
+/// continua sem sufixo — nao renomear os canais dele.
+pub(crate) const PLATFORM_CHANNEL_SUFFIX: &str = if cfg!(target_os = "linux") { "-linux" } else { "" };
+
+fn resolve_manifest_channel_for(release_channel: &str, feature_channel: &str, platform_suffix: &str) -> String {
+    let base = format!("{}{}", release_channel, platform_suffix);
     if feature_channel == "nexus-ws" {
-        format!("{}-nexus-ws", release_channel)
+        format!("{}-nexus-ws", base)
     } else {
-        release_channel.to_string()
+        base
     }
+}
+
+fn resolve_manifest_channel(release_channel: &str, feature_channel: &str) -> String {
+    resolve_manifest_channel_for(release_channel, feature_channel, PLATFORM_CHANNEL_SUFFIX)
 }
 
 fn build_manifest_endpoint(release_channel: &str, feature_channel: &str) -> Result<reqwest::Url, String> {
@@ -553,13 +568,41 @@ mod updater_tests {
 
     #[test]
     fn resolve_manifest_channel_appends_the_nexus_suffix() {
-        assert_eq!(resolve_manifest_channel("beta", "nexus-ws"), "beta-nexus-ws");
+        assert_eq!(resolve_manifest_channel_for("beta", "nexus-ws", ""), "beta-nexus-ws");
         assert_eq!(
-            resolve_manifest_channel("stable", "nexus-ws"),
+            resolve_manifest_channel_for("stable", "nexus-ws", ""),
             "stable-nexus-ws"
         );
-        assert_eq!(resolve_manifest_channel("beta", "standard"), "beta");
-        assert_eq!(resolve_manifest_channel("stable", "standard"), "stable");
+        assert_eq!(resolve_manifest_channel_for("beta", "standard", ""), "beta");
+        assert_eq!(resolve_manifest_channel_for("stable", "standard", ""), "stable");
+    }
+
+    /// O Linux tem canal proprio por edicao: o sufixo do sistema vem antes do da
+    /// edicao e o Windows (sufixo vazio) continua com os nomes de sempre.
+    #[test]
+    fn linux_channels_never_collide_with_the_windows_ones() {
+        assert_eq!(resolve_manifest_channel_for("stable", "standard", "-linux"), "stable-linux");
+        assert_eq!(resolve_manifest_channel_for("beta", "standard", "-linux"), "beta-linux");
+        assert_eq!(
+            resolve_manifest_channel_for("stable", "nexus-ws", "-linux"),
+            "stable-linux-nexus-ws"
+        );
+        assert_eq!(
+            resolve_manifest_channel_for("beta", "nexus-ws", "-linux"),
+            "beta-linux-nexus-ws"
+        );
+        let windows = ["stable", "beta", "stable-nexus-ws", "beta-nexus-ws"];
+        for release in ["stable", "beta"] {
+            for feature in ["standard", "nexus-ws"] {
+                let linux = resolve_manifest_channel_for(release, feature, "-linux");
+                assert!(!windows.contains(&linux.as_str()), "{linux}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_platform_suffix_follows_the_target_os() {
+        assert_eq!(PLATFORM_CHANNEL_SUFFIX, if cfg!(target_os = "linux") { "-linux" } else { "" });
     }
 
     #[test]
@@ -567,13 +610,13 @@ mod updater_tests {
         let url = build_manifest_endpoint("stable", "standard").unwrap();
         assert_eq!(
             url.as_str(),
-            format!("{}/stable/latest.json", UPDATER_MANIFEST_BASE)
+            format!("{}/stable{}/latest.json", UPDATER_MANIFEST_BASE, PLATFORM_CHANNEL_SUFFIX)
         );
 
         let nexus = build_manifest_endpoint("beta", "nexus-ws").unwrap();
         assert_eq!(
             nexus.as_str(),
-            format!("{}/beta-nexus-ws/latest.json", UPDATER_MANIFEST_BASE)
+            format!("{}/beta{}-nexus-ws/latest.json", UPDATER_MANIFEST_BASE, PLATFORM_CHANNEL_SUFFIX)
         );
         assert_eq!(nexus.scheme(), "https");
         assert_eq!(nexus.host_str(), Some("raw.githubusercontent.com"));

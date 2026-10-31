@@ -49,6 +49,11 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+    # Lidos só pelo job `linux` (mais abaixo); não mudam nada neste job.
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      app_version: ${{ steps.meta.outputs.app_version }}
+      channel: ${{ steps.controls.outputs.channel }}
     env:
       RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
@@ -702,3 +707,159 @@ jobs:
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
           RELEASE_APP_VERSION: ${{ steps.meta.outputs.app_version }}
           RELEASE_PREVIOUS_TAG: ${{ steps.meta.outputs.previous_tag }}
+
+  # ── Linux ─────────────────────────────────────────────────────────────────
+  # Instaladores Linux, uma edição cada (padrão e completa), anexados à MESMA
+  # release que o job `release` acabou de criar. Roda depois dele (`needs`) e
+  # não muda nada do que o Windows compila, publica ou escreve nos manifestos.
+  #
+  # DESLIGADO por padrão (`PUBLISH_LINUX: "false"`) até o Linux ser testado numa
+  # máquina de verdade. Para ligar, troque por "true" aqui e mais nada: todo
+  # passo abaixo checa o valor. Desligado, o job sobe o runner, pula tudo e
+  # termina verde. O .github/scripts/release-workflow.test.mjs trava o padrão em
+  # "false" — mude o teste junto.
+  #
+  # Formatos: AppImage (qualquer distro, o updater troca o arquivo), .deb e
+  # .rpm. Nomes e chaves do manifesto: .github/scripts/linux-release-assets.mjs.
+  # Canais do updater, separados dos do Windows: `<canal>-linux` (padrão) e
+  # `<canal>-linux-nexus-ws` (completa) — o app escolhe pelo sufixo
+  # PLATFORM_CHANNEL_SUFFIX em src-tauri/src/commands/updater.rs. Assim uma
+  # instalação Linux nunca lê o manifesto do Windows, nem o contrário.
+  # A completa fica só nos anexos da release, como o MSI dela.
+  linux:
+    needs: release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      PUBLISH_LINUX: "false"
+      RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ needs.release.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.release.outputs.app_version }}
+
+    steps:
+      - name: Linux switch
+        run: |
+          if [ "$PUBLISH_LINUX" = "true" ]; then
+            echo "Linux installers are on for $RELEASE_TAG"
+          else
+            echo "Linux installers are off (PUBLISH_LINUX is not true); nothing to do"
+          fi
+
+      - name: Checkout
+        if: env.PUBLISH_LINUX == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        if: env.PUBLISH_LINUX == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        if: env.PUBLISH_LINUX == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux system dependencies
+        if: env.PUBLISH_LINUX == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libssl-dev libxdo-dev pkg-config build-essential patchelf file xdg-utils
+
+      - name: Cache Rust dependencies
+        if: env.PUBLISH_LINUX == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: "linux-release"
+
+      - name: Install dependencies
+        if: env.PUBLISH_LINUX == 'true'
+        run: bun install --frozen-lockfile
+
+      # A versão já saiu do job `release`; aqui só se aplica (não se recalcula).
+      - name: Prepare Linux version and updater key
+        if: env.PUBLISH_LINUX == 'true'
+        env:
+          RELEASE_APP_VERSION: ${{ needs.release.outputs.app_version }}
+          UPDATER_PUBKEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
+          UPDATER_ENDPOINT: https://raw.githubusercontent.com/${{ github.repository }}/update-manifests/${{ needs.release.outputs.channel }}-linux/latest.json
+        run: node .github/scripts/prepare-linux-build.mjs
+
+      - name: Build Linux standard edition
+        if: env.PUBLISH_LINUX == 'true'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_ENABLE_NEXUS: "false"
+          VITE_ENABLE_WEBSERVER: "false"
+          VITE_ENABLE_AVATAR_BATCH: "true"
+          VITE_ENABLE_PYTHON_SCRIPTS: "true"
+        run: bun tauri build -- --no-default-features --features standard
+
+      - name: Stage Linux standard installers
+        if: env.PUBLISH_LINUX == 'true'
+        run: |
+          node .github/scripts/linux-release-assets.mjs stage --edition standard --version "$RELEASE_VERSION" --bundle src-tauri/target/release/bundle --out linux-release-assets --manifest linux-standard-manifest.json --repo "${{ github.repository }}" --tag "$RELEASE_TAG"
+          rm -rf src-tauri/target/release/bundle
+
+      - name: Point the Linux full edition at its own updater channel
+        if: env.PUBLISH_LINUX == 'true'
+        env:
+          RELEASE_APP_VERSION: ${{ needs.release.outputs.app_version }}
+          UPDATER_PUBKEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
+          UPDATER_ENDPOINT: https://raw.githubusercontent.com/${{ github.repository }}/update-manifests/${{ needs.release.outputs.channel }}-linux-nexus-ws/latest.json
+        run: node .github/scripts/prepare-linux-build.mjs
+
+      - name: Build Linux full edition (every feature)
+        if: env.PUBLISH_LINUX == 'true'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_ENABLE_NEXUS: "true"
+          VITE_ENABLE_WEBSERVER: "true"
+          VITE_ENABLE_AVATAR_BATCH: "true"
+          VITE_ENABLE_PYTHON_SCRIPTS: "true"
+        run: bun tauri build -- --features full
+
+      - name: Stage Linux full installers
+        if: env.PUBLISH_LINUX == 'true'
+        run: |
+          node .github/scripts/linux-release-assets.mjs stage --edition full --version "$RELEASE_VERSION" --bundle src-tauri/target/release/bundle --out linux-release-assets --manifest linux-full-manifest.json --repo "${{ github.repository }}" --tag "$RELEASE_TAG"
+
+      # Os instaladores sobem antes dos manifestos: o updater passa a baixar
+      # estes arquivos assim que o manifesto aponta para eles.
+      - name: Upload Linux installers
+        if: env.PUBLISH_LINUX == 'true'
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+        run: |
+          gh release upload "$RELEASE_TAG" linux-release-assets/* --repo "${{ github.repository }}" --clobber
+
+      - name: Generate and push Linux standard update manifest
+        if: env.PUBLISH_LINUX == 'true'
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+          RELEASE_CHANNEL: ${{ format('{0}-linux', needs.release.outputs.channel) }}
+          RELEASE_MANIFEST_PATH: linux-standard-manifest.json
+          RELEASE_PLATFORM_FAMILY: linux
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node .github/scripts/generate-update-manifest.mjs
+
+      - name: Generate and push Linux full update manifest
+        if: env.PUBLISH_LINUX == 'true'
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+          RELEASE_CHANNEL: ${{ format('{0}-linux-nexus-ws', needs.release.outputs.channel) }}
+          RELEASE_MANIFEST_PATH: linux-full-manifest.json
+          RELEASE_PLATFORM_FAMILY: linux
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node .github/scripts/generate-update-manifest.mjs
