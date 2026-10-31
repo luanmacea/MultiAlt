@@ -7,6 +7,7 @@ import {
   Eye,
   Gauge,
   Lock,
+  Terminal,
   Package,
   Repeat,
   Rocket,
@@ -17,6 +18,8 @@ import {
   Users,
 } from "lucide-react";
 import { ENABLE_ACCOUNT_GENERATOR, ENABLE_WEBSERVER } from "../../featureFlags";
+import type { PlatformCapabilities } from "../../types";
+import { platformFeatures, type PlatformFeatures } from "../../utils/platform";
 
 /**
  * Seções da página Settings (eram as abas do antigo SettingsDialog).
@@ -27,6 +30,7 @@ import { ENABLE_ACCOUNT_GENERATOR, ENABLE_WEBSERVER } from "../../featureFlags";
  */
 export type TabId =
   | "launch"
+  | "linux"
   | "keep-in-game"
   | "accounts"
   | "privacy"
@@ -44,6 +48,7 @@ export type TabId =
 
 const ALL_TABS: TabId[] = [
   "launch",
+  "linux",
   "keep-in-game",
   "accounts",
   "privacy",
@@ -81,6 +86,12 @@ export interface TabDef {
    * separadas na barra — a lista tem 13 itens e sem grupo nada se destacava.
    */
   advanced?: boolean;
+  /**
+   * Seção que só faz sentido onde esta capacidade existe (`platformFeatures`):
+   * onde falta, ela some da lista — escondida, não desabilitada. Ver
+   * "Tela no Linux" em docs/features/linux.md.
+   */
+  requires?: keyof PlatformFeatures;
 }
 
 const ICON = { size: 15, strokeWidth: 1.6 } as const;
@@ -88,7 +99,9 @@ const ICON = { size: 15, strokeWidth: 1.6 } as const;
 export const SETTINGS_TABS: TabDef[] = [
   // Nomes em sentence case, como no resto do app.
   { id: "launch", label: "Launch", icon: <Rocket {...ICON} /> },
-  { id: "keep-in-game", label: "Keep in game", icon: <Repeat {...ICON} /> },
+  // Só no Linux: como o Roblox abre lá (Sober) e o que não existe nesse sistema.
+  { id: "linux", label: "Linux", icon: <Terminal {...ICON} />, requires: "linuxSection" },
+  { id: "keep-in-game", label: "Keep in game", icon: <Repeat {...ICON} />, requires: "afkPage" },
   // Os avisos no Discord saíram daqui para a página Discord alerts (27/10/2026).
   { id: "accounts", label: "Accounts", icon: <Users {...ICON} /> },
   { id: "privacy", label: "Privacy & security", icon: <Lock {...ICON} /> },
@@ -111,7 +124,7 @@ export const SETTINGS_TABS: TabDef[] = [
     // acesso é o conteúdo (WebServerTab), não a ausência da seção.
     hidden: !ENABLE_WEBSERVER,
   },
-  { id: "watcher", label: "Watcher", icon: <Eye {...ICON} />, advanced: true },
+  { id: "watcher", label: "Watcher", icon: <Eye {...ICON} />, advanced: true, requires: "watcher" },
   {
     id: "generator",
     // `Account Generator` é o nome da função paga em toda a interface (menu
@@ -123,7 +136,18 @@ export const SETTINGS_TABS: TabDef[] = [
     // Escondida com o gerador pago desligado — ver `ENABLE_ACCOUNT_GENERATOR`.
     hidden: !ENABLE_ACCOUNT_GENERATOR,
   },
-  { id: "isolation", label: "Isolation", icon: <ShieldCheck {...ICON} />, advanced: true },
-  { id: "versions", label: "Versions", icon: <Package {...ICON} />, advanced: true },
-  { id: "optimization", label: "Optimization", icon: <Gauge {...ICON} />, advanced: true },
+  { id: "isolation", label: "Isolation", icon: <ShieldCheck {...ICON} />, advanced: true, requires: "isolation" },
+  { id: "versions", label: "Versions", icon: <Package {...ICON} />, advanced: true, requires: "versions" },
+  { id: "optimization", label: "Optimization", icon: <Gauge {...ICON} />, advanced: true, requires: "optimization" },
 ];
+
+/** A seção existe neste SO? (`hidden` é por build; `requires` é por plataforma.) */
+export function isTabAvailable(tab: TabDef, capabilities: PlatformCapabilities | null): boolean {
+  if (tab.hidden) return false;
+  return tab.requires === undefined || platformFeatures(capabilities)[tab.requires];
+}
+
+/** As seções que a barra lateral da página Settings mostra neste SO, na ordem. */
+export function tabsFor(capabilities: PlatformCapabilities | null): TabDef[] {
+  return SETTINGS_TABS.filter((tab) => isTabAvailable(tab, capabilities));
+}

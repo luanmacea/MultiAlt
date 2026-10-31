@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import type { UseSettingsReturn } from "../../hooks/useSettings";
 import type { TabId } from "./tabs";
-import { TAB_ORDER } from "./tabs";
+import { SETTINGS_TABS, TAB_ORDER, isTabAvailable } from "./tabs";
+import { useStore } from "../../store";
 import { LaunchTab } from "./LaunchTab";
 import { KeepInGameTab } from "./KeepInGameTab";
 import { AccountsTab } from "./AccountsTab";
@@ -17,6 +18,7 @@ import { IsolationTab } from "./IsolationTab";
 import { VersionsTab } from "./VersionsTab";
 import { BackupsTab } from "./BackupsTab";
 import { ChecksTab } from "./ChecksTab";
+import { LinuxTab } from "./LinuxTab";
 import { useTr } from "../../i18n/text";
 
 export function TabContent({
@@ -31,6 +33,7 @@ export function TabContent({
   onRequestEncryptionSetup?: () => void;
 }) {
   const t = useTr();
+  const { platformCapabilities } = useStore();
   const prevTab = useRef(activeTab);
   const [animKey, setAnimKey] = useState(0);
   const [direction, setDirection] = useState<"left" | "right">("right");
@@ -58,7 +61,9 @@ export function TabContent({
 
   return (
     <div className="grid" style={{ gridTemplate: "1fr / 1fr" }}>
-      {TAB_ORDER.map((tab) => {
+      {TAB_ORDER.filter((tab) =>
+        isTabAvailable(SETTINGS_TABS.find((def) => def.id === tab)!, platformCapabilities)
+      ).map((tab) => {
         const active = tab === activeTab;
         return (
           <div
@@ -72,6 +77,7 @@ export function TabContent({
             }}
           >
             {tab === "launch" && <LaunchTab s={s} />}
+            {tab === "linux" && <LinuxTab s={s} />}
             {tab === "keep-in-game" && <KeepInGameTab s={s} />}
             {tab === "accounts" && <AccountsTab s={s} />}
             {tab === "privacy" && (
