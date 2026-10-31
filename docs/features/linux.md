@@ -128,3 +128,28 @@ curl -s "https://api.github.com/repos/luanmacea/MultiAlt/check-runs/<job>/annota
 
 Para retomar: `git switch linux`, ler este arquivo, e trazer a `develop`
 (`git merge develop`) antes de começar, porque ela continua andando.
+
+## Compilação no Linux
+
+O backend compila no Linux nas duas edições (`cargo check` e `cargo check --tests`
+com `--features standard` e `--all-features`), sem mudar nada no Windows. O que foi
+feito (31/10/2026):
+
+- `lib.rs`: os `use` de `Arc`, `Mutex`, `LazyLock`, `AtomicBool`, `AtomicU64` e
+  `Ordering` perderam o `cfg(windows)` (vários comandos compartilhados usam os
+  tipos; no Linux, `#[allow(unused_imports)]`).
+- `commands/botting.rs`: `launch_account_for_cycle` e `run_botting_session` (o
+  ciclo do Auto Rejoin, que chama `platform::windows`) agora têm `cfg(windows)`
+  como os comandos que as usam; no Linux `start_botting_mode` já devolvia
+  "Auto Rejoin is only supported on Windows".
+- `commands/watcher.rs`: `only_launched_by_app` (função pura) saiu do `cfg(windows)`,
+  porque um teste a usa em qualquer sistema.
+- `commands/launch.rs`: removida uma linha `let _ = &settings;` que só existia
+  fora do Windows e citava uma variável que não existe.
+- `api/server/launch_patch.rs`: o atalho do servidor HTTP agora segue a função
+  que ele chama (`cfg(any(windows, macos))`).
+- `python/runs.rs` (teste): `creation_flags` só no Windows.
+
+Stubs que o código de Linux (`platform/linux`, Sober) ainda precisa trocar por
+coisa de verdade: o launch (`launch_multiple` devolve "only supported on Windows
+and macOS"), o Auto Rejoin (`start_botting_mode`) e o rastreamento de processos.

@@ -928,12 +928,14 @@ mod python_e2e_tests {
     }
 
     fn python_on_path() -> Option<PathBuf> {
-        use std::os::windows::process::CommandExt;
-        let out = std::process::Command::new("python")
-            .args(["-I", "-c", "import sys;print(sys.executable)"])
-            .creation_flags(0x0800_0000)
-            .output()
-            .ok()?;
+        let mut cmd = std::process::Command::new("python");
+        cmd.args(["-I", "-c", "import sys;print(sys.executable)"]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        let out = cmd.output().ok()?;
         out.status
             .success()
             .then(|| PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
