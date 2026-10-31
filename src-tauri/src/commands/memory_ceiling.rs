@@ -284,17 +284,23 @@ impl MemoryCeilingMonitor {
     }
 }
 
-/// Linha do Console de um aviso (português, como as do Watcher).
-fn memory_console_line(notice: &MemoryNotice) -> String {
+/// Linha do Console de um aviso (traduzível, como as do Watcher).
+fn memory_console_line(notice: &MemoryNotice) -> LogMsg {
     match notice {
-        MemoryNotice::Trimmed { memory_mb, limit_mb, ok: true, .. } => format!(
-            "Memória em {memory_mb} MB, acima do limite de {limit_mb} MB: pedi ao Windows para liberar"
+        MemoryNotice::Trimmed { memory_mb, limit_mb, ok: true, .. } => log_msg!(
+            "Memory at {{memory}} MB, above the {{limit}} MB limit: asked Windows to free some",
+            memory = *memory_mb,
+            limit = *limit_mb
         ),
-        MemoryNotice::Trimmed { memory_mb, limit_mb, ok: false, .. } => format!(
-            "Memória em {memory_mb} MB, acima do limite de {limit_mb} MB: o Windows recusou liberar"
+        MemoryNotice::Trimmed { memory_mb, limit_mb, ok: false, .. } => log_msg!(
+            "Memory at {{memory}} MB, above the {{limit}} MB limit: Windows refused to free it",
+            memory = *memory_mb,
+            limit = *limit_mb
         ),
-        MemoryNotice::Closed { memory_mb, limit_mb, .. } => format!(
-            "Cliente fechado: a memória continuou em {memory_mb} MB, acima do limite de {limit_mb} MB, depois de liberar"
+        MemoryNotice::Closed { memory_mb, limit_mb, .. } => log_msg!(
+            "Client closed: memory stayed at {{memory}} MB, above the {{limit}} MB limit, after freeing",
+            memory = *memory_mb,
+            limit = *limit_mb
         ),
     }
 }

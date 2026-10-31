@@ -2,6 +2,8 @@ import type { MouseEvent } from "react";
 import { Check, ExternalLink, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import { useTr } from "../../../i18n/text";
 import { useAccountLabel } from "../../../hooks/useAccountLabel";
+import { useListSelection } from "../../../hooks/useListSelection";
+import { applyToSet } from "../../../utils/listSelection";
 import type { Account } from "../../../types";
 import { NEUTRAL_ACTION, PRIMARY_ACTION } from "../../afk-mode/ModeStatusBar";
 import { GroupIcon, VerifiedBadge } from "./GroupResults";
@@ -78,18 +80,19 @@ export function GroupJoinCard({
   const anyRetry = retrying.size > 0;
   const canJoin = group !== null && !group.isLocked && !locked && !anyRetry && count > 0;
 
-  function toggle(userId: number) {
-    const next = new Set(picked);
-    if (next.has(userId)) next.delete(userId);
-    else next.add(userId);
-    onPickedChange(next);
-  }
+  // Shift, Ctrl e arrastar por cima das caixas, como na lista principal.
+  const selection = useListSelection<number>({
+    order: accounts.map((a) => a.UserID),
+    isSelected: (id) => picked.has(id),
+    apply: (ids, on) => onPickedChange(applyToSet(picked, ids, on)),
+    disabled: locked,
+  });
 
   /** Botão de dentro da caixa: faz só a ação dele, não marca/desmarca a conta. */
-  function only(action: () => void) {
+  function only(action: (event: MouseEvent) => void) {
     return (event: MouseEvent) => {
       event.stopPropagation();
-      action();
+      action(event);
     };
   }
 
@@ -168,9 +171,8 @@ export function GroupJoinCard({
               <li
                 key={account.UserID}
                 data-testid={`group-join-row-${account.UserID}`}
-                onClick={() => {
-                  if (!locked) toggle(account.UserID);
-                }}
+                {...selection.rowProps(account.UserID)}
+                onClick={(event) => selection.toggle(account.UserID, event)}
                 className={`rounded-lg border transition-colors ${locked ? "" : "cursor-pointer"} ${
                   on ? "border-[var(--accent-color)]/40 bg-[var(--accent-soft)]" : "theme-border hover:bg-[var(--panel-soft)]"
                 }`}
@@ -182,7 +184,7 @@ export function GroupJoinCard({
                     aria-checked={on}
                     aria-label={name}
                     disabled={locked}
-                    onClick={only(() => toggle(account.UserID))}
+                    onClick={only((event) => selection.toggle(account.UserID, event))}
                     className="flex-1 min-w-0 flex items-center gap-2 text-left rounded outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     <span

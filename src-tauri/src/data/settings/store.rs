@@ -404,6 +404,7 @@ impl SettingsStore {
             ("PreferOldJoinForVersioned", "true"),
             ("ShowPreReleaseVersions", "false"),
             ("AllowLaunchOnOpenVersion", "false"),
+            ("AllowOutdated", "false"),
         ];
 
         let versions = ini.section("Versions");

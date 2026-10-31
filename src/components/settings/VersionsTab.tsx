@@ -126,6 +126,16 @@ export function VersionsTab({ s }: { s: UseSettingsReturn }) {
         label="Allow launching on an already open version"
         description="With clients open on different Roblox versions, every launch is blocked. On: an account can still launch on a version that already has a client open."
       />
+      {/* Versão velha (`outdated_catalog_version`, platform/windows/versions.rs):
+          desligado, o launch pergunta antes de abrir uma versão que ficou para
+          trás da atual, e o Auto Rejoin abre a atual. Relato do Discord
+          (31/10/2026): contas banidas por "disallowed version of Roblox". */}
+      <Toggle
+        checked={s.getBool("Versions", "AllowOutdated")}
+        onChange={(v) => s.setBool("Versions", "AllowOutdated", v)}
+        label="Open outdated versions without asking"
+        description="Off: before opening a version older than the current Roblox, MultiAlt asks, and Auto Rejoin opens the current one. Roblox has banned accounts for using old versions."
+      />
 
       <Divider />
       <SectionLabel>Credits</SectionLabel>
