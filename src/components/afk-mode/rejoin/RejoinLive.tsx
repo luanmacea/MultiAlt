@@ -1,6 +1,7 @@
 import { Check, Focus, PowerOff, RefreshCcw, RotateCw, Unplug, X, type LucideIcon } from "lucide-react";
 import { Tooltip } from "../../ui/Tooltip";
 import { useTr } from "../../../i18n/text";
+import { useListSelection } from "../../../hooks/useListSelection";
 import type { BottingAccountStatus } from "../../../store";
 import type { Account } from "../../../types";
 import {
@@ -147,6 +148,13 @@ function NextRejoin({ ctl, row }: { ctl: RejoinController; row: BottingAccountSt
 export function LiveList({ ctl }: { ctl: RejoinController }) {
   const t = useTr();
   const { liveRows, actionButtonsLocked, bulkSelectedUserIds, bulkEligibleCounts } = ctl;
+  // Shift, Ctrl e arrastar por cima das linhas, como na lista principal.
+  const selection = useListSelection<number>({
+    order: liveRows.map((live) => live.userId),
+    isSelected: (id) => ctl.bulkSelectedSet.has(id),
+    apply: (ids, on) => ctl.setBulkOn(ids, on),
+    disabled: actionButtonsLocked,
+  });
   const counts = [
     ctl.disconnectedCount > 0 ? t("Disconnected: {{count}}", { count: ctl.disconnectedCount }) : null,
     ctl.retryingCount > 0 ? t("Retrying: {{count}}", { count: ctl.retryingCount }) : null,
@@ -215,6 +223,7 @@ export function LiveList({ ctl }: { ctl: RejoinController }) {
           return (
             <li
               key={userId}
+              {...selection.rowProps(userId)}
               className={`flex flex-wrap items-center gap-x-3 gap-y-2 py-2 ${selected ? "bg-[var(--accent-soft)] -mx-1.5 px-1.5 rounded-lg" : ""}`}
             >
               <button
@@ -223,7 +232,7 @@ export function LiveList({ ctl }: { ctl: RejoinController }) {
                 aria-checked={selected}
                 aria-label={t("Select account {{id}}", { id: userId })}
                 disabled={actionButtonsLocked}
-                onClick={() => ctl.toggleBulkSelected(userId)}
+                onClick={(e) => selection.toggle(userId, e)}
                 className="theme-check"
               >
                 <Check size={11} strokeWidth={3} className="theme-check-icon" />

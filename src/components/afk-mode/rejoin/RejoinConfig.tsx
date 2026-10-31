@@ -2,6 +2,7 @@ import { Check, ChevronRight, Gamepad2, KeyRound } from "lucide-react";
 import { GameBadge } from "../../ui/GameBadge";
 import { NumericInput } from "../../ui/NumericInput";
 import { useTr } from "../../../i18n/text";
+import { useListSelection } from "../../../hooks/useListSelection";
 import type { Account } from "../../../types";
 import type { RejoinController, ServerMode } from "./useRejoinController";
 
@@ -62,6 +63,12 @@ export function AccountsCard({
 }) {
   const t = useTr();
   const pickedHere = accounts.filter((a) => ctl.picked.includes(a.UserID)).length;
+  // Shift, Ctrl e arrastar por cima das linhas, como na lista principal.
+  const selection = useListSelection<number>({
+    order: accounts.map((a) => a.UserID),
+    isSelected: (id) => ctl.picked.includes(id),
+    apply: (ids, on) => ctl.setAccountsOn(ids, on),
+  });
   return (
     <section data-tour="afk-rejoin-accounts" className={`@container ${CARD}`}>
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -100,7 +107,8 @@ export function AccountsCard({
               <button
                 key={account.UserID}
                 type="button"
-                onClick={() => ctl.toggleAccount(account.UserID)}
+                {...selection.rowProps(account.UserID)}
+                onClick={(e) => selection.toggle(account.UserID, e)}
                 aria-pressed={on}
                 aria-label={name}
                 className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors ${
