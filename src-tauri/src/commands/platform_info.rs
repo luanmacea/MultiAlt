@@ -38,6 +38,27 @@ struct PlatformCapabilities {
     /// Teto de memória que libera RAM antes de fechar: só no Windows e só com
     /// a feature `memory-trim` (nas duas edições).
     supports_memory_trim: bool,
+    /// Páginas e seções que só existem onde há Win32 (DWM, SendInput, registro,
+    /// mutex do Roblox...). O frontend ESCONDE o que vem `false` — não só
+    /// desabilita. Windows e macOS mandam `true` (a UI deles não muda); só o
+    /// Linux manda `false`. Ver "Tela no Linux" em docs/features/linux.md.
+    ///
+    /// Janela "MultiAlt Live" (miniaturas do DWM).
+    supports_live_view: bool,
+    /// Tecla/clique periódico e gravações do AFK Mode (SendInput).
+    supports_afk_input: bool,
+    /// Isolamento pré-launch (registro, MachineGuid, MAC).
+    supports_isolation: bool,
+    /// Travas do Roblox (mutex/evento) do Multi Roblox.
+    supports_multi_roblox_mutex: bool,
+    /// Catálogo e instalador de versões do Roblox.
+    supports_versions: bool,
+    /// Otimização do processo (prioridade, memória, FastFlags do cliente).
+    supports_optimization: bool,
+    /// Clientes abertos pelo site, adotados pela varredura do log.
+    supports_external_clients: bool,
+    /// Automação do Roblox Player em Python (lê pixels da janela).
+    supports_python: bool,
     reasons: Vec<String>,
     warnings: Vec<String>,
 }
@@ -77,6 +98,14 @@ fn build_platform_capabilities(
             supports_client_settings: true,
             supports_live_audio: cfg!(feature = "live-audio"),
             supports_memory_trim: cfg!(feature = "memory-trim"),
+            supports_live_view: true,
+            supports_afk_input: true,
+            supports_isolation: true,
+            supports_multi_roblox_mutex: true,
+            supports_versions: true,
+            supports_optimization: true,
+            supports_external_clients: true,
+            supports_python: true,
             reasons: Vec::new(),
             warnings: Vec::new(),
         },
@@ -98,12 +127,55 @@ fn build_platform_capabilities(
             supports_client_settings: true,
             supports_live_audio: false,
             supports_memory_trim: false,
+            // A UI do macOS não muda neste porte: segue mostrando tudo.
+            supports_live_view: true,
+            supports_afk_input: true,
+            supports_isolation: true,
+            supports_multi_roblox_mutex: true,
+            supports_versions: true,
+            supports_optimization: true,
+            supports_external_clients: true,
+            supports_python: true,
             reasons: vec!["Auto Rejoin is only supported on Windows".to_string()],
             warnings: vec![
                 "macOS support is partial: no per-client memory watch, no window grid and no pre-launch isolation".to_string(),
             ],
         },
-        // Linux e qualquer outro alvo: não há backend de launch.
+        // Linux: o Roblox roda pelo Sober (Flatpak), que o app abre com
+        // `unshare` + `pasta`. Lança uma ou várias contas; tudo o que depende de
+        // Win32 fica desligado — e a UI esconde (não só desabilita).
+        // `detected_runner` repete o configurado: quem sonda o Sober de verdade
+        // preenche `runner_path` e troca isto pelo achado.
+        "linux" => PlatformCapabilities {
+            os: os.to_string(),
+            session_type: session_type.to_string(),
+            preferred_runner: preferred_runner.to_string(),
+            detected_runner: preferred_runner.to_string(),
+            runner_path: None,
+            supports_single_launch: true,
+            supports_multi_launch: true,
+            supports_watcher: false,
+            supports_watcher_memory: false,
+            supports_window_controls: false,
+            supports_botting: false,
+            supports_updater: true,
+            supports_client_settings: false,
+            supports_live_audio: false,
+            supports_memory_trim: false,
+            supports_live_view: false,
+            supports_afk_input: false,
+            supports_isolation: false,
+            supports_multi_roblox_mutex: false,
+            supports_versions: false,
+            supports_optimization: false,
+            supports_external_clients: false,
+            supports_python: false,
+            reasons: vec!["Auto Rejoin is not available on Linux yet".to_string()],
+            warnings: vec![
+                "Linux runs Roblox through Sober: there is no window grid, Live view, AFK keys, isolation, Roblox versions or process tuning".to_string(),
+            ],
+        },
+        // Qualquer outro alvo: não há backend de launch.
         _ => PlatformCapabilities {
             os: os.to_string(),
             session_type: session_type.to_string(),
@@ -120,7 +192,15 @@ fn build_platform_capabilities(
             supports_client_settings: false,
             supports_live_audio: false,
             supports_memory_trim: false,
-            reasons: vec!["Launching Roblox is only supported on Windows and macOS".to_string()],
+            supports_live_view: false,
+            supports_afk_input: false,
+            supports_isolation: false,
+            supports_multi_roblox_mutex: false,
+            supports_versions: false,
+            supports_optimization: false,
+            supports_external_clients: false,
+            supports_python: false,
+            reasons: vec!["Launching Roblox is only supported on Windows, macOS and Linux".to_string()],
             warnings: vec![
                 "Account management works, but launching, the watcher and Auto Rejoin are unavailable on this platform".to_string(),
             ],

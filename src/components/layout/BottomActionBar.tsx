@@ -4,6 +4,7 @@ import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
 import { copyAccountSecret } from "../../utils/copySecret";
+import { platformFeatures } from "../../utils/platform";
 import { collectGroupNames, groupLabel } from "../../types";
 import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
@@ -50,7 +51,8 @@ export function BottomActionBar() {
    * que ele existe. Desligado, a linha explica o que o modo faz e manda para
    * Settings em vez de abrir um diálogo que não vai funcionar.
    */
-  const showBottingButton = bottingEnabled || bottingActive;
+  const showBottingButton =
+    (bottingEnabled || bottingActive) && platformFeatures(store.platformCapabilities).afkPage;
   const bottingSummary = t(
     "Keeps a group of accounts in one server by closing and relaunching each client every few minutes. Needs Multi Roblox."
   );
