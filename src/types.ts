@@ -117,6 +117,19 @@ export interface PlatformCapabilities {
    * `memory-trim` no binário (nas duas edições).
    */
   supportsMemoryTrim: boolean;
+  /**
+   * O que só existe onde há Win32. A UI **esconde** o que vier `false` (ver
+   * `platformFeatures` em utils/platform.ts); campo ausente conta como
+   * `true` — backend antigo e harness seguem mostrando tudo.
+   */
+  supportsLiveView: boolean;
+  supportsAfkInput: boolean;
+  supportsIsolation: boolean;
+  supportsMultiRobloxMutex: boolean;
+  supportsVersions: boolean;
+  supportsOptimization: boolean;
+  supportsExternalClients: boolean;
+  supportsPython: boolean;
   reasons: string[];
   warnings: string[];
 }

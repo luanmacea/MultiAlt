@@ -25,6 +25,7 @@ import { useTr } from "../../i18n/text";
 import { ENABLE_GROUPS, ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
 import { Tooltip } from "../ui/Tooltip";
 import { StarPromptCard, openRepoForStar } from "./StarPromptCard";
+import { platformFeatures, type PlatformFeatures } from "../../utils/platform";
 
 /**
  * Barra lateral de navegação. Substitui os botões de ícone da Toolbar, que só
@@ -79,17 +80,18 @@ interface NavItemDef {
  * roda agora, e o que se monta/ajusta. Função (e não constante) para as flags
  * serem lidas a cada render — os testes as trocam.
  */
-const navGroups = (): NavItemDef[][] => [
+const navGroups = (features: PlatformFeatures): NavItemDef[][] => [
   [{ page: "accounts", label: "Accounts", icon: Users, tour: "nav-accounts" }],
   [
     { page: "session", label: "Session", icon: Gamepad2, tour: "nav-session" },
     // O que o app fez (launch, Auto Rejoin, Watcher), ao lado do que roda agora.
     { page: "console", label: "Console", icon: ScrollText },
-    { page: "afk", label: "AFK Mode", icon: Keyboard, tour: "nav-afk" },
+    // Auto Rejoin + tecla/clique AFK: no Linux (sem SendInput) a página some.
+    ...(features.afkPage ? [{ page: "afk" as const, label: "AFK Mode", icon: Keyboard, tour: "nav-afk" }] : []),
     // Avisos, status ao vivo e resumo no webhook do usuário (docs/features/webhook.md).
     { page: "discord", label: "Discord alerts", icon: BellRing },
     // A janela "MultiAlt Live" para transmitir as contas (docs/features/live.md).
-    { page: "live", label: "Live", icon: Radio },
+    ...(features.liveView ? [{ page: "live" as const, label: "Live", icon: Radio }] : []),
   ],
   [
     { page: "avatars", label: "Avatars", icon: Shirt },
@@ -295,7 +297,7 @@ export function NavSidebar() {
       }`}
     >
       <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-3 ${collapsed ? "px-2.5" : "px-2.5"}`}>
-        {navGroups().map((group, index) => (
+        {navGroups(platformFeatures(store.platformCapabilities)).map((group, index) => (
           <ul key={index} className={`space-y-0.5 ${index > 0 ? "mt-2 pt-2 border-t theme-border" : ""}`}>
             {group.map(renderItem)}
           </ul>
