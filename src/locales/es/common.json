@@ -3029,5 +3029,14 @@
   "User:Pass:Cookie": "Usuario:Contraseña:Cookie",
   "user:pass:cookie": "usuario:contraseña:cookie",
   "Copy the username, password and .ROBLOSECURITY cookie of 1 account to the clipboard? Anyone holding them is signed in as that account, with no password and no 2-step verification.": "¿Copiar el nombre de usuario, la contraseña y la cookie .ROBLOSECURITY de 1 cuenta al portapapeles? Quien los tenga inicia sesión como esa cuenta, sin contraseña y sin verificación en dos pasos.",
-  "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification.": "¿Copiar el nombre de usuario, la contraseña y la cookie .ROBLOSECURITY de {{count}} cuentas al portapapeles? Quien los tenga inicia sesión como esas cuentas, sin contraseña y sin verificación en dos pasos."
+  "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification.": "¿Copiar el nombre de usuario, la contraseña y la cookie .ROBLOSECURITY de {{count}} cuentas al portapapeles? Quien los tenga inicia sesión como esas cuentas, sin contraseña y sin verificación en dos pasos.",
+  "The password needs at least {{count}} characters.": "La contraseña necesita al menos {{count}} caracteres.",
+  "Password for every account (optional)": "Contraseña para todas las cuentas (opcional)",
+  "Hide password": "Ocultar contraseña",
+  "Show password": "Mostrar contraseña",
+  "Type a name prefix first.": "Escribe primero un prefijo de nombre.",
+  "Number the names in order": "Numerar los nombres en orden",
+  "({{example}} instead of random characters)": "({{example}} en lugar de caracteres aleatorios)",
+  "Next number": "Siguiente número",
+  "Empty: a random password for each account. At least 8 characters, without the username. It is kept only in each account.": "Vacío: una contraseña aleatoria para cada cuenta. Al menos 8 caracteres, sin el nombre de usuario. Solo queda en cada cuenta."
 }
