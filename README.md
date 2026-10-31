@@ -9,7 +9,7 @@
   <sub>Windows 10/11 · <a href="https://multialt.pages.dev/">🌐 website</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a> · <a href="https://discord.gg/NPvyWgKbfH">💬 Discord</a></sub>
 </p>
 
-[![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest) [![GitHub stars](https://img.shields.io/github/stars/luanmacea/MultiAlt?style=social)](https://github.com/luanmacea/MultiAlt/stargazers)
+[![Total Downloads](https://img.shields.io/github/downloads/luanmacea/MultiAlt/total?label=Total%20Downloads&color=2ea043)](https://github.com/luanmacea/MultiAlt/releases) [![Latest Release Downloads](https://img.shields.io/github/downloads/luanmacea/MultiAlt/latest/total?label=Latest%20Release%20Downloads&color=1f6feb)](https://github.com/luanmacea/MultiAlt/releases/latest) [![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release&color=e36209)](https://github.com/luanmacea/MultiAlt/releases/latest) [![GitHub stars](https://img.shields.io/github/stars/luanmacea/MultiAlt?style=social)](https://github.com/luanmacea/MultiAlt/stargazers)
 
 **⭐ Like MultiAlt? [Star the repo](https://github.com/luanmacea/MultiAlt)** (top right of this page). It's free and made by one person, and every star helps more people find it and keeps the updates coming.
 
