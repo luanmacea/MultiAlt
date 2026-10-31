@@ -3115,8 +3115,6 @@ fn cmd_apply_fps_unlock(max_fps: u32) -> Result<(), String> {
         windows::record_roblox_settings_change(snapshot);
         return result;
     }
-    #[cfg(not(target_os = "windows"))]
-    let _ = &settings;
     #[cfg(target_os = "macos")]
     {
         return platform::macos::apply_fps_unlock(max_fps);
