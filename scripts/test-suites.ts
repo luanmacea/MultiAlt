@@ -297,6 +297,7 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "win_versions_tests",
       "outdated_version_choice_tests",
+      "old_join_current_build_tests",
       "build_download_retry_tests",
       "versions_catalog_tests",
       "versions_command_tests",
