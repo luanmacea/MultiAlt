@@ -1,11 +1,11 @@
 {
-  "version": "2.5.0-beta",
-  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: 916c42e\nApp version: 2.5.0\n\n## What's Changed\n* Python scripts, Live window, Discord alerts page and FastFlags profiles by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/42\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v2.4.0-beta...v2.5.0-beta",
-  "pub_date": "2026-10-30T01:56:28.5679307Z",
+  "version": "2.5.1-beta",
+  "notes": "<!-- release-kind: fix -->\n**🩹 Hotfix**\n\n> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: 12863fd\nApp version: 2.5.1\n\n## What's Changed\n* Always open the current Roblox, terms check, reconnect after teleports and translated Console [type:fix] by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/43\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v2.5.0-beta...v2.5.1-beta",
+  "pub_date": "2026-10-31T23:54:03.3409169Z",
   "platforms": {
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmQvb0VjQzBESmc2RnJmZmc0c3N3aTZONFJERGY2YkxZc1ozaWFLdlp2cDZHY21LNW9IZXBCc2pRVGtWdWhnSTVJd2pSNHBPVjljeHAzR1VXMTJGQndvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMzI1Mzg4CWZpbGU6TXVsdGlBbHRfMi41LjBfeDY0X2VuLVVTLm1zaQovTldScGhKRit4ZUhNUkM5MHJab1pBdmY5TmgvUi9ISnpRQ0VmL1pvYUtMS21EZk44enEzSzBPV2hDaTJzbTBPNUt2VVUvbDVRR3RoRTkrdTlRQTNDdz09Cg==",
-      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v2.5.0-beta/MultiAlt_2.5.0_Full-Setup.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmNwSU1pMldLSmhCV0s2UkNkN1FhaXhVNkVwbDJnbEhCL2xrU3pubjNOUjNCVjd0ZXBaWUFXVXdsV1YwVEpnRkdZL2ZLZzFlWUlVUW5oMTZxN0thV2dRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNDkwODQyCWZpbGU6TXVsdGlBbHRfMi41LjFfeDY0X2VuLVVTLm1zaQorc1JiTDA3TXp3d0ZRZm40U3o1RVlsMTl4TTk0SVpBSlVTM2Y1WE1qTmh3YVJZSWp3SGZUQjNlMkx0QTYwSjFNQzUzNE0wcXh5dGszK2FJTGFaSE9DZz09Cg==",
+      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v2.5.1-beta/MultiAlt_2.5.1_Full-Setup.msi"
     }
   }
 }
