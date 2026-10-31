@@ -214,3 +214,20 @@ feito (31/10/2026):
 Stubs que o código de Linux (`platform/linux`, Sober) ainda precisa trocar por
 coisa de verdade: o launch (`launch_multiple` devolve "only supported on Windows
 and macOS"), o Auto Rejoin (`start_botting_mode`) e o rastreamento de processos.
+
+## Instaladores Linux
+
+Decisão do dono (31/10/2026): a versão Linux é um **instalador separado**, com as duas edições do Windows (padrão e completa com Nexus). Detalhes de build, CI e updater em [development.md](../development.md#linux-instaladores-separados-branch-linux-31102026); o resumo:
+
+- **Formatos:** AppImage (qualquer distro), `.deb` e `.rpm`. Nomes: `MultiAlt_<v>_Linux_amd64.AppImage` / `.deb` / `..._x86_64.rpm` (padrão) e `MultiAlt_<v>_Full-Linux_...` (completa, só nos anexos da release).
+- **Dependências do `.deb`:** `libwebkit2gtk-4.1-0` e `libgtk-3-0`; recomenda `flatpak` (o Sober roda por Flatpak), `passt` (o `pasta`, para várias contas ao mesmo tempo) e `libayatana-appindicator3-1` (bandeja). O AppImage não declara nada: quem usa precisa ter `flatpak` (e `passt`) instalados à mão.
+- **Atualização própria:** canais `<release>-linux` (padrão) e `<release>-linux-nexus-ws` (completa), com as chaves `linux-x86_64-appimage|deb|rpm`. Instalação Linux nunca recebe o MSI, e o Windows nunca lê esses manifestos. O app escolhe o canal por `PLATFORM_CHANNEL_SUFFIX` ([updater.rs](../../src-tauri/src/commands/updater.rs)).
+- **Release:** o job `linux` do `release-v4.yml` está **desligado** (`PUBLISH_LINUX: "false"`) até o Linux ser testado numa máquina de verdade. Enquanto isso, o workflow `linux-build.yml` (push na branch `linux` ou execução manual) gera os dois conjuntos como artefatos para baixar e testar, sem assinatura.
+- **Local:** `docker/linux-bundle.Dockerfile` + `packaging/linux/build-bundles.sh` (comando em development.md). Só funciona quando o backend compilar no Linux.
+
+### O que falta verificar (nada disto foi rodado num Linux de verdade)
+
+- Que o `tauri build` gere de fato os três pacotes e as assinaturas (`.AppImage.sig`, `.deb.sig`, `.rpm.sig`) — o fluxo de nomes e do manifesto está coberto por teste, mas o bundler do Tauri só roda onde o backend compila.
+- Que o AppImage abra sem FUSE (`APPIMAGE_EXTRACT_AND_RUN` só vale no CI) e que o `.deb` se instale em Ubuntu/Debian limpos com as dependências acima.
+- A atualização de ponta a ponta (AppImage trocando o próprio arquivo; `.deb`/`.rpm` via `pkexec`).
+- Se `deb.depends` duplicado com o que o Tauri já adiciona sozinho gera aviso do `dpkg-deb` (inofensivo, mas conferir).

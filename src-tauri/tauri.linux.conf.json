@@ -1,0 +1,36 @@
+{
+  "bundle": {
+    "targets": [
+      "appimage",
+      "deb",
+      "rpm"
+    ],
+    "category": "Utility",
+    "shortDescription": "Manage multiple Roblox accounts and launch them at once",
+    "longDescription": "MultiAlt manages many Roblox accounts, launches several clients at once, and keeps them in game with Auto Rejoin. On Linux it drives the Sober Flatpak: install flatpak and passt (which provides pasta) to run several accounts at the same time.",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ],
+        "recommends": [
+          "flatpak",
+          "passt",
+          "libayatana-appindicator3-1"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3"
+        ],
+        "recommends": [
+          "flatpak",
+          "passt",
+          "libayatana-appindicator-gtk3"
+        ]
+      }
+    }
+  }
+}
