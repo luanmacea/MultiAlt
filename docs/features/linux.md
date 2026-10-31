@@ -1,4 +1,4 @@
-# Linux (branch `linux`, em estudo)
+# Linux (branch `linux`, pausado em 31/10/2026)
 
 Trabalho isolado na branch `linux` desde 31/10/2026 (pedido do dono): nada
 daqui vai para a `develop` até funcionar de verdade num Linux.
@@ -67,3 +67,64 @@ funciona). Cordial depois, como segunda opção.
 
 O que fica de fora no começo: grade de janelas, Live, AFK, isolamento,
 versões do Roblox, patch de settings, volume por cliente.
+
+## Onde parou (31/10/2026)
+
+Pausado a pedido do dono ("vai demorar mais do que eu esperava"). Nada de
+código do app mudou ainda: a branch só tem este documento e o workflow
+`.github/workflows/linux-check.yml`.
+
+### O que o CI mostrou
+
+O workflow `Linux check` (ubuntu-22.04, roda a cada push na `linux`) faz
+`cargo check` da edição padrão e da completa. **As duas falham** (exit 101):
+o backend nunca foi escrito para compilar fora do Windows/macOS. Primeiros
+erros vistos (lista cortada pelo limite da anotação):
+
+- `src/commands/memory_ceiling.rs:303-304` — `LazyLock` e `Mutex` sem import
+  fora do Windows (o `use` deve estar atrás de `cfg(windows)`).
+- `src/commands/botting.rs` (dezenas) — o Auto Rejoin chama funções que só
+  existem nos submódulos de Windows: `ensure_multi_roblox_enabled`,
+  `get_or_create_browser_tracker_id`, `is_429_related_error`,
+  `wait_for_new_roblox_pid`, `apply_windows_post_launch_profile`,
+  `emit_botting_status`, `wait_for_launch_slot`, `backoff_delay_seconds`...
+  Provavelmente um `include!` de submódulo do botting está atrás de
+  `cfg(windows)` e o resto do arquivo não.
+- Só na edição padrão: `patch_client_settings_for_launch` (botting.rs:361).
+- Avisos: `python/devpipe.rs:12` e `commands/discord_status.rs:16`
+  (imports sem uso fora do Windows).
+
+O último push (`31cac65`) pede ao CI um **resumo por arquivo** (total de
+erros, erros por arquivo e os 25 primeiros). Ele rodou, mas a leitura não
+foi feita (a API do GitHub sem token tem limite de 60 consultas por hora).
+
+### Como ler o resultado do CI sem `gh`
+
+O log do Actions exige token; as **anotações** não. O workflow põe os erros
+numa anotação `::error` por edição:
+
+```bash
+curl -s "https://api.github.com/repos/luanmacea/MultiAlt/actions/runs?branch=linux&per_page=1"   # id do run
+curl -s "https://api.github.com/repos/luanmacea/MultiAlt/actions/runs/<run>/jobs"                # id do job
+curl -s "https://api.github.com/repos/luanmacea/MultiAlt/check-runs/<job>/annotations"           # os erros
+```
+
+### Próximos passos
+
+1. Ler o resumo por arquivo do run do `31cac65` (ou fazer um push e ler o novo).
+2. **Compilar no Linux** (estimativa 1–3 h): dividir os arquivos entre 3–4
+   agentes (Sonnet, um conjunto de arquivos por agente, sem dois mexendo no
+   mesmo). Regra: no Linux o caminho de Windows vira stub que devolve erro ou
+   nada — nunca mudar o comportamento no Windows. `bun run check` continua
+   tendo que passar no Windows a cada passo.
+3. **`platform/linux/` com o Sober** (3–5 h): perfil por conta, gravar o
+   cookie, `unshare` + `pasta`, deep link, rastrear/fechar processo.
+4. **Tela e pacote** (~2 h): esconder o que é só do Windows
+   (`get_platform_capabilities` já existe para isso) e gerar AppImage/deb no CI.
+5. **Teste de verdade** — o gargalo: aqui só há Windows (o WSL só tem a
+   distro do Docker). Precisa de um Linux com o Sober: PC, máquina virtual,
+   alguém do Discord, ou instalar Ubuntu no WSL (só com ok do dono; não se sabe
+   se o Sober abre no WSLg). Nada é "pronto" sem esse teste.
+
+Para retomar: `git switch linux`, ler este arquivo, e trazer a `develop`
+(`git merge develop`) antes de começar, porque ela continua andando.
