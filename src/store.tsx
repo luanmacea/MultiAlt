@@ -39,6 +39,8 @@ import { playAfkBeep, playAfkWarningBeep } from "./utils/afkBeep";
 import type { TabId as SettingsTabId } from "./components/settings/tabs";
 import type { AfkMode } from "./afkClickPoint";
 import {
+  groupLabel,
+  MODERATED_GROUP,
   orderGroupKeys,
   parseAccountDate,
   parseGroupName,
@@ -1856,7 +1858,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   async function moveToGroup(userIds: number[], group: string, options?: ActionReportOptions) {
-    const groupName = parseGroupName(group).displayName;
+    const groupName = groupLabel(group, tr);
     if (options?.report) startActionReport("move-group", tr("Move to {{group}}", { group: groupName }), userIds);
     const updated = accounts.map((a) =>
       userIds.includes(a.UserID) ? { ...a, Group: group } : a
@@ -1903,7 +1905,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return next;
       });
       await loadAccounts();
-      addToast(tr("Renamed group to {{group}}", { group: parseGroupName(name).displayName }), "success");
+      addToast(tr("Renamed group to {{group}}", { group: groupLabel(name, tr) }), "success");
       return true;
     } catch (e) {
       setError(String(e));
@@ -1944,7 +1946,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       return next;
     });
-    addToast(tr("Sorted {{group}}", { group: parseGroupName(groupKey).displayName }));
+    addToast(tr("Sorted {{group}}", { group: groupLabel(groupKey, tr) }));
   }
 
   /**
@@ -3418,12 +3420,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
       listen<{ userId: number; group?: string }>("account-moderated", (e) => {
         const userId = e.payload.userId;
-        // The backend already moved the account into the "moderadas" group and
+        // The backend already moved the account into the moderated group and
         // persisted it — reload so the list reflects the new grouping right away.
         void loadAccounts().catch(() => {});
         const acct = accountsRef.current.find((a) => a.UserID === userId);
         const name = accountLabel(acct, nameMaskingRef.current, userId);
-        addToast(tr("{{name}} is moderated — moved to 'moderadas'", { name }));
+        addToast(tr("{{name}} is moderated — moved to the {{group}} group", { name, group: groupLabel(MODERATED_GROUP, tr) }));
       }),
       listen<{ userId: number; index: number; total: number }>("launch-progress", (e) => {
         const current = (e.payload.index ?? 0) + 1;

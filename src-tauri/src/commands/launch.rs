@@ -1570,7 +1570,7 @@ async fn launch_roblox_windows(
             notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WebhookReason::AuthTicketFailed), None);
             if is_moderated_error(&e) {
                 mark_account_moderated(state.inner(), &app, user_id);
-                emit_launch_log(&app, user_id, "warn", "moderated", "Conta movida para o grupo 'moderadas'");
+                emit_launch_log(&app, user_id, "warn", "moderated", "Account moved to the Moderated group");
             }
             return Err(e);
         }
@@ -2386,7 +2386,7 @@ async fn run_launch_queue_windows(
                 notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WebhookReason::AuthTicketFailed), None);
                 if is_moderated_error(&e) {
                     mark_account_moderated(state.inner(), app, uid);
-                    emit_launch_log(app, uid, "warn", "moderated", "Conta movida para o grupo 'moderadas'");
+                    emit_launch_log(app, uid, "warn", "moderated", "Account moved to the Moderated group");
                 }
                 sequence.mark(uid, LaunchQueueState::Failed, Some(e));
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;

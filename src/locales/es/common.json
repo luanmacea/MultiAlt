@@ -837,7 +837,6 @@
   "{{count}} accounts will be launched together": "{{count}} cuentas serán iniciadas juntas",
   "{{count}} log lines": "{{count}} líneas de registro",
   "{{count}} paths": "{{count}} rutas",
-  "{{name}} is moderated — moved to 'moderadas'": "{{name}} está moderada — movida a 'moderadas'",
   "+1 year old": "+1 año de antigüedad",
   "+30 days old": "+30 días de antigüedad",
   "1 account": "1 cuenta",
@@ -3038,5 +3037,7 @@
   "Number the names in order": "Numerar los nombres en orden",
   "({{example}} instead of random characters)": "({{example}} en lugar de caracteres aleatorios)",
   "Next number": "Siguiente número",
-  "Empty: a random password for each account. At least 8 characters, without the username. It is kept only in each account.": "Vacío: una contraseña aleatoria para cada cuenta. Al menos 8 caracteres, sin el nombre de usuario. Solo queda en cada cuenta."
+  "Empty: a random password for each account. At least 8 characters, without the username. It is kept only in each account.": "Vacío: una contraseña aleatoria para cada cuenta. Al menos 8 caracteres, sin el nombre de usuario. Solo queda en cada cuenta.",
+  "Moderated": "Moderadas",
+  "{{name}} is moderated — moved to the {{group}} group": "{{name}} está moderada — movida al grupo {{group}}"
 }

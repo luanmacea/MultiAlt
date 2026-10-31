@@ -9,7 +9,7 @@ import {
 import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { copyAccountSecret } from "../../utils/copySecret";
 import { useTr } from "../../i18n/text";
-import { MAX_ALIAS_LENGTH } from "../../types";
+import { groupLabel, MAX_ALIAS_LENGTH } from "../../types";
 import { accountLabel, maskAccountName } from "../../utils/accountName";
 import { canRenameGroup, useRenameGroup } from "../../hooks/useRenameGroup";
 import { MenuItemView } from "./MenuItemView";
@@ -221,7 +221,7 @@ export function ContextMenu() {
   const existingGroups = [...new Set(store.accounts.map((a) => a.Group || "Default"))];
   const moveToGroupSubmenu: MenuItem[] = [
     ...existingGroups.map((g) => ({
-      label: g === "Default" ? t("Default") : g,
+      label: groupLabel(g, t),
       action: () => store.moveToGroup(userIds, g, { report: userIds.length > 1 }),
     })),
     { separator: true, label: "" },
