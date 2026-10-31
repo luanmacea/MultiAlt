@@ -1220,6 +1220,41 @@ async fn ask_outdated_version(
     choice
 }
 
+/// Pasta de onde o cliente abre (`windows::client_dir`) e se o launch vai
+/// mesmo pelo old join. Old join sem versão do catálogo (`Developer.UseOldJoin`)
+/// abre o exe direto, sem a checagem de update do Roblox: se a pasta não é a
+/// build atual (o download da atual falhou e sobrou uma velha), vai pelo
+/// protocolo, que atualiza o cliente, em vez de entrar com versão velha
+/// (31/10/2026). Versão do catálogo escolhida passa pelo aviso de versão velha.
+#[cfg(target_os = "windows")]
+pub(crate) async fn resolve_client_dir(
+    app: &tauri::AppHandle,
+    user_id: i64,
+    use_old_join: bool,
+    version_id: Option<&str>,
+    base_path: &str,
+) -> (bool, String) {
+    let source = platform::windows::client_source(use_old_join, version_id.is_some());
+    let dir = platform::windows::client_dir(source, base_path).await;
+    if source != platform::windows::ClientSource::RegistryChannel
+        || platform::windows::old_join_folder_is_current(&dir).await
+    {
+        return (use_old_join, dir);
+    }
+    emit_launch_log(
+        app,
+        user_id,
+        "warn",
+        "version",
+        log_msg!(
+            "The Roblox build in {{folder}} is not the current one, so this account opens through the normal Roblox launch, which updates it, instead of the old join.",
+            folder = dir.as_str()
+        ),
+    );
+    let dir = platform::windows::client_dir(platform::windows::ClientSource::Production, base_path).await;
+    (false, dir)
+}
+
 /// A pasta do Roblox para o launch (`resolve_roblox_install_path_with_notice`),
 /// conferindo antes se a versão do catálogo escolhida ficou velha. Velha: com
 /// `ask`, pergunta na tela; sem `ask` (Auto Rejoin), ou com "atual", abre a

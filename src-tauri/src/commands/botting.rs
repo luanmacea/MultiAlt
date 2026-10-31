@@ -296,11 +296,8 @@ async fn launch_account_for_cycle(
     // build do canal do registro no old join sem catálogo, e a de produção
     // pelo protocolo (`launch_url`) — versão por conta não se aplica nesse
     // caminho (CLAUDE.md). Ver `windows::client_source`.
-    let client_dir = windows::client_dir(
-        windows::client_source(use_old_join, resolved_version_id.is_some()),
-        &resolved_base_path,
-    )
-    .await;
+    let (use_old_join, client_dir) =
+        resolve_client_dir(app, user_id, use_old_join, resolved_version_id.as_deref(), &resolved_base_path).await;
 
     windows::refresh_production_version().await;
 

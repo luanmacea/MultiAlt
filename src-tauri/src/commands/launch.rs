@@ -1513,11 +1513,8 @@ async fn launch_roblox_windows(
     // fast flags) e o spawn do old join usam esta mesma — antes o patch ia
     // para `resolved_base_path` e o old join sem versão do catálogo abria a
     // build do canal do registro.
-    let client_dir = windows::client_dir(
-        windows::client_source(use_old_join, resolved_version_id.is_some()),
-        &resolved_base_path,
-    )
-    .await;
+    let (use_old_join, client_dir) =
+        resolve_client_dir(&app, user_id, use_old_join, resolved_version_id.as_deref(), &resolved_base_path).await;
 
     let tracker = windows::tracker();
     if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -2329,11 +2326,8 @@ async fn run_launch_queue_windows(
         windows::refresh_production_version().await;
         // Mesma pasta para o patch e para o spawn do old join (ver o launch de
         // uma conta, acima).
-        let acct_client_dir = windows::client_dir(
-            windows::client_source(acct_use_old_join, acct_version_id.is_some()),
-            &acct_base_path,
-        )
-        .await;
+        let (acct_use_old_join, acct_client_dir) =
+            resolve_client_dir(app, uid, acct_use_old_join, acct_version_id.as_deref(), &acct_base_path).await;
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
             let closed = tracker.kill_for_user_graceful_async(uid, 4500).await;

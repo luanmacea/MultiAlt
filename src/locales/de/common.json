@@ -973,5 +973,6 @@
   "Open the old version anyway": "Alte Version trotzdem öffnen",
   "Open outdated versions without asking": "Veraltete Versionen ohne Nachfrage öffnen",
   "Off: before opening a version older than the current Roblox, MultiAlt asks, and Auto Rejoin opens the current one. Roblox has banned accounts for using old versions.": "Aus: Bevor eine Version geöffnet wird, die älter als das aktuelle Roblox ist, fragt MultiAlt nach, und Auto Rejoin öffnet die aktuelle. Roblox hat schon Konten wegen alter Versionen gesperrt.",
-  "Add all": "Alle hinzufügen"
+  "Add all": "Alle hinzufügen",
+  "The Roblox build in {{folder}} is not the current one, so this account opens through the normal Roblox launch, which updates it, instead of the old join.": "Der Roblox-Build in {{folder}} ist nicht der aktuelle, daher öffnet dieses Konto über den normalen Roblox-Start, der ihn aktualisiert, statt über den Old Join."
 }
