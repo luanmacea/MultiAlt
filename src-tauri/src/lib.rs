@@ -646,6 +646,7 @@ pub fn run() {
             live_tiles,
             set_live_accounts,
             live_set_layout,
+            live_keep_minimized,
             open_live_window,
             close_live_window,
             live_window_open,
