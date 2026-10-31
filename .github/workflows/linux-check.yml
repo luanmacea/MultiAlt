@@ -32,6 +32,8 @@ jobs:
 
       - name: Check Rust backend (standard and full)
         shell: bash
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           set +e
           cargo check --manifest-path src-tauri/Cargo.toml --locked --no-default-features --features standard --message-format=short 2> standard.txt
@@ -42,8 +44,9 @@ jobs:
           for edition in standard full; do
             code=$(cat $edition.code)
             n=$(grep -cE ': error|^error' $edition.txt)
-            errors=$(grep -E ': error|^error' $edition.txt | sort -u | head -80)
-            [ -z "$errors" ] && errors=$(tail -40 $edition.txt)
+            # Resumo: total, erros por arquivo e os primeiros erros (a anotação tem limite de tamanho).
+            errors=$( { echo "total: $n"; grep -E ': error' $edition.txt | cut -d: -f1 | sort | uniq -c | sort -rn | head -40; echo; grep -E ': error|^error' $edition.txt | sort -u | head -25; } )
+            [ "$n" -eq 0 ] && errors=$(tail -40 $edition.txt)
             body=$(printf '%s' "$errors" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
             if [ "$code" -eq 0 ]; then echo "::notice title=$edition::compiles"; else echo "::error title=$edition (exit $code, $n errors)::$body"; fi
           done
