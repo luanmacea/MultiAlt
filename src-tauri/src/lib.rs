@@ -70,6 +70,7 @@ include!("commands/session_history.rs");
 include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
+include!("commands/agreements.rs");
 include!("commands/reconnect.rs");
 include!("commands/closed_clients.rs");
 include!("commands/keep_awake.rs");
@@ -633,6 +634,9 @@ pub fn run() {
             copy_account_secret,
             check_account_moderation,
             check_accounts,
+            check_account_terms,
+            check_accounts_terms,
+            accept_account_terms,
             get_robux,
             get_user_info,
             lookup_user,

@@ -30,6 +30,7 @@ import { AccountFieldsDialog } from "./components/dialogs/AccountFieldsDialog";
 import { AccountUtilsDialog } from "./components/dialogs/AccountUtilsDialog";
 import { BulkCredentialsDialog } from "./components/dialogs/BulkCredentialsDialog";
 import { AccountCheckResultsDialog } from "./components/dialogs/AccountCheckResultsDialog";
+import { TermsCheckDialog } from "./components/dialogs/TermsCheckDialog";
 import { ActionResultsDialog } from "./components/dialogs/ActionResultsDialog";
 import { MissingAssetsDialog } from "./components/dialogs/MissingAssetsDialog";
 import { UpdateDialog } from "./components/dialogs/UpdateDialog";
@@ -82,6 +83,7 @@ function AppContent() {
     store.accountUtilsOpen ||
     store.bulkCredentialsOpen ||
     !!store.accountCheckReport ||
+    !!store.termsDialogIds ||
     !!store.actionReport ||
     !!store.missingAssets ||
     !!store.afkModeDialog ||
@@ -364,6 +366,8 @@ function AppContent() {
         open={!!store.accountCheckReport}
         onClose={() => store.setAccountCheckReport(null)}
       />
+
+      <TermsCheckDialog open={!!store.termsDialogIds} onClose={() => store.setTermsDialogIds(null)} />
 
       <ActionResultsDialog open={!!store.actionReport} onClose={() => store.setActionReport(null)} />
 

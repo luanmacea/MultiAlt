@@ -147,6 +147,9 @@ export const SUITES: Record<string, TestSuite> = {
       "moderation_command_tests",
       "session_check_http_tests",
       "account_check_tests",
+      // Acordos atualizados (Termos / Privacidade): conferir e aceitar.
+      "agreements_http_tests",
+      "terms_command_tests",
       "remember_unlock_tests",
       "crypto_tests",
       "vault_key_tests",
@@ -175,6 +178,9 @@ export const SUITES: Record<string, TestSuite> = {
       "src/utils/accountCheck.test.ts",
       // Janela de resultados do Check Accounts em lote: quais contas, filtro, selecionar banidas.
       "src/components/dialogs/AccountCheckResultsDialog.test.tsx",
+      // Termos pendentes: texto do estado, resposta exata do Roblox, janela do lote.
+      "src/utils/terms.test.ts",
+      "src/components/dialogs/TermsCheckDialog.test.tsx",
       // Resultado conta a conta das outras ações do menu Ações, e o "Fazer login de novo".
       "src/components/dialogs/ActionResultsDialog.test.tsx",
       "src/components/layout/StatusBar.test.tsx",

@@ -1661,6 +1661,60 @@ const SCENARIOS: Record<string, () => void> = {
   },
 
   /**
+   * Acordos atualizados (Termos / Privacidade): contas 1001-1003 com acordo
+   * pendente (a 1003 sem id, só o navegador resolve), 1004 limitada pelo Roblox
+   * (429), as outras sem pendência. O aceite responde 200 e zera a conta, como
+   * o Roblox responderia quando dá certo; a 1002 recusa com 403.
+   */
+  terms() {
+    const accepted = new Set<number>();
+    const stateOf = (userId: number) => {
+      if (accepted.has(userId)) return { pending: [] };
+      if (userId === 1001) return { pending: [{ id: "agr-terms", title: "Terms of Use" }, { id: "agr-privacy", title: "Privacy Policy" }] };
+      if (userId === 1002) return { pending: [{ id: "agr-terms", title: "Terms of Use" }] };
+      if (userId === 1003) return { pending: [{ id: "", title: "Agreement" }] };
+      return { pending: [] };
+    };
+    setInvokeHandler((cmd, args) => {
+      const userId = Number(args?.userId);
+      if (cmd === "check_account_terms") {
+        if (userId === 1004) throw "Roblox is limiting requests right now. Try again in a minute.";
+        return stateOf(userId);
+      }
+      if (cmd === "check_accounts_terms") {
+        const ids = ((args?.userIds as number[] | undefined) ?? []).map(Number);
+        return new Promise((resolve) => {
+          const entries: unknown[] = [];
+          ids.forEach((id, index) => {
+            setTimeout(() => {
+              const entry =
+                id === 1004
+                  ? { userId: id, status: null, error: "Roblox is limiting requests right now. Try again in a minute." }
+                  : { userId: id, status: stateOf(id), error: null };
+              entries.push(entry);
+              harnessEmit("account-terms", entry);
+              if (entries.length === ids.length) resolve(entries);
+            }, 400 * (index + 1));
+          });
+          if (ids.length === 0) resolve(entries);
+        });
+      }
+      if (cmd === "accept_account_terms") {
+        if (userId === 1002) {
+          return {
+            accepted: false,
+            remaining: stateOf(userId).pending,
+            attempts: [{ shape: "objects", status: 403, body: '{"message":"Forbidden"}' }],
+          };
+        }
+        accepted.add(userId);
+        return { accepted: true, remaining: [], attempts: [{ shape: "objects", status: 200, body: "{}" }] };
+      }
+      return baseHandler(cmd, args);
+    });
+  },
+
+  /**
    * O app inteiro com conteúdo: favoritos, recentes, busca de jogos, scripts,
    * versões, backups, contas em jogo. É o cenário da revisão de usabilidade —
    * tela vazia esconde onde o botão está e se o rótulo explica o que ele faz.

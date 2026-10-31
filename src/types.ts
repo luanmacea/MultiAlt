@@ -38,6 +38,45 @@ export interface ModerationStatus {
   punishment: string | null;
 }
 
+/**
+ * Um acordo (Termos de Uso / Política de Privacidade) que o Roblox pede para a
+ * conta aceitar: o aviso "Acordos atualizados". Vem de `check_account_terms`
+ * (ver `commands/agreements.rs`).
+ */
+export interface PendingAgreement {
+  /** Vazio quando o Roblox não deu um id que reconhecemos. */
+  id: string;
+  title: string;
+}
+
+/** A resposta exata do Roblox a uma tentativa de aceite. */
+export interface TermsAttempt {
+  shape: string;
+  status: number;
+  body: string;
+}
+
+export interface TermsAcceptResult {
+  /** Aceite confirmado: 2xx e a conferência seguinte não achou mais nada. */
+  accepted: boolean;
+  /** O que sobrou pendente; `null` quando a conferência depois do aceite falhou. */
+  remaining: PendingAgreement[] | null;
+  attempts: TermsAttempt[];
+}
+
+/** O que se sabe dos acordos de uma conta nesta sessão. Só em memória. */
+export type TermsState =
+  | { kind: "none" }
+  | { kind: "pending"; pending: PendingAgreement[] }
+  | { kind: "error"; message: string };
+
+/** Uma conta do lote de `check_accounts_terms` (e do evento `account-terms`). */
+export interface TermsCheckEntry {
+  userId: number;
+  status: { pending: PendingAgreement[] } | null;
+  error: string | null;
+}
+
 export interface ThemeData {
   accounts_background: string;
   accounts_foreground: string;

@@ -22,6 +22,10 @@ import type {
   LaunchOutcome,
   LaunchQueuePayload,
   ModerationStatus,
+  PendingAgreement,
+  TermsState,
+  TermsAcceptResult,
+  TermsCheckEntry,
   ServerPreference,
   UnidentifiedClient,
   ClientDrop,
@@ -36,6 +40,7 @@ import type {
   LaunchPresetView,
 } from "./types";
 import { playAfkBeep, playAfkWarningBeep } from "./utils/afkBeep";
+import { acceptFailureText, termsStateOf } from "./utils/terms";
 import type { TabId as SettingsTabId } from "./components/settings/tabs";
 import type { AfkMode } from "./afkClickPoint";
 import {
@@ -578,6 +583,29 @@ export interface StoreValue {
   /** Resultado do último "Check accounts" em lote; não nulo = a janela de resultados está aberta. */
   accountCheckReport: { results: AccountCheckSummary["results"]; at: number } | null;
   setAccountCheckReport: (report: { results: AccountCheckSummary["results"]; at: number } | null) => void;
+  /**
+   * Acordos pendentes ("Acordos atualizados") lidos nesta sessão, por conta.
+   * Só em memória; `checkTerms` e o evento `account-terms` alimentam.
+   */
+  termsByUserId: Map<number, TermsState>;
+  /** Confere os acordos de uma conta (leitura, sem refresh). */
+  checkTerms: (userId: number) => Promise<TermsState | null>;
+  /**
+   * Confere várias contas e abre a janela de resultados (`termsDialogIds`),
+   * que vai enchendo conforme as respostas chegam.
+   */
+  checkTermsBatch: (userIds: number[]) => Promise<void>;
+  /** Uma conta de `checkTermsBatch` ainda não respondeu enquanto isto for `true`. */
+  termsChecking: boolean;
+  /** Contas da janela de termos; não nulo = a janela está aberta. */
+  termsDialogIds: number[] | null;
+  setTermsDialogIds: (ids: number[] | null) => void;
+  /**
+   * Aceita os acordos pendentes da conta (só depois da confirmação da tela).
+   * Devolve `true` quando o aceite foi confirmado; senão mostra a resposta
+   * exata do Roblox num aviso.
+   */
+  acceptTerms: (userId: number) => Promise<boolean>;
   launchedByProgram: Set<number>;
   /** Contas de `launchedByProgram` cujo cliente foi aberto fora do app (pelo site). */
   adoptedClients: Set<number>;
@@ -1042,6 +1070,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setModerationByUserId((prev) => {
       const next = new Map(prev);
       next.set(userId, status);
+      return next;
+    });
+  }, []);
+  const [termsByUserId, setTermsByUserId] = useState<Map<number, TermsState>>(new Map());
+  const [termsChecking, setTermsChecking] = useState(false);
+  const [termsDialogIds, setTermsDialogIds] = useState<number[] | null>(null);
+  const rememberTerms = useCallback((userId: number, state: TermsState) => {
+    setTermsByUserId((prev) => {
+      const next = new Map(prev);
+      next.set(userId, state);
       return next;
     });
   }, []);
@@ -1773,6 +1811,61 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       addToast(String(e), "warn");
       return null;
+    }
+  }
+
+  /**
+   * Acordos pendentes de uma conta (leitura, sem refresh). Falha vira o estado
+   * "error" da linha — nunca "sem pendência".
+   */
+  async function checkTerms(userId: number): Promise<TermsState | null> {
+    try {
+      const status = await invoke<{ pending: PendingAgreement[] }>("check_account_terms", { userId });
+      const state = termsStateOf({ status, error: null });
+      rememberTerms(userId, state);
+      return state;
+    } catch (e) {
+      const state = termsStateOf({ status: null, error: String(e) });
+      rememberTerms(userId, state);
+      return state;
+    }
+  }
+
+  async function checkTermsBatch(userIds: number[]): Promise<void> {
+    const ids = Array.from(new Set(userIds));
+    if (ids.length === 0) return;
+    setTermsDialogIds(ids);
+    setTermsChecking(true);
+    try {
+      const entries = await invoke<TermsCheckEntry[]>("check_accounts_terms", { userIds: ids });
+      for (const entry of entries) rememberTerms(entry.userId, termsStateOf(entry));
+    } catch (e) {
+      addToast(tr("Check failed: {{error}}", { error: String(e) }), "error");
+    } finally {
+      setTermsChecking(false);
+    }
+  }
+
+  async function acceptTerms(userId: number): Promise<boolean> {
+    try {
+      const result = await invoke<TermsAcceptResult>("accept_account_terms", { userId });
+      if (result.accepted) {
+        rememberTerms(userId, { kind: "none" });
+        addToast(tr("Terms accepted"), "success");
+        return true;
+      }
+      if (result.remaining) {
+        rememberTerms(
+          userId,
+          result.remaining.length > 0 ? { kind: "pending", pending: result.remaining } : { kind: "none" }
+        );
+      }
+      addToast(acceptFailureText(result, tr), "warn");
+      return false;
+    } catch (e) {
+      // Falha antes de enviar (cookie, CSRF, rede, acordo sem id).
+      addToast(tr("Couldn't accept the terms: {{error}}. Use Open in browser.", { error: String(e) }), "warn");
+      return false;
     }
   }
 
@@ -3409,6 +3502,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
         if (e.payload?.status) rememberModeration(e.payload.userId, e.payload.status);
       }),
+      // Acordos pendentes lidos em lote: a janela de termos enche conforme chegam.
+      listen<TermsCheckEntry>("account-terms", (e) => {
+        if (e.payload) rememberTerms(e.payload.userId, termsStateOf(e.payload));
+      }),
       // Conta jogada fora do app (pelo site, ou "em jogo" pela presença): o
       // backend regrava o "usado há" e avisa — a linha anda sem recarregar.
       // Launch que falhou com a sessão morta: o backend marcou `Valid=false`.
@@ -4167,6 +4264,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     moderationByUserId,
     checkModeration,
     checkAccounts,
+    termsByUserId,
+    checkTerms,
+    checkTermsBatch,
+    termsChecking,
+    termsDialogIds,
+    setTermsDialogIds,
+    acceptTerms,
     accountCheckProgress,
     accountCheckReport,
     setAccountCheckReport,

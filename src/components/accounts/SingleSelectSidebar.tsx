@@ -14,11 +14,14 @@ import { MAX_ALIAS_LENGTH } from "../../types";
 import { User, Package } from "lucide-react";
 import { StatusBadge } from "./StatusBadge";
 import { moderationBadge, moderationLabel } from "../../utils/moderation";
+import { canAcceptByApi, termsLabel } from "../../utils/terms";
+import { useConfirm } from "../../hooks/usePrompt";
 
 export function SingleSelectSidebar() {
   const t = useTr();
   const store = useStore();
   const prompt = usePrompt();
+  const confirm = useConfirm();
   const account = store.selectedAccount!;
   const [alias, setAlias] = useState("");
   const [description, setDescription] = useState("");
@@ -119,6 +122,32 @@ export function SingleSelectSidebar() {
     }
   }
 
+  // Acordos atualizados (Termos / Privacidade): leitura sem refresh; aceitar só
+  // depois da confirmação.
+  const [checkingTerms, setCheckingTerms] = useState(false);
+  const [acceptingTerms, setAcceptingTerms] = useState(false);
+  const terms = store.termsByUserId.get(account.UserID);
+  const termsPending = terms?.kind === "pending";
+
+  async function handleCheckTerms() {
+    setCheckingTerms(true);
+    try {
+      await store.checkTerms(account.UserID);
+    } finally {
+      setCheckingTerms(false);
+    }
+  }
+
+  async function handleAcceptTerms() {
+    if (!(await confirm(t("You accept Roblox's updated Terms for {{count}} account(s).", { count: 1 })))) return;
+    setAcceptingTerms(true);
+    try {
+      await store.acceptTerms(account.UserID);
+    } finally {
+      setAcceptingTerms(false);
+    }
+  }
+
   const avatarUrl = store.avatarUrls.get(account.UserID);
   const displayName = accountLabel(account, store);
   const hideAvatar = hideAccountAvatar(store);
@@ -214,6 +243,46 @@ export function SingleSelectSidebar() {
           >
             {checkingModeration ? t("Checking...") : t("Check ban status")}
           </button>
+        </div>
+
+        {/* Acordos atualizados: o aviso "Concordo" do site. Mesmo desenho da moderação. */}
+        <div className="mt-1.5 text-[12px] flex items-start gap-1.5" data-testid="terms-status">
+          <div className="min-w-0 flex-1">
+            <div
+              className={termsPending ? "text-amber-400 font-medium break-words" : "theme-muted break-words"}
+              data-testid="terms-status-text"
+            >
+              {termsLabel(terms, t)}
+            </div>
+            {termsPending && (
+              <button
+                onClick={() => void store.openAccountBrowser(account.UserID)}
+                className="mt-0.5 text-[11px] text-sky-400 hover:text-sky-300"
+                title={t("Opens this account's browser so you can click \"I agree\" yourself.")}
+              >
+                {t("Open in browser")}
+              </button>
+            )}
+          </div>
+          {termsPending && canAcceptByApi(terms) ? (
+            <button
+              onClick={() => void handleAcceptTerms()}
+              disabled={acceptingTerms}
+              className="sidebar-btn-sm shrink-0 disabled:opacity-50"
+              title={t("Accepts Roblox's updated Terms of Use and Privacy Policy for this account.")}
+            >
+              {acceptingTerms ? t("Accepting...") : t("Accept terms")}
+            </button>
+          ) : (
+            <button
+              onClick={() => void handleCheckTerms()}
+              disabled={checkingTerms}
+              className="sidebar-btn-sm shrink-0 disabled:opacity-50"
+              title={t("Asks Roblox if this account has updated terms to accept. Read-only: it doesn't sign anything out.")}
+            >
+              {checkingTerms ? t("Checking...") : t("Check terms")}
+            </button>
+          )}
         </div>
       </div>
 
