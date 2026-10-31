@@ -307,7 +307,7 @@ Página **Live** e a janela "MultiAlt Live" (para transmitir as contas).
 
 ### `[Linux]`
 
-Defaults criados mas sem aba na UI: `PreferredRunner=sober`, `CustomLaunchCommand=""`, `CustomProcessMatch=sober,flatpak,roblox,robloxplayerbeta`, `CustomLogDir=""`, `EnableExperimentalMultiRbx=false`, `WindowControlBackend=auto`.
+Defaults: `PreferredRunner=sober`, `CustomLaunchCommand=""`, `CustomProcessMatch=sober,flatpak,roblox,robloxplayerbeta`, `CustomLogDir=""`, `EnableExperimentalMultiRbx=false`, `WindowControlBackend=auto`. As quatro primeiras têm tela: a seção **Linux** de Settings, que **só aparece no Linux** ([LinuxTab.tsx](../../src/components/settings/LinuxTab.tsx); ver [linux.md](linux.md#tela-no-linux)). As duas últimas seguem sem tela.
 
 ### Outras seções
 

@@ -626,8 +626,13 @@ export const SUITES: Record<string, TestSuite> = {
       "generator_http_tests",
       "platform_info_tests",
     ],
-    // Grade de janelas (cartão Window grid da página Console).
-    front: ["src/utils/platform.test.ts", "src/components/console/WindowGridCard.test.tsx"],
+    // Grade de janelas (cartão Window grid da página Console) e o que o Linux
+    // esconde (Live, AFK, Isolation, Versions... + Settings › Linux).
+    front: [
+      "src/utils/platform.test.ts",
+      "src/components/console/WindowGridCard.test.tsx",
+      "src/components/linuxGating.test.tsx",
+    ],
   },
   support: {
     description: "Pacote Suporte: checagem \"o launch não faz nada\" (16), reportar problema com resumo anonimizado (28), trancar por inatividade (27), Quick Login (12) e reserva do singleton do Roblox (3)",

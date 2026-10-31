@@ -68,6 +68,67 @@ funciona). Cordial depois, como segunda opção.
 O que fica de fora no começo: grade de janelas, Live, AFK, isolamento,
 versões do Roblox, patch de settings, volume por cliente.
 
+## Tela no Linux
+
+No Linux a interface **esconde** (não só desabilita) o que depende de Win32 —
+branch `linux-ui`. O backend diz o que existe por `get_platform_capabilities`
+([platform_info.rs](../../src-tauri/src/commands/platform_info.rs)); o frontend
+lê com `platformFeatures(caps)` ([platform.ts](../../src/utils/platform.ts)).
+Regra única: **campo ausente conta como suportado** (`!== false`), então
+Windows, macOS, backend antigo e o harness antes de as capacidades chegarem não
+mudam. Só o Linux manda `false`; o macOS segue mostrando tudo (este porte não
+mexeu nele).
+
+Campos novos (todos `bool`, camelCase no JSON): `supportsLiveView`,
+`supportsAfkInput`, `supportsIsolation`, `supportsMultiRobloxMutex`,
+`supportsVersions`, `supportsOptimization`, `supportsExternalClients`,
+`supportsPython`. Os que já existiam (`supportsWindowControls`,
+`supportsBotting`, `supportsWatcher`, `supportsClientSettings`,
+`supportsLiveAudio`, `supportsMemoryTrim`) também vêm `false`.
+
+| O que some no Linux | Onde | Por quê |
+|---|---|---|
+| página **Live** | NavSidebar | miniaturas do DWM |
+| página **AFK Mode** (e o cartão "Keep accounts in game" da Session, o botão do Auto Rejoin da barra de ações, a seção Settings › Keep in game) | NavSidebar, SessionPage, BottomActionBar, tabs | tecla/clique é SendInput; o Auto Rejoin (`supportsBotting`) ainda não tem backend. A página volta sozinha se `supportsBotting` ou `supportsAfkInput` virar `true` (`afkPage`) |
+| Settings › **Isolation**, **Versions**, **Optimization**, **Watcher** | `SETTINGS_TABS[].requires` ([tabs.tsx](../../src/components/settings/tabs.tsx)) | registro/MAC, catálogo e instalador do Roblox, prioridade/memória/FastFlags, varredura de processo — nem montam |
+| Multi Roblox e "Auto Close Roblox for Multi Roblox" | Settings › Launch | travas (mutex/evento) do Roblox; no Linux cada conta roda no seu espaço de rede |
+| modo **Python** da página Scripts | ScriptsPage | lê pixels da janela do Roblox (Win32) |
+| clientes "abertos fora do app, conta desconhecida" | SessionPanel | adoção pela varredura do log |
+| grade de janelas, volume por cliente, teto de memória | ConsolePage, Optimization, SessionPage | já eram `isWindows`/`supportsLiveAudio`/`supportsMemoryTrim`; seguem escondidos |
+
+Continuam iguais: contas, cookies, servidores, amigos, grupos, avatares, alertas
+do Discord, backups, temas, presets, scripts (JavaScript), Nexus e a lista
+Session/Console. O modo de launch do Linux (Sober) é do backend: em
+`build_platform_capabilities` o Linux declara `supportsSingleLaunch` e
+`supportsMultiLaunch` verdadeiros e ecoa o runner configurado em
+`detectedRunner` — **quem sondar o Sober de verdade troca isso** e preenche
+`runnerPath`. SO desconhecido (`freebsd`...) continua sem launch.
+
+### Settings › Linux
+
+Seção só do Linux ([LinuxTab.tsx](../../src/components/settings/LinuxTab.tsx),
+`requires: "linuxSection"`), logo depois de Launch. Texto de abertura: roda o
+Roblox pelo Sober (Flatpak), com o comando para instalar o Sober e o `passt`, e
+o aviso de que o que é só do Windows está escondido. Campos, todos em `[Linux]`
+do `RAMSettings.ini` ([settings.md](settings.md#linux)):
+
+- **Preferred runner** — `PreferredRunner`: `sober` (padrão) ou `custom`;
+- **Custom launch command** — `CustomLaunchCommand`, só editável com o runner
+  `custom` (o link do jogo entra no fim);
+- **Process names** — `CustomProcessMatch` (lista separada por vírgula);
+- **Log folder** — `CustomLogDir` (vazio = automático).
+
+`EnableExperimentalMultiRbx` e `WindowControlBackend` seguem sem tela (a grade
+de janelas não existe no Linux). As capacidades são relidas ao sair das Settings
+(`reloadSettings`), então trocar o runner vale depois de sair da página.
+
+### Como conferir
+
+`bun run dev:ui` e abra `http://localhost:1420/?scenario=linux&accounts=4`: o
+cenário manda as capacidades do Linux e um user agent de Linux. Testes:
+`src/components/linuxGating.test.tsx`, `src/utils/platform.test.ts` e
+`platform_info_tests` (suíte `diagnostics`).
+
 ## Onde parou (31/10/2026)
 
 Pausado a pedido do dono ("vai demorar mais do que eu esperava"). Nada de

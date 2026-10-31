@@ -50,6 +50,10 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   "online",
   "studio",
   "Multi Roblox",
+  // Settings › Linux: nome do sistema, do cliente (Sober) e a lista padrão de processos.
+  "Linux",
+  "Sober (Flatpak)",
+  "sober,flatpak,roblox,robloxplayerbeta",
   // Nome da funcionalidade na tela; traduzir "Auto Rejoin" isolado criaria um
   // segundo nome para a mesma coisa.
   "Auto Rejoin",
@@ -205,6 +209,10 @@ const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   "auto rejoin",
   "studio",
   "Multi Roblox",
+  // Settings › Linux: nome do sistema, do cliente (Sober) e a lista padrão de processos.
+  "Linux",
+  "Sober (Flatpak)",
+  "sober,flatpak,roblox,robloxplayerbeta",
   "Auto Rejoin",
   "OK",
   "Nexus",

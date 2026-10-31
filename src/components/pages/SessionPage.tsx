@@ -4,7 +4,7 @@ import { useTr } from "../../i18n/text";
 import { SessionPanel } from "../session/SessionPanel";
 import { PageShell } from "./PageShell";
 import { Toggle } from "../ui/Toggle";
-import { isWindowsPlatform } from "../../utils/platform";
+import { isWindowsPlatform, platformFeatures } from "../../utils/platform";
 import { MemoryDefaultSelect } from "../session/MemoryLimitControl";
 import { MEMORY_LIMIT_SETTING, memoryLimitChoice } from "../../utils/memoryLimit";
 import { RecordingsSummaryCard } from "../afk-mode/recordings/RecordingsSummaryCard";
@@ -32,6 +32,8 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
   if (!active) return null;
 
   const isWindows = isWindowsPlatform(store.platformCapabilities);
+  // Sem a página AFK Mode (Linux), o cartão "Keep accounts in game" não leva a lugar nenhum.
+  const afkPage = platformFeatures(store.platformCapabilities).afkPage;
   const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
   // Teto de memória: só com a feature `memory-trim` (nas duas edições).
   const memoryTrim = isWindows && store.platformCapabilities?.supportsMemoryTrim === true;
@@ -86,36 +88,38 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
               é o que quem volta ao PC procura. */}
           <AwayDigestCard />
 
-          <section className="rounded-xl border theme-border px-4 py-3">
-            <h2 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--panel-fg)]">
-              <span
-                aria-hidden="true"
-                className={`w-1.5 h-1.5 rounded-full ${bottingOn || afkOn || reconnecting > 0 ? "bg-emerald-400" : "bg-[var(--border-color)]"}`}
-              />
-              {t("Keep accounts in game")}
-            </h2>
-            <p className="mt-1.5 text-[12px] leading-snug text-[var(--panel-muted)]">{keepAliveText}</p>
-            {/* `General.AutoReconnect`: o único interruptor dele (Settings › Keep in game só leva até aqui).
-                Cada conta muda o seu na lista "Em jogo" (SessionPanel). */}
-            {isWindows && (
-              <div className="mt-2 -mx-1">
-                <Toggle
-                  checked={reconnectDefault}
-                  onChange={(v) => void store.updateSetting("General", "AutoReconnect", v ? "true" : "false")}
-                  label="Reconnect accounts that drop"
-                  description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its row of the In game list."
+          {afkPage && (
+            <section className="rounded-xl border theme-border px-4 py-3">
+              <h2 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--panel-fg)]">
+                <span
+                  aria-hidden="true"
+                  className={`w-1.5 h-1.5 rounded-full ${bottingOn || afkOn || reconnecting > 0 ? "bg-emerald-400" : "bg-[var(--border-color)]"}`}
                 />
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => store.setActivePage("afk")}
-              className="theme-btn mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium"
-            >
-              <Keyboard size={13} strokeWidth={1.8} aria-hidden="true" />
-              {t("Open AFK Mode")}
-            </button>
-          </section>
+                {t("Keep accounts in game")}
+              </h2>
+              <p className="mt-1.5 text-[12px] leading-snug text-[var(--panel-muted)]">{keepAliveText}</p>
+              {/* `General.AutoReconnect`: o único interruptor dele (Settings › Keep in game só leva até aqui).
+                  Cada conta muda o seu na lista "Em jogo" (SessionPanel). */}
+              {isWindows && (
+                <div className="mt-2 -mx-1">
+                  <Toggle
+                    checked={reconnectDefault}
+                    onChange={(v) => void store.updateSetting("General", "AutoReconnect", v ? "true" : "false")}
+                    label="Reconnect accounts that drop"
+                    description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its row of the In game list."
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => store.setActivePage("afk")}
+                className="theme-btn mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium"
+              >
+                <Keyboard size={13} strokeWidth={1.8} aria-hidden="true" />
+                {t("Open AFK Mode")}
+              </button>
+            </section>
+          )}
 
           {/* Gravações: quando tocam (Modo AFK, depois da reconexão), à vista
               sem ir até a aba Recordings. Gravação é só Windows. */}

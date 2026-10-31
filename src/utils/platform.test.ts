@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { PlatformCapabilities } from "../types";
-import { isWindowsPlatform } from "./platform";
+import { isLinuxPlatform, isWindowsPlatform, platformFeatures } from "./platform";
 
 function caps(os: string): PlatformCapabilities {
   return {
@@ -19,8 +19,38 @@ function caps(os: string): PlatformCapabilities {
     supportsClientSettings: true,
     supportsLiveAudio: false,
     supportsMemoryTrim: false,
+    supportsLiveView: true,
+    supportsAfkInput: true,
+    supportsIsolation: true,
+    supportsMultiRobloxMutex: true,
+    supportsVersions: true,
+    supportsOptimization: true,
+    supportsExternalClients: true,
+    supportsPython: true,
     reasons: [],
     warnings: [],
+  };
+}
+
+/** Exactly what `commands/platform_info.rs` reports for Linux. */
+function linuxCaps(): PlatformCapabilities {
+  return {
+    ...caps("linux"),
+    preferredRunner: "sober",
+    detectedRunner: "sober",
+    supportsWatcher: false,
+    supportsWatcherMemory: false,
+    supportsWindowControls: false,
+    supportsBotting: false,
+    supportsClientSettings: false,
+    supportsLiveView: false,
+    supportsAfkInput: false,
+    supportsIsolation: false,
+    supportsMultiRobloxMutex: false,
+    supportsVersions: false,
+    supportsOptimization: false,
+    supportsExternalClients: false,
+    supportsPython: false,
   };
 }
 
@@ -58,5 +88,59 @@ describe("isWindowsPlatform", () => {
   it("matches the user agent case-insensitively", () => {
     setUserAgent("SOMETHING WINDOWS SOMETHING");
     expect(isWindowsPlatform(null)).toBe(true);
+  });
+});
+
+describe("isLinuxPlatform", () => {
+  it("is true only for a reported linux", () => {
+    expect(isLinuxPlatform(caps("linux"))).toBe(true);
+    expect(isLinuxPlatform(caps("windows"))).toBe(false);
+    expect(isLinuxPlatform(caps("macos"))).toBe(false);
+    expect(isLinuxPlatform(null)).toBe(false);
+  });
+});
+
+describe("platformFeatures", () => {
+  it("shows everything while the platform is not known yet or on Windows", () => {
+    for (const input of [null, caps("windows"), caps("macos")]) {
+      const f = platformFeatures(input);
+      expect(Object.values(f).filter((v) => v === false)).toEqual(
+        // `linuxSection` is the only thing that is off outside Linux.
+        [false]
+      );
+      expect(f.linuxSection).toBe(false);
+    }
+  });
+
+  it("treats a field the backend did not send as supported", () => {
+    const partial = { os: "windows" } as unknown as PlatformCapabilities;
+    const f = platformFeatures(partial);
+    expect(f.liveView).toBe(true);
+    expect(f.afkPage).toBe(true);
+    expect(f.isolation).toBe(true);
+  });
+
+  it("hides every Windows-only feature on Linux", () => {
+    const f = platformFeatures(linuxCaps());
+    expect(f).toEqual({
+      liveView: false,
+      afkInput: false,
+      afkPage: false,
+      isolation: false,
+      multiRobloxMutex: false,
+      versions: false,
+      optimization: false,
+      clientSettings: false,
+      externalClients: false,
+      python: false,
+      watcher: false,
+      linuxSection: true,
+    });
+  });
+
+  it("keeps the AFK page when Auto Rejoin works even without AFK input", () => {
+    const f = platformFeatures({ ...linuxCaps(), supportsBotting: true });
+    expect(f.afkInput).toBe(false);
+    expect(f.afkPage).toBe(true);
   });
 });
