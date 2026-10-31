@@ -13,7 +13,7 @@ mod process;
 mod tracker;
 
 pub use diagnostics::diagnose;
-pub use launch::{launch_account, LaunchRequest};
+pub use launch::{launch_account, LaunchFailure, LaunchRequest};
 pub use process::{is_pid_alive, kill_process_tree};
 pub use tracker::tracker;
 

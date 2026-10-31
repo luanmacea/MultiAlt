@@ -3197,5 +3197,6 @@
   "sober,flatpak,roblox,robloxplayerbeta": "sober,flatpak,roblox,robloxplayerbeta",
   "Sober: flatpak install flathub org.vinegarhq.Sober. passt: from your distribution's package manager.": "Sober: flatpak install flathub org.vinegarhq.Sober. passt: from your distribution's package manager.",
   "Used when the runner is Custom command. The game link is added at the end.": "Used when the runner is Custom command. The game link is added at the end.",
-  "Where the Roblox client writes its logs. Leave empty to let MultiAlt find it.": "Where the Roblox client writes its logs. Leave empty to let MultiAlt find it."
+  "Where the Roblox client writes its logs. Leave empty to let MultiAlt find it.": "Where the Roblox client writes its logs. Leave empty to let MultiAlt find it.",
+  "Opening this account without its own network. A second account at the same time needs the passt package.": "Opening this account without its own network. A second account at the same time needs the passt package."
 }

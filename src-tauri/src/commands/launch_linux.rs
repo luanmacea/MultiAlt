@@ -57,6 +57,9 @@ fn linux_warning_msg(warning: &SoberWarning) -> LogMsg {
         SoberWarning::PrivateServerWithoutCode => log_msg!(
             "Private server without a link code; opening the experience instead"
         ),
+        SoberWarning::NetworkIsolationUnavailable => log_msg!(
+            "Opening this account without its own network. A second account at the same time needs the passt package."
+        ),
         SoberWarning::SkippedSymlinks(count) => log_msg!(
             "{{count}} symbolic link(s) in the main Sober folder were not copied",
             count = *count as u64
@@ -122,7 +125,13 @@ async fn launch_account_linux(
     // Sober: o runner `custom` traz o próprio programa.
     let runner_settings = linux_runner_settings(settings);
     if matches!(sober::plan_runner(&runner_settings).runner, Runner::Sober) {
-        if let Some(issue) = platform::linux::diagnose().issues().first().copied() {
+        // Só o que impede de abrir QUALQUER conta bloqueia aqui; sem `pasta`/
+        // `unshare` a primeira conta ainda abre (decide `launch_account`).
+        if let Some(issue) = platform::linux::diagnose()
+            .issues()
+            .into_iter()
+            .find(|i| matches!(i, SetupIssue::FlatpakMissing | SetupIssue::SoberMissing))
+        {
             return Err(linux_launch_failure(
                 app,
                 sequence,
@@ -201,7 +210,7 @@ async fn launch_account_linux(
         })
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| platform::linux::LaunchFailure::Other(e.to_string()))
     .and_then(|result| result);
 
     match launched {
@@ -219,7 +228,14 @@ async fn launch_account_linux(
             sequence.mark(user_id, LaunchQueueState::Done, None);
             Ok(client.pid)
         }
-        Err(err) => Err(linux_launch_failure(
+        Err(platform::linux::LaunchFailure::Network(issue)) => Err(linux_launch_failure(
+            app,
+            sequence,
+            user_id,
+            "setup",
+            linux_setup_issue_msg(issue),
+        )),
+        Err(platform::linux::LaunchFailure::Other(err)) => Err(linux_launch_failure(
             app,
             sequence,
             user_id,

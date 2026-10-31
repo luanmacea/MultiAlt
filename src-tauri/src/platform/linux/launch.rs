@@ -10,11 +10,12 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::platform::sober::{
-    self, CommandSpec, DeepLink, EnvPlan, Runner, RunnerSettings, SoberWarning,
+    self, CommandSpec, DeepLink, EnvPlan, NetworkPlan, Runner, RunnerSettings, SetupIssue,
+    SoberWarning,
 };
 
-use super::diagnostics::host_env;
-use super::process::{kill_account_tree, netns_id, own_netns_id};
+use super::diagnostics::{diagnose, host_env};
+use super::process::{is_pid_alive, kill_account_tree, netns_id, own_netns_id};
 use super::tracker::tracker;
 
 /// Quanto esperar o cliente aparecer no netns próprio antes de desistir.
@@ -46,8 +47,32 @@ pub struct LaunchedClient {
     pub warnings: Vec<SoberWarning>,
 }
 
+/// Por que a conta não abriu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaunchFailure {
+    /// Já há outro cliente aberto e falta o que dá rede própria a este
+    /// (`unshare`/`pasta`): o Console diz o que instalar.
+    Network(SetupIssue),
+    Other(String),
+}
+
+impl From<String> for LaunchFailure {
+    fn from(text: String) -> Self {
+        Self::Other(text)
+    }
+}
+
+impl LaunchFailure {
+    pub fn render(&self) -> String {
+        match self {
+            Self::Network(issue) => issue.render(),
+            Self::Other(text) => text.clone(),
+        }
+    }
+}
+
 /// Abre a conta e a registra no `tracker()`. Em caso de erro nada fica rodando.
-pub fn launch_account(req: &LaunchRequest<'_>) -> Result<LaunchedClient, String> {
+pub fn launch_account(req: &LaunchRequest<'_>) -> Result<LaunchedClient, LaunchFailure> {
     let plan = sober::plan_runner(req.runner);
     let mut warnings = plan.warnings.clone();
 
@@ -71,20 +96,44 @@ pub fn launch_account(req: &LaunchRequest<'_>) -> Result<LaunchedClient, String>
             }
             sober::write_cookie(req.data_dir, req.user_id, req.cookie)?;
 
-            let command = sober::sober_launch_command(&link);
             let env = sober::sober_env_plan(&host, &profile_home, req.user_id);
             let log = open_launch_log(req.data_dir, &profile_home)?;
-            let mut child = spawn(&command, &env, &log)?;
-            let pid = child.id();
+            let tools = diagnose();
+            let others = tracker()
+                .get_all()
+                .iter()
+                .filter(|p| p.user_id != req.user_id && is_pid_alive(p.pid))
+                .count();
 
-            if let Err(e) = connect_network(&mut child, &log) {
-                let _ = kill_account_tree(pid, netns_id(pid));
-                let _ = child.wait();
-                return Err(e);
+            let mut network = sober::plan_network(
+                tools.unshare.is_some(),
+                tools.pasta.is_some(),
+                others,
+                false,
+            );
+            let mut isolated_error = None;
+            if network == NetworkPlan::Isolated {
+                match start_isolated(req, &link, &env, &log) {
+                    Ok(pid) => {
+                        return Ok(LaunchedClient { pid, profile_home, warnings });
+                    }
+                    Err(e) => {
+                        isolated_error = Some(e);
+                        network = sober::plan_network(true, true, others, true);
+                    }
+                }
             }
-            reap_in_background(child);
-            tracker().track(req.user_id, pid, req.browser_tracker_id.to_string());
-            pid
+            match network {
+                NetworkPlan::Isolated => unreachable!("an isolated attempt either returns or fails"),
+                NetworkPlan::Plain(warning) => {
+                    warnings.push(warning);
+                    start_plain(req, &link, &env, &log)?
+                }
+                NetworkPlan::Refuse(Some(issue)) => return Err(LaunchFailure::Network(issue)),
+                NetworkPlan::Refuse(None) => {
+                    return Err(LaunchFailure::Other(isolated_error.unwrap_or_default()));
+                }
+            }
         }
         Runner::Custom(template) => {
             let command =
@@ -101,6 +150,41 @@ pub fn launch_account(req: &LaunchRequest<'_>) -> Result<LaunchedClient, String>
     };
 
     Ok(LaunchedClient { pid, profile_home, warnings })
+}
+
+/// `unshare` + `pasta`: o cliente numa rede só dele.
+fn start_isolated(
+    req: &LaunchRequest<'_>,
+    link: &DeepLink,
+    env: &EnvPlan,
+    log: &Path,
+) -> Result<u32, String> {
+    let command = sober::sober_launch_command(link);
+    let mut child = spawn(&command, env, log)?;
+    let pid = child.id();
+    if let Err(e) = connect_network(&mut child, log) {
+        let _ = kill_account_tree(pid, netns_id(pid));
+        let _ = child.wait();
+        return Err(e);
+    }
+    reap_in_background(child);
+    tracker().track(req.user_id, pid, req.browser_tracker_id.to_string());
+    Ok(pid)
+}
+
+/// `flatpak run` direto, na rede do host (uma conta por vez).
+fn start_plain(
+    req: &LaunchRequest<'_>,
+    link: &DeepLink,
+    env: &EnvPlan,
+    log: &Path,
+) -> Result<u32, String> {
+    let command = sober::sober_command(&link.uri());
+    let child = spawn(&command, env, log)?;
+    let pid = child.id();
+    reap_in_background(child);
+    tracker().track_in_netns(req.user_id, pid, req.browser_tracker_id.to_string(), None);
+    Ok(pid)
 }
 
 /// `<perfil>/launch.log`, sempre dentro da pasta de perfis e sem symlink.

@@ -232,14 +232,74 @@ fn preferred_runner_setting(settings: &SettingsStore) -> String {
     }
 }
 
+/// Linux: o que o ambiente tem de fato, por cima das capacidades fixas.
+///
+/// - runner `custom`: o programa é do usuário, então nada do Sober é cobrado;
+/// - Sober sem Flatpak ou sem o Sober instalado: **bloqueia** o launch (vira
+///   motivo em `reasons`, depois do motivo do Auto Rejoin, que o botting lê em
+///   `reasons[0]`);
+/// - sem `pasta`/`unshare`: só **aviso** — uma conta ainda abre sem rede
+///   própria; a segunda ao mesmo tempo é que precisa do `passt`.
+///
+/// Pura (recebe o diagnóstico pronto) para os testes rodarem em qualquer SO.
+fn apply_linux_setup(
+    mut caps: PlatformCapabilities,
+    custom_runner: bool,
+    diagnostics: &platform::sober::Diagnostics,
+) -> PlatformCapabilities {
+    use platform::sober::SetupIssue;
+
+    if custom_runner {
+        caps.detected_runner = platform::sober::RUNNER_CUSTOM.to_string();
+        caps.runner_path = None;
+        return caps;
+    }
+
+    let mut blocked = false;
+    for issue in diagnostics.issues() {
+        match issue {
+            SetupIssue::FlatpakMissing | SetupIssue::SoberMissing => {
+                blocked = true;
+                caps.reasons.push(issue.render());
+            }
+            SetupIssue::UnshareMissing | SetupIssue::PastaMissing => {
+                caps.warnings.push(issue.render());
+            }
+        }
+    }
+    if blocked {
+        caps.detected_runner = RUNNER_NONE.to_string();
+        caps.runner_path = None;
+        caps.supports_single_launch = false;
+        caps.supports_multi_launch = false;
+    } else {
+        caps.detected_runner = platform::sober::RUNNER_SOBER.to_string();
+        caps.runner_path = diagnostics
+            .flatpak
+            .as_ref()
+            .map(|path| path.to_string_lossy().into_owned());
+    }
+    caps
+}
+
 #[tauri::command]
 fn get_platform_capabilities(
     settings: tauri::State<'_, SettingsStore>,
 ) -> Result<PlatformCapabilities, String> {
     let os = std::env::consts::OS;
-    Ok(build_platform_capabilities(
+    let caps = build_platform_capabilities(
         os,
         &detect_session_type(os),
         &preferred_runner_setting(settings.inner()),
-    ))
+    );
+    #[cfg(target_os = "linux")]
+    let caps = {
+        let runner = platform::sober::plan_runner(&linux_runner_settings(settings.inner())).runner;
+        apply_linux_setup(
+            caps,
+            matches!(runner, platform::sober::Runner::Custom(_)),
+            &platform::linux::diagnose(),
+        )
+    };
+    Ok(caps)
 }
