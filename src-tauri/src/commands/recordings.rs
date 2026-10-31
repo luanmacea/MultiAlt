@@ -447,8 +447,27 @@ struct AfterJoinTrigger {
     slot: RecordingSlot,
     enabled_key: &'static str,
     delay_key: &'static str,
-    /// "depois da reconexão" / "depois do launch", para as linhas do Console.
-    when: &'static str,
+    /// Quando toca, para as linhas do Console.
+    when: AfterJoinWhen,
+}
+
+/// "depois da reconexão" / "depois do launch" nas linhas do Console (frase
+/// traduzível, vai dentro das outras).
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy)]
+enum AfterJoinWhen {
+    Reconnect,
+    Launch,
+}
+
+#[cfg(target_os = "windows")]
+impl AfterJoinWhen {
+    fn log(self) -> LogMsg {
+        match self {
+            Self::Reconnect => log_msg!("after the reconnection"),
+            Self::Launch => log_msg!("after the launch"),
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -457,7 +476,7 @@ const AFTER_RECONNECT_TRIGGER: AfterJoinTrigger = AfterJoinTrigger {
     slot: RecordingSlot::AfterReconnect,
     enabled_key: "AfterReconnect",
     delay_key: "AfterReconnectDelaySeconds",
-    when: "depois da reconexão",
+    when: AfterJoinWhen::Reconnect,
 };
 
 #[cfg(target_os = "windows")]
@@ -466,7 +485,7 @@ const AFTER_LAUNCH_TRIGGER: AfterJoinTrigger = AfterJoinTrigger {
     slot: RecordingSlot::AfterLaunch,
     enabled_key: "AfterLaunch",
     delay_key: "AfterLaunchDelaySeconds",
-    when: "depois do launch",
+    when: AfterJoinWhen::Launch,
 };
 
 /// Uma passada (a cada 2 s, com a da reconexão): toca a gravação de quem já
@@ -521,14 +540,17 @@ fn recording_after_join_tick_for(app: &tauri::AppHandle, trigger: &AfterJoinTrig
                 user_id,
                 "info",
                 "recording",
-                format!("Entrou no jogo, mas a conta não tem gravação para {}", trigger.when),
+                log_msg!(
+                    "Joined the game, but the account has no recording for {{when}}",
+                    when = trigger.when.log()
+                ),
             );
             continue;
         }
         let name = recording_for_account(&file, trigger.slot, user_id)
             .map(|r| r.name.clone())
             .unwrap_or_default();
-        let when = trigger.when;
+        let when = trigger.when.log();
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             emit_launch_log(
@@ -536,13 +558,20 @@ fn recording_after_join_tick_for(app: &tauri::AppHandle, trigger: &AfterJoinTrig
                 user_id,
                 "info",
                 "recording",
-                format!("Tocando a gravação \"{name}\" {when}"),
+                log_msg!("Playing the recording \"{{name}}\" {{when}}", name = name.clone(), when = when),
             );
             let outcome = run_recording_playback(&app, plans, vec![user_id]).await;
             let (level, line) = match outcome.first().map(|(_, e)| e.clone()) {
-                Some(None) => ("success", format!("Gravação \"{name}\" tocada")),
-                Some(Some(error)) => ("warn", format!("Gravação \"{name}\" não tocada: {}", error.message())),
-                None => ("warn", format!("Gravação \"{name}\" não tocada")),
+                Some(None) => ("success", log_msg!("Recording \"{{name}}\" played", name = name.clone())),
+                Some(Some(error)) => (
+                    "warn",
+                    log_msg!(
+                        "Recording \"{{name}}\" was not played: {{reason}}",
+                        name = name.clone(),
+                        reason = error.log_msg()
+                    ),
+                ),
+                None => ("warn", log_msg!("Recording \"{{name}}\" was not played", name = name.clone())),
             };
             emit_launch_log(&app, user_id, level, "recording", line);
         });

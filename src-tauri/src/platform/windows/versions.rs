@@ -760,51 +760,58 @@ pub fn uninstall_version(channel: &str, version_hash: &str) -> Result<bool, Stri
 }
 
 /// A pasta do Roblox para o launch, **sem nunca recusar**: a versão da conta,
-/// senão a padrão, senão a usada por último, senão a instalação normal — e, sem
-/// nenhuma, caminho vazio (o launch pelo protocolo baixa a build sozinho).
-/// Antes, uma versão configurada que sumiu do catálogo (desinstalada, pasta
-/// apagada) recusava o launch com erro; agora a próxima regra vale e o
-/// terceiro valor diz por quê, para o log do launch (pedido do dono, 23/10/2026:
-/// nada de erro que impede jogar quando dá para jogar).
+/// senão a padrão, senão a instalação normal — e, sem nenhuma, caminho vazio
+/// (o launch pelo protocolo baixa a build sozinho). Antes, uma versão
+/// configurada que sumiu do catálogo (desinstalada, pasta apagada) recusava o
+/// launch com erro; agora a próxima regra vale e o terceiro valor diz por quê,
+/// em linhas do Console (pedido do dono, 23/10/2026: nada de erro que impede
+/// jogar quando dá para jogar).
 pub fn resolve_roblox_install_path_with_notice(
     account_version: Option<&str>,
     settings: &crate::data::settings::SettingsStore,
     catalog: &crate::data::versions::VersionsCatalogStore,
-) -> (String, Option<String>, Option<String>) {
-    let mut notices: Vec<String> = Vec::new();
-    let usable = |version_id: &str| -> Result<crate::data::versions::VersionEntry, String> {
-        let entry = catalog
-            .find(version_id)
-            .ok_or_else(|| format!("Roblox version '{}' is not installed anymore", version_id))?;
+) -> (String, Option<String>, Vec<crate::log_msg::LogMsg>) {
+    use crate::log_msg::LogMsg;
+    let mut notices: Vec<LogMsg> = Vec::new();
+    // `Err(true)`: não está mais no catálogo; `Err(false)`: faltam os arquivos.
+    let usable = |version_id: &str| -> Result<crate::data::versions::VersionEntry, bool> {
+        let entry = catalog.find(version_id).ok_or(true)?;
         if !std::path::Path::new(&entry.install_path).join("RobloxPlayerBeta.exe").exists() {
-            return Err(format!("Roblox version '{}' is missing its files", version_id));
+            return Err(false);
         }
         Ok(entry)
-    };
-    let notice = |notices: &Vec<String>| {
-        (!notices.is_empty()).then(|| format!("{}; opened with the next available Roblox instead.", notices.join("; ")))
     };
 
     if let Some(version_id) = account_version.filter(|v| !v.trim().is_empty()) {
         match usable(version_id) {
-            Ok(entry) => return (entry.install_path.clone(), Some(entry.version_id()), None),
-            Err(e) => notices.push(format!("{e} (set for this account)")),
+            Ok(entry) => return (entry.install_path.clone(), Some(entry.version_id()), notices),
+            Err(true) => notices.push(log_msg!(
+                "The Roblox version {{version}} set for this account is not installed anymore, so the next available Roblox was opened.",
+                version = version_id
+            )),
+            Err(false) => notices.push(log_msg!(
+                "The Roblox version {{version}} set for this account is missing its files, so the next available Roblox was opened.",
+                version = version_id
+            )),
         }
     }
 
     let default = settings.get_string("Versions", "DefaultVersion");
     if !default.trim().is_empty() {
         match usable(&default) {
-            Ok(entry) => return (entry.install_path.clone(), Some(entry.version_id()), notice(&notices)),
-            Err(e) => notices.push(format!("{e} (the default version)")),
+            Ok(entry) => return (entry.install_path.clone(), Some(entry.version_id()), notices),
+            Err(true) => notices.push(log_msg!(
+                "The default Roblox version {{version}} is not installed anymore, so the next available Roblox was opened.",
+                version = default.as_str()
+            )),
+            Err(false) => notices.push(log_msg!(
+                "The default Roblox version {{version}} is missing its files, so the next available Roblox was opened.",
+                version = default.as_str()
+            )),
         }
     }
 
-    if let Some(entry) = most_recently_used_version(catalog) {
-        return (entry.install_path.clone(), Some(entry.version_id()), notice(&notices));
-    }
-
-    (get_roblox_path().unwrap_or_default(), None, notice(&notices))
+    (get_roblox_path().unwrap_or_default(), None, notices)
 }
 
 /// `resolve_roblox_install_path_with_notice` sem o aviso. Nunca falha; o
@@ -818,23 +825,73 @@ pub fn resolve_roblox_install_path(
     Ok((path, id))
 }
 
-fn most_recently_used_version(
-    catalog: &crate::data::versions::VersionsCatalogStore,
-) -> Option<crate::data::versions::VersionEntry> {
-    catalog
-        .list()
-        .into_iter()
-        .filter(|entry| {
-            std::path::Path::new(&entry.install_path)
-                .join("RobloxPlayerBeta.exe")
-                .exists()
-        })
-        .max_by_key(|entry| entry.last_launched_at.or(entry.installed_at))
+/// Versão do catálogo que ficou para trás da build atual do canal dela.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutdatedVersion {
+    pub version_id: String,
+    pub label: Option<String>,
+    pub current: String,
 }
+
+/// A versão do catálogo `version_id` quando ela **não é mais a build atual**
+/// do canal dela (31/10/2026, relato do Discord: contas banidas por "using a
+/// disallowed version of Roblox"). Uma versão instalada pela tela Versions
+/// envelhece no primeiro update do Roblox. `None` quando é a atual, quando a
+/// consulta de versão não respondeu (não dá para afirmar que é velha) ou com
+/// `Versions.AllowOutdated` ligado (a pessoa liberou sem perguntar).
+pub async fn outdated_catalog_version(
+    version_id: Option<&str>,
+    settings: &crate::data::settings::SettingsStore,
+    catalog: &crate::data::versions::VersionsCatalogStore,
+) -> Option<OutdatedVersion> {
+    let entry = version_id.and_then(|v| catalog.find(v))?;
+    let allow_outdated = settings.get_bool("Versions", "AllowOutdated");
+    if allow_outdated {
+        return None;
+    }
+    let channel = if channel_is_production(&entry.channel) {
+        PRODUCTION_CHANNEL.to_string()
+    } else {
+        entry.channel.clone()
+    };
+    let current = build_version_for_channel(&channel).await;
+    let current = outdated_catalog_build(&entry.version_hash, current.as_deref(), allow_outdated)?;
+    Some(OutdatedVersion {
+        version_id: entry.version_id(),
+        label: entry.user_label.clone().filter(|l| !l.trim().is_empty()),
+        current,
+    })
+}
+
+/// A build atual quando `installed` ficou para trás dela; `None` quando a
+/// instalada é a atual, quando não se sabe a atual ou quando a pessoa liberou
+/// versões velhas.
+fn outdated_catalog_build(installed: &str, current: Option<&str>, allow_outdated: bool) -> Option<String> {
+    let current = current?.trim();
+    (!allow_outdated && !current.is_empty() && !current.eq_ignore_ascii_case(installed.trim()))
+        .then(|| current.to_string())
+}
+
 
 #[cfg(test)]
 mod win_versions_tests {
     use super::*;
+
+    // Relato do Discord (31/10/2026): contas banidas por "disallowed version".
+    // Versão do catálogo que não é a build atual não abre, a não ser que a
+    // pessoa libere versões velhas.
+    #[test]
+    fn an_outdated_catalog_version_gives_way_to_the_current_build() {
+        assert_eq!(
+            outdated_catalog_build("version-old", Some("version-new"), false).as_deref(),
+            Some("version-new")
+        );
+        assert_eq!(outdated_catalog_build("version-new", Some("VERSION-NEW"), false), None);
+        assert_eq!(outdated_catalog_build("version-old", Some("version-new"), true), None, "allowed by the user");
+        assert_eq!(outdated_catalog_build("version-old", None, false), None, "unknown current build");
+        assert_eq!(outdated_catalog_build("version-old", Some("  "), false), None);
+    }
 
     // Pedido do dono (23/10/2026): uma versão configurada que sumiu do
     // catálogo recusava o launch. Agora vale a próxima regra, com aviso.
@@ -850,9 +907,9 @@ mod win_versions_tests {
         let _ = settings.set("Versions", "DefaultVersion", "ghost-default");
         let catalog = crate::data::versions::VersionsCatalogStore::new(dir.join("v.json"));
 
-        let (_, id, notice) = resolve_roblox_install_path_with_notice(Some("ghost-account"), &settings, &catalog);
+        let (_, id, notices) = resolve_roblox_install_path_with_notice(Some("ghost-account"), &settings, &catalog);
         assert_eq!(id, None);
-        let notice = notice.expect("the launch log says why");
+        let notice = notices.iter().map(|n| n.render()).collect::<Vec<_>>().join(" ");
         assert!(notice.contains("ghost-account"), "{notice}");
         assert!(notice.contains("ghost-default"), "{notice}");
         assert!(resolve_roblox_install_path(Some("ghost-account"), &settings, &catalog).is_ok());

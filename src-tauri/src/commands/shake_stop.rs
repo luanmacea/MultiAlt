@@ -334,7 +334,7 @@ fn trigger_emergency_stop(app: &tauri::AppHandle) {
         app,
         "warn",
         "afk",
-        String::from("Parada de emergência: o mouse foi chacoalhado"),
+        "Emergency stop: the mouse was shaken",
     );
     let _ = app.emit(SHAKE_STOP_EVENT, payload);
 }

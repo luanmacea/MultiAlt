@@ -22,7 +22,7 @@ import {
   type InvokeHandler,
 } from "./bus";
 import { GAME_FIXTURES, fixtureIcon, iconForGame } from "./games";
-import { seedTourStorage, tourHandler, tourLogLines } from "./tour";
+import { harnessLogLine, seedTourStorage, tourHandler, tourLogLines } from "./tour";
 import { HARNESS_RELEASES, kindBody } from "./releases";
 import { clipReport } from "./clipReport";
 import { createPythonScenarios } from "./pythonScenarios";
@@ -2059,17 +2059,17 @@ const SCENARIOS: Record<string, () => void> = {
    */
   "console-history"() {
     setInvokeHandler(baseHandler);
-    const linhas: { userId: number | null; level: string; step: string; message: string }[] = [
-      { userId: null, level: "info", step: "rejoin", message: "Auto Rejoin iniciado — 4 conta(s), place 606849621, ciclo de 19 min, 20s entre launches" },
-      { userId: accounts[0].UserID, level: "info", step: "start", message: "Iniciando launch — place 606849621" },
-      { userId: accounts[0].UserID, level: "success", step: "pid", message: "Cliente detectado (pid 8124)" },
-      { userId: accounts[1].UserID, level: "success", step: "rejoin", message: "Entrou no jogo pelo ciclo do Auto Rejoin" },
-      { userId: accounts[2].UserID, level: "warn", step: "rejoin-retry", message: "Rate limit do Roblox (tentativa 2) — nova tentativa em 45s: 429 Too Many Requests" },
-      { userId: accounts[1].UserID, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s" },
-      { userId: accounts[1].UserID, level: "info", step: "rejoin", message: "Reiniciando a conta (reinicio #1 nesta sessao)" },
-      { userId: accounts[3 % accountCount].UserID, level: "error", step: "rejoin-retry", message: "Falha no ciclo (tentativa 1) — nova tentativa em 8s: auth ticket vazio" },
-      { userId: accounts[0].UserID, level: "warn", step: "watcher", message: "Cliente do Roblox fechou (o processo morreu)" },
-      { userId: null, level: "info", step: "rejoin", message: "Auto Rejoin parado" },
+    const linhas = [
+      harnessLogLine(null, "info", "rejoin", "Auto Rejoin started — {{accounts}} account(s), place {{placeId}}, {{minutes}} min cycle, {{seconds}}s between launches", { accounts: 4, placeId: 606849621, minutes: 19, seconds: 20 }),
+      harnessLogLine(accounts[0].UserID, "info", "start", "Starting launch — place {{placeId}} ({{target}})", { placeId: 606849621, target: { key: "public server", params: {} } }),
+      harnessLogLine(accounts[0].UserID, "success", "pid", "Client started (PID {{pid}})", { pid: 8124 }),
+      harnessLogLine(accounts[1].UserID, "success", "rejoin", "Joined the game through the Auto Rejoin cycle"),
+      harnessLogLine(accounts[2].UserID, "warn", "rejoin-retry", "Roblox rate limit (attempt {{attempt}}) — trying again in {{seconds}}s: {{reason}}", { attempt: 2, seconds: 45, reason: "429 Too Many Requests" }),
+      harnessLogLine(accounts[1].UserID, "warn", "watcher", "Client closed by the Watcher: no connection for {{seconds}}s", { seconds: 30 }),
+      harnessLogLine(accounts[1].UserID, "info", "rejoin", "Restarting the account (restart #{{number}} this session)", { number: 1 }),
+      harnessLogLine(accounts[3 % accountCount].UserID, "error", "rejoin-retry", "Cycle failed (attempt {{attempt}}) — trying again in {{seconds}}s: {{reason}}", { attempt: 1, seconds: 8, reason: "empty auth ticket" }),
+      harnessLogLine(accounts[0].UserID, "warn", "watcher", "The Roblox client closed (the process died)"),
+      harnessLogLine(null, "info", "rejoin", "Auto Rejoin stopped"),
     ];
     linhas.forEach((linha, index) => {
       setTimeout(() => harnessEmit("launch-log", linha), 400 * (index + 1));

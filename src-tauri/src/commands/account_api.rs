@@ -1701,7 +1701,7 @@ async fn pick_server(
     // segundos (várias páginas de servidores; com filtro de região, uma
     // consulta por servidor). Sem esta linha o tempo entre o clique e o
     // "Iniciando launch" não aparecia em lugar nenhum (relato do dono, 15/10).
-    emit_launch_log(&app, user_id, "info", "server", format!("Escolhendo servidor ({preference})..."));
+    emit_launch_log(&app, user_id, "info", "server", log_msg!("Picking a server ({{preference}})...", preference = preference.clone()));
     let started = std::time::Instant::now();
     let result = api::roblox::pick_server(
         &cookie,
@@ -1720,14 +1720,14 @@ async fn pick_server(
             user_id,
             "info",
             "server",
-            format!("Servidor escolhido em {secs:.1} s: {}", picked.job_id),
+            log_msg!("Server picked in {{seconds}} s: {{job}}", seconds = format!("{secs:.1}"), job = picked.job_id.clone()),
         ),
         Err(e) => emit_launch_log(
             &app,
             user_id,
             "warn",
             "server",
-            format!("Não deu para escolher o servidor em {secs:.1} s: {e}"),
+            log_msg!("Could not pick a server in {{seconds}} s: {{error}}", seconds = format!("{secs:.1}"), error = e.to_string()),
         ),
     }
     result

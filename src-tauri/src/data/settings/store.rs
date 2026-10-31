@@ -404,6 +404,7 @@ impl SettingsStore {
             ("PreferOldJoinForVersioned", "true"),
             ("ShowPreReleaseVersions", "false"),
             ("AllowLaunchOnOpenVersion", "false"),
+            ("AllowOutdated", "false"),
         ];
 
         let versions = ini.section("Versions");
@@ -862,6 +863,7 @@ mod settings_store_tests {
                 ("PreferOldJoinForVersioned", "true"),
                 ("ShowPreReleaseVersions", "false"),
                 ("AllowLaunchOnOpenVersion", "false"),
+                ("AllowOutdated", "false"),
             ],
         );
 

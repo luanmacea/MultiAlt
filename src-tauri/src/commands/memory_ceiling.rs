@@ -284,17 +284,23 @@ impl MemoryCeilingMonitor {
     }
 }
 
-/// Linha do Console de um aviso (português, como as do Watcher).
-fn memory_console_line(notice: &MemoryNotice) -> String {
+/// Linha do Console de um aviso (traduzível, como as do Watcher).
+fn memory_console_line(notice: &MemoryNotice) -> LogMsg {
     match notice {
-        MemoryNotice::Trimmed { memory_mb, limit_mb, ok: true, .. } => format!(
-            "Memória em {memory_mb} MB, acima do limite de {limit_mb} MB: pedi ao Windows para liberar"
+        MemoryNotice::Trimmed { memory_mb, limit_mb, ok: true, .. } => log_msg!(
+            "Memory at {{memory}} MB, above the {{limit}} MB limit: asked Windows to free some",
+            memory = *memory_mb,
+            limit = *limit_mb
         ),
-        MemoryNotice::Trimmed { memory_mb, limit_mb, ok: false, .. } => format!(
-            "Memória em {memory_mb} MB, acima do limite de {limit_mb} MB: o Windows recusou liberar"
+        MemoryNotice::Trimmed { memory_mb, limit_mb, ok: false, .. } => log_msg!(
+            "Memory at {{memory}} MB, above the {{limit}} MB limit: Windows refused to free it",
+            memory = *memory_mb,
+            limit = *limit_mb
         ),
-        MemoryNotice::Closed { memory_mb, limit_mb, .. } => format!(
-            "Cliente fechado: a memória continuou em {memory_mb} MB, acima do limite de {limit_mb} MB, depois de liberar"
+        MemoryNotice::Closed { memory_mb, limit_mb, .. } => log_msg!(
+            "Client closed: memory stayed at {{memory}} MB, above the {{limit}} MB limit, after freeing",
+            memory = *memory_mb,
+            limit = *limit_mb
         ),
     }
 }
@@ -802,11 +808,12 @@ mod memory_ceiling_tests {
     #[test]
     fn the_console_line_says_what_happened() {
         assert_eq!(
-            memory_console_line(&MemoryNotice::Trimmed { user_id: 1, memory_mb: 2500, limit_mb: 2048, ok: true }),
-            "Memória em 2500 MB, acima do limite de 2048 MB: pedi ao Windows para liberar"
+            memory_console_line(&MemoryNotice::Trimmed { user_id: 1, memory_mb: 2500, limit_mb: 2048, ok: true }).render(),
+            "Memory at 2500 MB, above the 2048 MB limit: asked Windows to free some"
         );
         assert!(memory_console_line(&MemoryNotice::Closed { user_id: 1, memory_mb: 2500, limit_mb: 2048 })
-            .starts_with("Cliente fechado"));
+            .render()
+            .starts_with("Client closed"));
     }
 
     #[test]

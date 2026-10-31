@@ -20,11 +20,12 @@ pub enum AwakeReason {
 }
 
 impl AwakeReason {
-    fn label(self) -> &'static str {
+    /// O nome do motivo na linha do Console (traduzível).
+    fn label(self) -> LogMsg {
         match self {
-            Self::AfkMode => "Modo AFK",
-            Self::AutoRejoin => "Auto Rejoin",
-            Self::AutoReconnect => "reconexão automática",
+            Self::AfkMode => log_msg!("AFK mode"),
+            Self::AutoRejoin => log_msg!("Auto Rejoin"),
+            Self::AutoReconnect => log_msg!("automatic reconnection"),
         }
     }
 }
@@ -90,12 +91,12 @@ impl<P: PowerRequest> KeepAwake<P> {
 }
 
 /// Linha do Console quando o pedido muda.
-fn keep_awake_console_line(awake: bool, reasons: &[AwakeReason]) -> String {
+fn keep_awake_console_line(awake: bool, reasons: &[AwakeReason]) -> LogMsg {
     if awake {
-        let names: Vec<&str> = reasons.iter().map(|r| r.label()).collect();
-        format!("PC mantido acordado enquanto roda: {} (a tela pode apagar)", names.join(", "))
+        let names: Vec<LogMsg> = reasons.iter().map(|r| r.label()).collect();
+        log_msg!("PC kept awake while it runs: {{reasons}} (the screen may turn off)", reasons = names)
     } else {
-        String::from("PC liberado para dormir")
+        log_msg!("PC released to sleep")
     }
 }
 
@@ -215,10 +216,10 @@ mod keep_awake_tests {
     #[test]
     fn the_console_line_names_who_keeps_it_awake() {
         assert_eq!(
-            keep_awake_console_line(true, &[AwakeReason::AfkMode, AwakeReason::AutoReconnect]),
-            "PC mantido acordado enquanto roda: Modo AFK, reconexão automática (a tela pode apagar)"
+            keep_awake_console_line(true, &[AwakeReason::AfkMode, AwakeReason::AutoReconnect]).render(),
+            "PC kept awake while it runs: AFK mode, automatic reconnection (the screen may turn off)"
         );
-        assert_eq!(keep_awake_console_line(false, &[]), "PC liberado para dormir");
+        assert_eq!(keep_awake_console_line(false, &[]).render(), "PC released to sleep");
     }
 
     /// O pedido ao Windows é só "sistema acordado": nunca a tela.
