@@ -613,6 +613,11 @@ export const SUITES: Record<string, TestSuite> = {
       "src/i18n/locales.test.ts",
     ],
   },
+  linux: {
+    description: "Linux (branch linux): launch do Sober — perfil por conta, cookie, deep link, argv do unshare/pasta, runner do INI e caminhos seguros",
+    rust: ["sober_tests"],
+    front: [],
+  },
   diagnostics: {
     description: "Diagnóstico de mutex, janelas, otimização de processo e capacidades da plataforma",
     rust: [

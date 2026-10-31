@@ -68,6 +68,86 @@ funciona). Cordial depois, como segunda opção.
 O que fica de fora no começo: grade de janelas, Live, AFK, isolamento,
 versões do Roblox, patch de settings, volume por cliente.
 
+## Backend do Sober (fase 1, 31/10/2026)
+
+Escrito, mas **nunca executado num Linux de verdade** (aqui só há Windows) e
+ainda **não ligado** ao `commands/launch.rs`. A decisão é toda pura e testada no
+Windows; a camada de SO é fina.
+
+### `src-tauri/src/platform/sober.rs` (sem `cfg`, testes `sober_tests`, suíte `linux`)
+
+- **Caminhos**: `profile_dir(<dados>, userId)` = `<dados>/linux-profiles/<userId>`
+  (id <= 0 é recusado); `sober_paths(home)` dá `.var/app/org.vinegarhq.Sober/`
+  com `data/sober/cookies`, `config/sober/config.json` e `data/sober/sober_logs`.
+- **Cookie**: `cookie_file_content` -> `.ROBLOSECURITY=<valor>` (aceita o valor
+  puro ou já com o nome; recusa vazio, espaço, `;` e quebra de linha);
+  `write_cookie` grava por arquivo temporário + rename, 0600 já na criação.
+- **Perfil novo**: `COPY_ENTRIES` (packages, assets, exe, asset_overlay, state,
+  config.json) copiados de verdade do Sober principal, para `<destino>.partial`
+  e renomeados; só copia o que o perfil ainda não tem (estado da conta nunca é
+  sobrescrito). O `cookies` do principal **nunca** entra. Symlink da origem é
+  pulado, não seguido. `ensure_profile`, `remove_profile`.
+- **Segurança**: tudo que escreve/apaga passa por `ensure_safe_path(raiz, caminho)`
+  (dentro de `linux-profiles`, sem `..`, sem symlink em nenhum pedaço);
+  `remove_inside` é a única função que apaga e recusa a própria raiz. Do HOME
+  real só lê.
+- **Deep link** (`DeepLink::from_launch`): `roblox://experiences/start?placeId=P`,
+  `&gameInstanceId=<job>`, ou `&linkCode=<código>` (servidor privado; o job é
+  ignorado), `&launchData=`. Recebe os campos **já resolvidos** por
+  `resolve_launch_job` (`launch_shared.rs`), que tira o prefixo `vip:` e lê o
+  código do link. Privado sem código cai no jogo comum com aviso.
+- **argv**: `sober_command`, `isolated_command` (`unshare --user
+  --map-current-user --net -- sh -c <WAIT_FOR_ROUTE_SCRIPT> sh <comando>`, sem
+  `--fork`: o pid é o mesmo de `unshare` a cliente), `pasta_command(pid)`.
+  O script espera até 15 s pela rota padrão e abre mesmo assim (regra nº 1).
+- **Ambiente** (`sober_env_plan`): `HOME` = perfil; `FLATPAK_USER_DIR` fixado no
+  real (senão o perfil não enxerga o Sober instalado por usuário); `XAUTHORITY`
+  do HOME real quando faltar; `XDG_*_HOME` removidos.
+- **Settings `[Linux]`** (`plan_runner`): `PreferredRunner` (`sober` | `custom`;
+  nome desconhecido ou `custom` sem comando cai no Sober com aviso, nunca
+  recusa), `CustomLaunchCommand` (separado em argumentos sem shell; `{uri}`,
+  `{profile}`, `{user}`; sem `{uri}` o link vai no fim; roda com o HOME real e
+  `MULTIALT_USER_ID`/`MULTIALT_PROFILE_DIR`, sem rede isolada), `CustomProcessMatch`
+  (`process_matches`) e `CustomLogDir` (`client_log_dir`).
+- **/proc**: `parse_proc_stat`, `process_tree`, `parse_netns_id`.
+- **Diagnóstico**: `Diagnostics::problems()` diz o que instalar (flatpak, Sober
+  via flathub, `util-linux`, `passt`).
+
+### `src-tauri/src/platform/linux/` (`cfg(target_os = "linux")`)
+
+`launch_account(&LaunchRequest)` (síncrono; chamar de `spawn_blocking`): perfil,
+cookie, processo com `HOME=<perfil>` e log em `<perfil>/launch.log`, espera o
+filho entrar no netns próprio (`/proc/<pid>/ns/net` diferente do app, 5 s),
+`pasta --config-net <pid>`; se o `pasta` falhar ou não existir, mata a árvore
+do filho e devolve erro mandando instalar o `passt`. Fechar uma conta
+(`tracker().kill_for_user`) manda TERM e depois KILL só na árvore do processo
+dela mais quem está no netns dela; nunca varre o sistema por nome.
+Espelha o macOS: `tracker()`, `get_roblox_pids` (só o que o app abriu),
+`kill_process`, `kill_all_roblox` (só os do app), `enable/disable_multi_roblox`
+(no-op: o multi é o netns), `get_roblox_path`, `generate_browser_tracker_id`.
+Extras: `diagnose()`, `host_env()`.
+
+### Fase 2: ligar (depois que o agente de compilação do Linux terminar)
+
+1. `commands/launch.rs` tem ~20 pontos `cfg(macos)`/`cfg(not(macos))`
+   (`launch_roblox`, `launch_multiple`, `cmd_kill_roblox`, `kill_all`, listas de
+   contas abertas...). Acrescentar o ramo `cfg(target_os = "linux")` em cada um
+   com `platform::linux`: o corpo do launch é o do macOS, trocando ticket/URL
+   `roblox-player:` por `resolve_launch_job` + `platform::linux::launch_account`
+   (cookie via `get_cookie`, `data_dir` do `SettingsStore`, `RunnerSettings`
+   das quatro chaves `[Linux]`, `spawn_blocking`). Sem `wait_for_new_roblox_pid`:
+   o pid já vem do `launch_account`. Avisos (`LaunchedClient::warnings`) vão
+   para `emit_launch_log` como `warn`.
+2. `lib.rs`: o ramo de saída do app (hoje só `windows`/`macos`, ~l.280-310)
+   precisa do equivalente que solta o rastreio sem fechar clientes.
+3. `get_platform_capabilities` (`platform_info.rs`): o ramo `linux` hoje diz
+   "sem launch"; trocar por suporte a launch único/múltiplo, `detected_runner`
+   `sober`/`custom`, `runner_path` e `reasons` vindos de `diagnose().problems()`.
+4. Watcher/`cleanup_dead_processes` e o fechamento de contas fora do jogo.
+5. Ao apagar uma conta: `sober::remove_profile`.
+6. Validar de verdade com o dono num Linux com Sober + `passt` (o bug conhecido
+   do concorrente: com dois abertos o mais novo às vezes fecha em 1-3 min).
+
 ## Onde parou (31/10/2026)
 
 Pausado a pedido do dono ("vai demorar mais do que eu esperava"). Nada de
