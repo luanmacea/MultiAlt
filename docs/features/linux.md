@@ -147,9 +147,19 @@ testes `sober_tests` passam no Linux, inclusive os de symlink e de permissão
 - Apagar conta (`remove_account`/`remove_accounts`) chama
   `sober::remove_profile` (só dentro de `linux-profiles`; pula conta com
   cliente aberto).
-- Pendente: capacidades em `platform_info.rs` e telas (agente da UI); o cookie
-  fica em texto puro no perfil (0600) porque o Sober o lê de lá; fallback sem
-  `pasta` para uma conta só; validar com o dono num Linux com Sober + `passt`
+- **Sem `pasta`/`unshare` (regra nº 1)**: `sober::plan_network` decide. Sem
+  outro cliente do app aberto, a conta abre **sem rede própria** (`flatpak run`
+  direto, HOME do perfil) com um aviso traduzido de que a segunda conta ao mesmo
+  tempo precisa do `passt`; com outro cliente aberto vira erro claro (o Sober
+  recusaria como "frozen instance"). Se `unshare`/`pasta` existem mas falham, o
+  mesmo vale (tenta de novo sem rede própria quando nada mais está aberto).
+- `get_platform_capabilities` (Linux): `apply_linux_setup` preenche
+  `detectedRunner`/`runnerPath` e `reasons`/`warnings` do diagnóstico. Sem
+  Flatpak ou Sober bloqueia o launch (motivo depois do do Auto Rejoin); sem
+  `passt` é só aviso. Runner `custom` não cobra nada do Sober. Watcher e
+  Auto Rejoin seguem desligados até validar num Linux.
+- Pendente: o cookie
+  fica em texto puro no perfil (0600) porque o Sober o lê de lá; validar com o dono num Linux com Sober + `passt`
   (bug conhecido do concorrente: com dois abertos o mais novo às vezes fecha
   em 1-3 min).
 

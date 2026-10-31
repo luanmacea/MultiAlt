@@ -232,16 +232,76 @@ fn preferred_runner_setting(settings: &SettingsStore) -> String {
     }
 }
 
+/// Linux: o que o ambiente tem de fato, por cima das capacidades fixas.
+///
+/// - runner `custom`: o programa é do usuário, então nada do Sober é cobrado;
+/// - Sober sem Flatpak ou sem o Sober instalado: **bloqueia** o launch (vira
+///   motivo em `reasons`, depois do motivo do Auto Rejoin, que o botting lê em
+///   `reasons[0]`);
+/// - sem `pasta`/`unshare`: só **aviso** — uma conta ainda abre sem rede
+///   própria; a segunda ao mesmo tempo é que precisa do `passt`.
+///
+/// Pura (recebe o diagnóstico pronto) para os testes rodarem em qualquer SO.
+fn apply_linux_setup(
+    mut caps: PlatformCapabilities,
+    custom_runner: bool,
+    diagnostics: &platform::sober::Diagnostics,
+) -> PlatformCapabilities {
+    use platform::sober::SetupIssue;
+
+    if custom_runner {
+        caps.detected_runner = platform::sober::RUNNER_CUSTOM.to_string();
+        caps.runner_path = None;
+        return caps;
+    }
+
+    let mut blocked = false;
+    for issue in diagnostics.issues() {
+        match issue {
+            SetupIssue::FlatpakMissing | SetupIssue::SoberMissing => {
+                blocked = true;
+                caps.reasons.push(issue.render());
+            }
+            SetupIssue::UnshareMissing | SetupIssue::PastaMissing => {
+                caps.warnings.push(issue.render());
+            }
+        }
+    }
+    if blocked {
+        caps.detected_runner = RUNNER_NONE.to_string();
+        caps.runner_path = None;
+        caps.supports_single_launch = false;
+        caps.supports_multi_launch = false;
+    } else {
+        caps.detected_runner = platform::sober::RUNNER_SOBER.to_string();
+        caps.runner_path = diagnostics
+            .flatpak
+            .as_ref()
+            .map(|path| path.to_string_lossy().into_owned());
+    }
+    caps
+}
+
 #[tauri::command]
 fn get_platform_capabilities(
     settings: tauri::State<'_, SettingsStore>,
 ) -> Result<PlatformCapabilities, String> {
     let os = std::env::consts::OS;
-    Ok(build_platform_capabilities(
+    let caps = build_platform_capabilities(
         os,
         &detect_session_type(os),
         &preferred_runner_setting(settings.inner()),
-    ))
+    );
+    #[cfg(target_os = "linux")]
+    let caps = {
+        let runner = platform::sober::plan_runner(&linux_runner_settings(settings.inner())).runner;
+        apply_linux_setup(
+            caps,
+            matches!(runner, platform::sober::Runner::Custom(_)),
+            &platform::linux::diagnose(),
+        )
+    };
+    Ok(caps)
 }
 
 #[cfg(test)]
@@ -350,6 +410,69 @@ mod platform_info_tests {
         // O runner configurado é ecoado de volta para a UI poder mostrá-lo.
         assert_eq!(caps.preferred_runner, "sober");
         assert_eq!(caps.detected_runner, "sober");
+    }
+
+    fn complete_setup() -> platform::sober::Diagnostics {
+        platform::sober::Diagnostics {
+            flatpak: Some("/usr/bin/flatpak".into()),
+            sober_installed: true,
+            unshare: Some("/usr/bin/unshare".into()),
+            pasta: Some("/usr/bin/pasta".into()),
+        }
+    }
+
+    #[test]
+    fn linux_with_everything_installed_reports_sober_and_its_path() {
+        let base = build_platform_capabilities("linux", "x11", "sober");
+        let caps = apply_linux_setup(base.clone(), false, &complete_setup());
+        assert_eq!(caps.detected_runner, "sober");
+        assert_eq!(caps.runner_path.as_deref(), Some("/usr/bin/flatpak"));
+        assert!(caps.supports_single_launch);
+        assert!(caps.supports_multi_launch);
+        assert_eq!(caps.reasons, base.reasons);
+        assert_eq!(caps.warnings, base.warnings);
+    }
+
+    #[test]
+    fn linux_without_flatpak_or_sober_blocks_the_launch_with_a_reason() {
+        let base = build_platform_capabilities("linux", "x11", "sober");
+        for diagnostics in [
+            platform::sober::Diagnostics { flatpak: None, ..complete_setup() },
+            platform::sober::Diagnostics { sober_installed: false, ..complete_setup() },
+        ] {
+            let caps = apply_linux_setup(base.clone(), false, &diagnostics);
+            assert!(!caps.supports_single_launch);
+            assert!(!caps.supports_multi_launch);
+            assert_eq!(caps.detected_runner, RUNNER_NONE);
+            assert_eq!(caps.runner_path, None);
+            // O motivo do Auto Rejoin segue em `reasons[0]`.
+            assert_eq!(caps.reasons[0], base.reasons[0]);
+            assert_eq!(caps.reasons.len(), base.reasons.len() + 1);
+        }
+    }
+
+    #[test]
+    fn linux_without_passt_only_warns_and_still_launches() {
+        let base = build_platform_capabilities("linux", "x11", "sober");
+        let diagnostics = platform::sober::Diagnostics { pasta: None, ..complete_setup() };
+        let caps = apply_linux_setup(base.clone(), false, &diagnostics);
+        assert!(caps.supports_single_launch);
+        assert!(caps.supports_multi_launch);
+        assert_eq!(caps.detected_runner, "sober");
+        assert_eq!(caps.reasons, base.reasons);
+        assert_eq!(caps.warnings.len(), base.warnings.len() + 1);
+        assert!(caps.warnings.last().unwrap().contains("passt"));
+    }
+
+    #[test]
+    fn the_custom_runner_is_not_asked_for_sober() {
+        let base = build_platform_capabilities("linux", "x11", "custom");
+        let caps = apply_linux_setup(base.clone(), true, &platform::sober::Diagnostics::default());
+        assert_eq!(caps.detected_runner, "custom");
+        assert_eq!(caps.runner_path, None);
+        assert!(caps.supports_single_launch);
+        assert_eq!(caps.reasons, base.reasons);
+        assert_eq!(caps.warnings, base.warnings);
     }
 
     #[test]

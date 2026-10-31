@@ -159,6 +159,9 @@ pub enum SoberWarning {
     PrivateServerWithoutCode,
     /// Symlinks do Sober principal que não foram copiados.
     SkippedSymlinks(usize),
+    /// Aberto sem rede própria (falta o `pasta`/`unshare`, ou eles falharam):
+    /// vale para UMA conta; a segunda ao mesmo tempo precisa do `passt`.
+    NetworkIsolationUnavailable,
 }
 
 impl SoberWarning {
@@ -178,6 +181,9 @@ impl SoberWarning {
             }
             Self::SkippedSymlinks(n) => {
                 format!("{n} symbolic link(s) in the main Sober folder were not copied")
+            }
+            Self::NetworkIsolationUnavailable => {
+                "Opening this account without its own network; a second account at the same time needs the passt package".to_string()
             }
         }
     }
@@ -891,6 +897,44 @@ pub enum SetupIssue {
     PastaMissing,
 }
 
+/// Como o cliente de uma conta é aberto quanto à rede.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkPlan {
+    /// `unshare` + `pasta`: netns próprio, várias contas juntas.
+    Isolated,
+    /// `flatpak run` direto, na rede do host. Só uma conta assim por vez
+    /// (o Sober recusa a segunda na mesma rede: "frozen instance").
+    Plain(SoberWarning),
+    /// Não dá: já há outro cliente aberto e a rede própria não está disponível.
+    /// `Some` = o que falta instalar; `None` = a tentativa isolada falhou.
+    Refuse(Option<SetupIssue>),
+}
+
+/// Regra nº 1: sem `pasta`/`unshare` (ou com a tentativa isolada falhando) a
+/// conta ainda abre, desde que nenhum outro cliente do app esteja aberto.
+/// `other_clients` = clientes do app abertos de OUTRAS contas.
+pub fn plan_network(
+    unshare_ok: bool,
+    pasta_ok: bool,
+    other_clients: usize,
+    isolated_attempt_failed: bool,
+) -> NetworkPlan {
+    if !isolated_attempt_failed && unshare_ok && pasta_ok {
+        return NetworkPlan::Isolated;
+    }
+    if other_clients == 0 {
+        return NetworkPlan::Plain(SoberWarning::NetworkIsolationUnavailable);
+    }
+    let issue = if !unshare_ok {
+        Some(SetupIssue::UnshareMissing)
+    } else if !pasta_ok {
+        Some(SetupIssue::PastaMissing)
+    } else {
+        None
+    };
+    NetworkPlan::Refuse(issue)
+}
+
 impl SetupIssue {
     pub fn render(self) -> String {
         match self {
@@ -1562,6 +1606,59 @@ mod sober_tests {
         assert_eq!(parse_netns_id("net:[4026531840]"), Some(4026531840));
         assert_eq!(parse_netns_id("mnt:[1]"), None);
         assert_eq!(parse_netns_id("net:[abc]"), None);
+    }
+
+    // --- rede ---
+
+    #[test]
+    fn with_the_tools_the_client_gets_its_own_network() {
+        assert_eq!(plan_network(true, true, 0, false), NetworkPlan::Isolated);
+        assert_eq!(plan_network(true, true, 3, false), NetworkPlan::Isolated);
+    }
+
+    #[test]
+    fn without_pasta_a_single_account_still_opens_with_a_warning() {
+        assert_eq!(
+            plan_network(true, false, 0, false),
+            NetworkPlan::Plain(SoberWarning::NetworkIsolationUnavailable)
+        );
+        assert_eq!(
+            plan_network(false, false, 0, false),
+            NetworkPlan::Plain(SoberWarning::NetworkIsolationUnavailable)
+        );
+    }
+
+    #[test]
+    fn without_pasta_a_second_account_is_refused_with_what_to_install() {
+        assert_eq!(
+            plan_network(true, false, 1, false),
+            NetworkPlan::Refuse(Some(SetupIssue::PastaMissing))
+        );
+        assert_eq!(
+            plan_network(false, true, 2, false),
+            NetworkPlan::Refuse(Some(SetupIssue::UnshareMissing))
+        );
+    }
+
+    #[test]
+    fn a_failed_isolated_attempt_falls_back_only_when_nothing_else_is_open() {
+        assert_eq!(
+            plan_network(true, true, 0, true),
+            NetworkPlan::Plain(SoberWarning::NetworkIsolationUnavailable)
+        );
+        assert_eq!(plan_network(true, true, 1, true), NetworkPlan::Refuse(None));
+    }
+
+    #[test]
+    fn the_plain_launch_has_no_network_wrapper() {
+        let cmd = sober_command("roblox://experiences/start?placeId=1");
+        assert_eq!(cmd.program, "flatpak");
+        assert!(!cmd.args.contains(&"--net".to_string()));
+    }
+
+    #[test]
+    fn the_network_warning_says_a_second_account_needs_passt() {
+        assert!(SoberWarning::NetworkIsolationUnavailable.render().contains("passt"));
     }
 
     // --- diagnostico ---
