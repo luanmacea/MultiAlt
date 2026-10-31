@@ -312,6 +312,24 @@ pub async fn client_dir(source: ClientSource, resolved_base_path: &str) -> Strin
     }
 }
 
+/// O old join (`--app -t -j`) abre o exe direto e pula a checagem de update
+/// que o Roblox faz no launch pelo protocolo: só pode usar a pasta da build
+/// **atual** do canal do registro (31/10/2026, bans por "disallowed version of
+/// Roblox"). Sem resposta da consulta de versão, mantém (não dá para afirmar
+/// que é velha) — a regra nº 1 vale.
+pub async fn old_join_folder_is_current(client_dir: &str) -> bool {
+    match build_version_for_channel(&current_player_channel()).await {
+        Some(current) => folder_is_build(client_dir, &current),
+        None => true,
+    }
+}
+
+fn folder_is_build(client_dir: &str, build: &str) -> bool {
+    std::path::Path::new(client_dir.trim_end_matches(['\\', '/']))
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(build))
+}
+
 /// `%LOCALAPPDATA%\Roblox\Versions\<build>\RobloxPlayerBeta.exe` da build
 /// daquele canal, se estiver instalada.
 async fn player_exe_for_channel(channel: &str) -> Option<PathBuf> {
@@ -320,10 +338,116 @@ async fn player_exe_for_channel(channel: &str) -> Option<PathBuf> {
 }
 
 fn installed_player_exe(version: &str) -> Option<PathBuf> {
-    let exe = roblox_versions_dir()?
-        .join(version)
-        .join("RobloxPlayerBeta.exe");
-    exe.exists().then_some(exe)
+    let dir = roblox_versions_dir()?.join(version);
+    build_folder_ready(&dir).then(|| dir.join("RobloxPlayerBeta.exe"))
+}
+
+/// A pasta tem o `RobloxPlayerBeta.exe` **e** as DLLs do Roblox que ele importa.
+///
+/// Relato do Discord (30/10/2026): "RobloxPlayerBeta.dll was not found" ao
+/// abrir. O exe carrega o jogo de `RobloxPlayerBeta.dll`, na mesma pasta (vem
+/// no `RobloxApp.zip`). Uma pasta com o exe e sem a DLL (apagada por outro
+/// programa ou por instalação interrompida) passava por instalada e o cliente
+/// morria nessa caixa de erro a cada launch. Agora ela conta como faltando: o
+/// launch baixa a build de novo, ou cai na próxima instalada.
+fn build_folder_ready(dir: &std::path::Path) -> bool {
+    let exe = dir.join("RobloxPlayerBeta.exe");
+    if !exe.exists() {
+        return false;
+    }
+    match missing_roblox_import(&exe) {
+        Some(dll) => {
+            eprintln!(
+                "Roblox build {} is incomplete: {dll} is missing; it will be installed again.",
+                dir.display()
+            );
+            false
+        }
+        None => true,
+    }
+}
+
+/// A DLL do Roblox (nome começando por "Roblox") que o exe importa e que não
+/// está ao lado dele. Lê só os cabeçalhos PE e a tabela de importação, não o
+/// exe inteiro (passa de 100 MB). Qualquer coisa ilegível dá `None`: na dúvida
+/// a build vale, nunca é motivo para deixar de abrir.
+fn missing_roblox_import(exe: &std::path::Path) -> Option<String> {
+    let dir = exe.parent()?;
+    pe_imported_dlls(exe)?
+        .into_iter()
+        .filter(|name| name.to_ascii_lowercase().starts_with("roblox"))
+        .find(|name| !dir.join(name).exists())
+}
+
+/// Os nomes das DLLs na tabela de importação de um PE (32 ou 64 bits).
+fn pe_imported_dlls(exe: &std::path::Path) -> Option<Vec<String>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(exe).ok()?;
+    let mut read_at = |offset: u64, len: usize| -> Option<Vec<u8>> {
+        let mut buf = vec![0u8; len];
+        file.seek(SeekFrom::Start(offset)).ok()?;
+        file.read_exact(&mut buf).ok()?;
+        Some(buf)
+    };
+    let u16_at = |b: &[u8], i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
+    let u32_at = |b: &[u8], i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+
+    let dos = read_at(0, 64)?;
+    if &dos[0..2] != b"MZ" {
+        return None;
+    }
+    let pe = u32_at(&dos, 0x3C) as u64;
+    let headers = read_at(pe, 24)?;
+    if &headers[0..4] != b"PE\0\0" {
+        return None;
+    }
+    let sections = (u16_at(&headers, 6) as usize).min(96);
+    let optional_size = u16_at(&headers, 20) as usize;
+    let optional = read_at(pe + 24, optional_size)?;
+    if optional.len() < 2 {
+        return None;
+    }
+    let directories = match u16_at(&optional, 0) {
+        0x20B => 112, // PE32+
+        0x10B => 96,  // PE32
+        _ => return None,
+    };
+    if optional.len() < directories + 16 {
+        return None;
+    }
+    let import_rva = u32_at(&optional, directories + 8);
+    if import_rva == 0 {
+        return Some(Vec::new());
+    }
+    let table = read_at(pe + 24 + optional_size as u64, sections * 40)?;
+    let to_offset = |rva: u32| -> Option<u64> {
+        (0..sections).find_map(|i| {
+            let s = &table[i * 40..i * 40 + 40];
+            let (size, va, raw_size, raw) = (u32_at(s, 8), u32_at(s, 12), u32_at(s, 16), u32_at(s, 20));
+            (rva >= va && rva < va.saturating_add(size.max(raw_size))).then(|| (rva - va) as u64 + raw as u64)
+        })
+    };
+    let mut names = Vec::new();
+    let mut descriptor = to_offset(import_rva)?;
+    for _ in 0..256 {
+        let entry = read_at(descriptor, 20)?;
+        if entry.iter().all(|b| *b == 0) {
+            break;
+        }
+        let raw_name = to_offset(u32_at(&entry, 12))
+            .and_then(|at| read_at(at, 64))
+            .unwrap_or_default();
+        let name: String = raw_name
+            .iter()
+            .take_while(|b| **b != 0)
+            .map(|b| *b as char)
+            .collect();
+        if !name.is_empty() {
+            names.push(name);
+        }
+        descriptor += 20;
+    }
+    Some(names)
 }
 
 /// Progress of a launcher-initiated production build install, mirrored to the
@@ -450,7 +574,7 @@ fn installed_builds_newest_first(versions_dir: &std::path::Path) -> Vec<String> 
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if !is_valid_version_hash(&name) || !entry.path().join("RobloxPlayerBeta.exe").exists() {
+            if !is_valid_version_hash(&name) || !build_folder_ready(&entry.path()) {
                 return None;
             }
             let modified = entry.metadata().and_then(|m| m.modified()).ok()?;
@@ -620,9 +744,7 @@ pub async fn refresh_production_version() {
 fn cached_production_player_dir() -> Option<String> {
     let version = LAST_RESOLVED_BUILD.lock().ok()?.clone()?;
     let dir = roblox_versions_dir()?.join(version);
-    dir.join("RobloxPlayerBeta.exe")
-        .exists()
-        .then(|| dir.to_string_lossy().into_owned())
+    build_folder_ready(&dir).then(|| dir.to_string_lossy().into_owned())
 }
 
 /// O que a consulta de build de um canal decidiu.
@@ -1379,6 +1501,23 @@ mod client_dir_tests {
 }
 
 #[cfg(test)]
+mod old_join_current_build_tests {
+    use super::*;
+
+    // O old join abre o exe direto, sem a checagem de update do Roblox: uma
+    // pasta que não é a build atual entraria no jogo com versão velha
+    // ("disallowed version of Roblox", 31/10/2026).
+    #[test]
+    fn the_old_join_only_trusts_the_folder_of_the_current_build() {
+        let base = r"C:\Users\x\AppData\Local\Roblox\Versions";
+        assert!(folder_is_build(&format!(r"{base}\version-abc"), "version-abc"));
+        assert!(folder_is_build(&format!(r"{base}\VERSION-ABC\"), "version-abc"));
+        assert!(!folder_is_build(&format!(r"{base}\version-old"), "version-abc"));
+        assert!(!folder_is_build("", "version-abc"), "no folder: not the current build");
+    }
+}
+
+#[cfg(test)]
 mod production_build_fallback_tests {
     use super::*;
     use wiremock::matchers::{method, path};
@@ -1518,6 +1657,86 @@ mod production_build_fallback_tests {
         }
         assert_eq!(installed_builds_newest_first(&temp.0), builds(&["version-0123abcd"]));
         assert!(installed_builds_newest_first(&temp.0.join("missing")).is_empty());
+    }
+
+    /// Um PE64 mínimo que importa `dlls` (tabela de importação na única seção).
+    fn fake_pe_importing(dlls: &[&str]) -> Vec<u8> {
+        let mut b = vec![0u8; 0x600];
+        b[0..2].copy_from_slice(b"MZ");
+        b[0x3C..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+        b[0x40..0x44].copy_from_slice(b"PE\0\0");
+        b[0x46..0x48].copy_from_slice(&1u16.to_le_bytes()); // seções
+        b[0x54..0x56].copy_from_slice(&240u16.to_le_bytes()); // tamanho do opcional
+        let opt = 0x58;
+        b[opt..opt + 2].copy_from_slice(&0x20Bu16.to_le_bytes());
+        b[opt + 120..opt + 124].copy_from_slice(&0x1000u32.to_le_bytes()); // import RVA
+        let sec = opt + 240;
+        b[sec + 8..sec + 12].copy_from_slice(&0x200u32.to_le_bytes());
+        b[sec + 12..sec + 16].copy_from_slice(&0x1000u32.to_le_bytes());
+        b[sec + 16..sec + 20].copy_from_slice(&0x200u32.to_le_bytes());
+        b[sec + 20..sec + 24].copy_from_slice(&0x400u32.to_le_bytes());
+        for (i, dll) in dlls.iter().enumerate() {
+            let name_rva = 0x1100 + (i as u32) * 0x20;
+            let desc = 0x400 + i * 20;
+            b[desc + 12..desc + 16].copy_from_slice(&name_rva.to_le_bytes());
+            let at = 0x500 + i * 0x20;
+            b[at..at + dll.len()].copy_from_slice(dll.as_bytes());
+        }
+        b
+    }
+
+    /// Relato do Discord (30/10/2026): "RobloxPlayerBeta.dll was not found".
+    /// A pasta com o exe e sem a DLL que ele importa não é build instalada.
+    #[test]
+    fn a_build_without_the_dll_its_exe_imports_is_not_installed() {
+        let temp = TempDir::new("dll");
+        let dir = temp.0.join("version-0123abcd");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("RobloxPlayerBeta.exe"),
+            fake_pe_importing(&["RobloxPlayerBeta.dll", "KERNEL32.dll"]),
+        )
+        .unwrap();
+        assert_eq!(
+            pe_imported_dlls(&dir.join("RobloxPlayerBeta.exe")).unwrap(),
+            vec!["RobloxPlayerBeta.dll".to_string(), "KERNEL32.dll".to_string()]
+        );
+        assert!(!build_folder_ready(&dir));
+        assert!(installed_builds_newest_first(&temp.0).is_empty());
+
+        // Com a DLL de volta a build vale; a do sistema (KERNEL32) não conta.
+        std::fs::write(dir.join("RobloxPlayerBeta.dll"), b"MZ").unwrap();
+        assert!(build_folder_ready(&dir));
+        assert_eq!(installed_builds_newest_first(&temp.0), builds(&["version-0123abcd"]));
+    }
+
+    /// Exe que não dá para ler como PE não impede de abrir: na dúvida, vale.
+    #[test]
+    fn an_unreadable_exe_still_counts_as_installed() {
+        let temp = TempDir::new("unreadable");
+        for junk in [b"MZ".as_slice(), b"", b"not a pe at all"] {
+            std::fs::write(temp.0.join("RobloxPlayerBeta.exe"), junk).unwrap();
+            assert!(build_folder_ready(&temp.0));
+        }
+    }
+
+    /// O exe de verdade instalado nesta máquina (quando há um) é lido: a
+    /// tabela dele traz a `RobloxPlayerBeta.dll` (medido em 30/10/2026).
+    #[test]
+    fn the_real_roblox_exe_imports_its_dll() {
+        let Some(entries) = roblox_versions_dir().and_then(|d| std::fs::read_dir(d).ok()) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let exe = entry.path().join("RobloxPlayerBeta.exe");
+            if let Some(dlls) = pe_imported_dlls(&exe) {
+                assert!(
+                    dlls.iter().any(|d| d.eq_ignore_ascii_case("RobloxPlayerBeta.dll")),
+                    "{}: {dlls:?}",
+                    exe.display()
+                );
+            }
+        }
     }
 
     #[test]

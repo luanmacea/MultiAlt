@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -258,6 +258,24 @@ describe("GroupsPage — accounts and join", () => {
     for (const name of ["alpha", "bravo", "charlie"]) {
       expect(screen.getByRole("checkbox", { name })).toHaveAttribute("aria-checked", "false");
     }
+  });
+
+  it("Shift+click ticks a range of accounts and dragging over the rows ticks the ones it passes", async () => {
+    wire();
+    renderPage();
+    const box = (name: string) => screen.getByRole("checkbox", { name });
+    const ticked = () =>
+      ["alpha", "bravo", "charlie"].filter((name) => box(name).getAttribute("aria-checked") === "true");
+    fireEvent.click(box("alpha"));
+    fireEvent.click(box("charlie"), { shiftKey: true });
+    expect(ticked()).toEqual(["alpha", "bravo", "charlie"]);
+
+    // Dragging from a ticked row unticks every row it passes over.
+    fireEvent.mouseDown(box("charlie"), { button: 0 });
+    fireEvent.mouseMove(screen.getByTestId("group-join-row-22"));
+    fireEvent.mouseMove(screen.getByTestId("group-join-row-11"));
+    fireEvent.mouseUp(screen.getByTestId("group-join-row-11"));
+    expect(ticked()).toEqual([]);
   });
 
   it("keeps Join group off until a group and an account are picked", async () => {

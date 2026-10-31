@@ -26,7 +26,7 @@ Lançar várias contas, **uma por vez e em sequência**, no mesmo place/Job ID, 
 5. O laço da fila (`run_launch_queue_windows`; no macOS `run_launch_queue_macos`) pede a **próxima conta `queued` da fila compartilhada** (`next_or_finish`) — não itera a lista que recebeu, então quem entrou no fim durante o lote também é lançado, com o place/job/launch data/VIP/sorteio **do lote dele**. Para cada conta:
    0. Se houve uma conta antes: espera (ver regras de espaçamento) e volta ao topo — durante a espera a conta pode ter sido cancelada ou outro lote pode ter entrado.
    1. Se `is_launch_cancelled()` → sai do loop.
-   2. `launch-log` `start` ("Conta i/N — place …").
+   2. `launch-log` `start` ("Account i/N — place …", frase em inglês traduzida pela tela).
    3. Resolve versão da conta (`RobloxVersion` → `DefaultVersion` → catálogo → sistema). Falha → `launch-progress` com `error: "version-resolve-failed"`, espera 2 s, próxima conta.
    4. Guarda de versão (`version_guard_blocks`, com o toggle `Versions.AllowLaunchOnOpenVersion` lido a cada conta — ver [launch.md](launch.md)): se houver cliente/pendente em outra versão → `launch-progress` com `error: "version-conflict"`, próxima conta (sem espera). O código fica no evento; a entrada da fila é marcada `Failed` com a **frase** de `version_conflict_message` (com as versões que impedem aquela conta), porque o painel de sessão desenha `entry.error` cru.
    5. Emite `launch-progress {userId, index, total}`.
@@ -72,7 +72,7 @@ sequenceDiagram
 - **Espaçamento síncrono (`AsyncJoin = false`):**
   - `delay = max(AccountJoinDelay, 8)` segundos, medido a partir do **início** da iteração da conta (desconta auth + espera de PID);
   - `wait = max(delay - elapsed, 5 s) + jitter`, com `jitter = 300 + (subsec_millis % 1200)` ms (300–1499 ms);
-  - loga `launch-log` `wait` ("Aguardando Ns antes da próxima conta (anti-captcha)");
+  - loga `launch-log` `wait` ("Waiting Ns before the next account (anti-captcha)", traduzida pela tela);
   - a espera é **fatiada** (250 ms) e termina antes da hora quando não sobra conta `queued` desta sequência ou quando o cancelamento global chega. Dormir o intervalo inteiro deixava o app preso depois de o usuário parar a fila — com o painel mostrando "0 na fila" e todo launch novo recusado.
   - Motivo: o Roblox pede "verify you're not a robot" quando resgates de auth ticket do mesmo IP chegam próximos demais.
 - **Espera pelo jogo (`WaitForGameJoin = true`, padrão, só Windows, só com `AsyncJoin = false`):** em vez da espera fixa, a fila segue **assim que o log do cliente diz que a conta entrou no jogo** (`in_game` do monitor de quedas, [watcher.md](watcher.md#quedas-lidas-do-log-do-cliente)). Três prazos, todos medidos como a espera fixa (do início da iteração, com o resíduo de 5 s e o jitter): piso `8 s` (o anti-captcha, nunca antes dele, nem com a conta já em jogo), espera fixa `max(AccountJoinDelay, 8)` e teto `max(20 s, AccountJoinDelay)` (`JOIN_WAIT_CAP_SECS`). Regra (`join_wait_done`, testes `launch_join_wait_tests`):

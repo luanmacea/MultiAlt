@@ -111,25 +111,30 @@ pub fn live_clear_tiles() {
 
 /// Janela minimizada não se desenha: a Live a restaura **invisível** (alfa 0,
 /// não recebe clique), atrás de tudo e sem pegar o foco. Só mexe em janela
-/// minimizada; as outras ficam como estão.
-pub fn live_keep_rendering(user_id: i64, hwnd: isize) {
+/// minimizada; as outras ficam como estão. `true` quando a tirou do
+/// minimizado agora.
+pub fn live_keep_rendering(user_id: i64, hwnd: isize) -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         IsIconic, SetWindowPos, ShowWindow, HWND_BOTTOM, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNOACTIVATE,
     };
     let h = hwnd as HWND;
     if unsafe { IsIconic(h) } == 0 {
-        return;
+        return false;
     }
     let mut hidden = live_lock(&LIVE_HIDDEN);
-    if hidden.contains_key(&user_id) {
-        return;
+    // Já invisível pela Live e minimizada de novo (a pessoa clicou no botão da
+    // barra de tarefas duas vezes): só volta a restaurar, a transparência e o
+    // estado guardado continuam os de antes.
+    if !hidden.get(&user_id).is_some_and(|saved| saved.hwnd == hwnd) {
+        let Some(saved) = make_window_invisible(h, 0) else { return false };
+        // Uma entrada de outra janela é de um cliente que já fechou.
+        hidden.insert(user_id, saved);
     }
-    let Some(saved) = make_window_invisible(h, 0) else { return };
     unsafe {
         ShowWindow(h, SW_SHOWNOACTIVATE);
         SetWindowPos(h, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
-    hidden.insert(user_id, saved);
+    true
 }
 
 /// A Live fechou: as janelas que ela tirou do minimizado voltam a ser

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   collectGroupNames,
   getFreshnessColor,
+  groupLabel,
   MAX_ALIAS_LENGTH,
   orderGroupKeys,
   parseGroupName,
@@ -26,6 +27,25 @@ const DAY = 24 * HOUR;
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("groupLabel", () => {
+  // Tradução falsa: marca o que passou pelo t().
+  const t = (key: string) => `<${key}>`;
+
+  it("translates the groups the app creates by itself", () => {
+    // O grupo das contas moderadas é gravado como "moderadas" (MODERATED_GROUP
+    // no backend) e aparecia em português para todo mundo (relato do Discord).
+    expect(groupLabel("moderadas", t)).toBe("<Moderated>");
+    expect(groupLabel("Default", t)).toBe("<Default>");
+    expect(groupLabel("", t)).toBe("<Default>");
+  });
+
+  it("shows the user's own groups as typed, without the order number", () => {
+    expect(groupLabel("Alts", t)).toBe("Alts");
+    expect(groupLabel("10 Alts", t)).toBe("Alts");
+    expect(groupLabel("Moderadas", t)).toBe("Moderadas");
+  });
 });
 
 describe("parseGroupName", () => {

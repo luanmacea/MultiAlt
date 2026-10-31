@@ -53,6 +53,14 @@ export function KeepInGameTab({ s }: { s: UseSettingsReturn }) {
             action={t("Change it on the Session page")}
             onNavigate={() => store.setActivePage("session")}
           />
+          {/* commands/reconnect.rs `reconnect_target`: ligado (padrão) volta ao servidor
+              onde a conta estava; desligado entra sempre pelo jogo (sem Job ID). */}
+          <Toggle
+            checked={s.get("General", "ReconnectSameServer", "true") !== "false"}
+            onChange={(v) => s.setBool("General", "ReconnectSameServer", v)}
+            label="Reconnect to the same server"
+            description="On: a dropped account goes back to the exact server it was in. Some games move you to another server or place right after you join, and Roblox refuses to let you back into that exact server (a 'you don't have permission' error). MultiAlt already rejoins the game instead when it sees that happen. Turn this off to always rejoin the game and let Roblox pick the server."
+          />
         </>
       )}
 

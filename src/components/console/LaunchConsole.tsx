@@ -3,6 +3,7 @@ import { Terminal, Trash2 } from "lucide-react";
 import { useStore, type LaunchLogLevel } from "../../store";
 import { useTr } from "../../i18n/text";
 import { accountLabel } from "../../utils/accountName";
+import { launchLogText } from "../../utils/launchLog";
 import { TONE_STYLES, type ToneStyle } from "../../utils/toastTone";
 
 /**
@@ -97,7 +98,8 @@ export function LaunchConsole({ className = "" }: { className?: string }) {
                   </span>
                 ) : null}
                 <span className="shrink-0 text-[var(--accent-color)] max-w-[120px] truncate">{nameFor(log.userId)}</span>
-                <span className={`${style.text} break-words`}>{log.message}</span>
+                {/* A frase vem como `key` + `params` e é traduzida aqui (utils/launchLog.ts). */}
+                <span className={`${style.text} break-words`}>{launchLogText(log, t)}</span>
               </div>
             );
           })

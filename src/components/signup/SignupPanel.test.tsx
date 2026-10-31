@@ -105,6 +105,72 @@ describe("SignupPanel — sessão", () => {
     );
   });
 
+  /**
+   * Pedido do Discord (30/10/2026): uma senha só para o lote. Ela vai para a
+   * sessão e não para o RAMSettings.ini; curta demais nem começa.
+   */
+  it("manda a senha escolhida para a sessão sem gravá-la nas configurações", async () => {
+    const user = userEvent.setup();
+    setInvokeMap({
+      get_signup_status: status(),
+      get_all_settings: {},
+      update_setting: null,
+      start_signup_session: status({ active: true, total: 5, phase: "opening" }),
+    });
+    const { store } = renderWithStore(<SignupPanel />);
+    const campo = await screen.findByLabelText("Password for every account (optional)");
+
+    await user.type(campo, "curta");
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    expect(store.addToast).toHaveBeenCalledWith("The password needs at least 8 characters.");
+    expect(callsFor("start_signup_session")).toHaveLength(0);
+
+    await user.type(campo, "Senha123");
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(callsFor("start_signup_session")).toHaveLength(1));
+    expect(callsFor("start_signup_session")[0][1]).toMatchObject({ count: 5, password: "curtaSenha123" });
+    expect(JSON.stringify(callsFor("update_setting"))).not.toContain("curtaSenha123");
+  });
+
+  it("sem senha escolhida, cada conta continua com a sorteada", async () => {
+    const user = userEvent.setup();
+    setInvokeMap({
+      get_signup_status: status(),
+      get_all_settings: {},
+      update_setting: null,
+      start_signup_session: status({ active: true, total: 5, phase: "opening" }),
+    });
+    renderWithStore(<SignupPanel />);
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(callsFor("start_signup_session")).toHaveLength(1));
+    expect(callsFor("start_signup_session")[0][1]).toMatchObject({ password: null });
+  });
+
+  /** "let us choose the name or put like 1-100": nomes em ordem, com prefixo. */
+  it("numera os nomes só com prefixo e grava a escolha", async () => {
+    const user = userEvent.setup();
+    setInvokeMap({
+      get_signup_status: status(),
+      get_all_settings: { Generator: { SignupUsernameNext: "7" } },
+      update_setting: null,
+    });
+    renderWithStore(<SignupPanel />);
+    const caixa = await screen.findByRole("checkbox", { name: /Number the names in order/ });
+    expect(caixa).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Name prefix (optional)"), "arvore");
+    expect(caixa).toBeEnabled();
+    expect(screen.getByText("(arvore_7 instead of random characters)")).toBeInTheDocument();
+    await user.click(caixa);
+    await waitFor(() =>
+      expect(callsFor("update_setting")).toContainEqual([
+        "update_setting",
+        { section: "Generator", key: "SignupUsernameNumbered", value: "true" },
+      ])
+    );
+    expect(screen.getByText("Next number")).toBeInTheDocument();
+  });
+
   it("abre com o prefixo que já estava salvo", async () => {
     setInvokeMap({
       get_signup_status: status(),

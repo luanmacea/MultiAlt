@@ -35,7 +35,7 @@ A página abre em **Launch**. Outra tela abre uma seção com `store.openSetting
 | Aba | Visível quando | Seções/chaves |
 |---|---|---|
 | Launch | sempre | **Several accounts at once**: `General.EnableMultiRbx`, `ReserveSingletonEvent` (Windows), `AutoCloseRobloxForMultiRbx` (vinha de Misc); **Time between accounts**: `AsyncJoin`, `AccountJoinDelay`, `WaitForGameJoin` (Windows); **Before each launch**: `CheckModerationBeforeLaunch`, `WarnOnOnlineJoin`, `AutoCloseLastProcess` e `ShuffleJobId` (os dois vinham de Misc) |
-| Keep in game | sempre | `General.BottingEnabled` (Auto Rejoin) + linha "Auto Rejoin options" com botão **Open AFK Mode**; "Reconnect accounts that drop" **sem interruptor** — mostra se o padrão `General.AutoReconnect` está ligado e tem o botão **Change it on the Session page** (Windows); `General.KeepPcAwake`, `Afk.ShakeToStop` (Windows) |
+| Keep in game | sempre | `General.BottingEnabled` (Auto Rejoin) + linha "Auto Rejoin options" com botão **Open AFK Mode**; "Reconnect accounts that drop" **sem interruptor** — mostra se o padrão `General.AutoReconnect` está ligado e tem o botão **Change it on the Session page** (Windows); `General.ReconnectSameServer` ("Reconnect to the same server", Windows, interruptor aqui mesmo, logo abaixo do caminho para o padrão da reconexão); `General.KeepPcAwake`, `Afk.ShakeToStop` (Windows) |
 | Accounts | sempre | **Account list**: `ShowPresence`, `PresenceUpdateRate` (vinha de Misc), `WrapLongNames`, `DisableAgingAlert`, `DisableImages`, `AutoCookieRefresh`; **Login browser**: `Login.PersistentProfile`, `Login.StealthMode`, `Login.ManualBinaryPath` e o cartão do navegador embutido |
 | Privacy & security | sempre | **Hidden names**: `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `ShowAccountNameOnWindow` (Windows); **Account file**: botão "Change Encryption Method" (vinha de Misc), `WarnOnCopyCredential`; **Password screen**: `LockOnInactivity`, `LockAfterMinutes`, "Stay signed in on this computer" (os três vinham de Misc), `RestrictedBackgroundStyle` |
 | Updates | sempre | `CheckForUpdates`, `UpdaterReleaseChannel`, `UpdaterFeatureChannel` e o cartão "Manual Update Check" |
@@ -77,6 +77,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `RestoreRobloxSettingsOnExit` | `false` | "Restore Roblox settings when no game is open" (Settings › Optimization): devolve o FPS, volume, gráficos, janela e FastFlags que o launch gravou nos arquivos do Roblox assim que nenhum Roblox estiver aberto — com o app aberto ou ao fechá-lo. A anotação é feita sempre, também com a opção desligada, para que ligá-la depois devolva os valores de antes do app. Cópia dos arquivos originais em `RobloxSettingsBackup/`. Só Windows. Ver [performance.md](performance.md#devolver-as-configurações-do-roblox-ao-fechar-generalrestorerobloxsettingsonexit). |
 | `KeepPcAwake` | `true` | Não deixa o Windows dormir (a tela pode apagar) enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda; solta ao parar tudo e ao fechar o app. Só Windows. Ver [afk-mode.md](afk-mode.md#pc-acordado). |
 | `AutoReconnect` | `false` | Padrão de todas as contas para a [reconexão automática](watcher.md#reconexão-automática): reabre no mesmo jogo o cliente que o app abriu quando ele cai. O campo `AutoReconnect` da conta (chave na lista "In game" da página Session) vence. Também muda no cartão "Keep accounts in game" da página Session. Só Windows. |
+| `ReconnectSameServer` | `true` | Como a [reconexão automática](watcher.md#reconexão-automática) escolhe o destino (31/10/2026). Ligado (padrão): volta ao servidor onde a conta estava, e o app já entra pelo jogo sozinho quando vê um teleporte ou um servidor recusado. Desligado: sempre entra pelo jogo (o place, sem Job ID) e o Roblox escolhe o servidor — para jogos que movem a conta para um servidor reservado logo depois de entrar. Servidor privado/VIP ignora a opção. Muda em Settings › Keep in game. Só Windows. |
 | `WaitForGameJoin` | `true` | "Start the next account once the previous one is in the game". Multi-launch no Windows: passa para a próxima conta quando o log diz que a anterior entrou no jogo (nunca antes de 8 s, no máximo 20 s ou o delay, se maior); sem log achado, vale o `AccountJoinDelay`. Ver [multi-launch.md](multi-launch.md). |
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |
 | `HideUsernames` | `false` | Mascara nomes na lista. |
@@ -200,7 +201,7 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 
 ### `[Versions]` — detalhes em [roblox-versions.md](roblox-versions.md)
 
-`DefaultVersion=""` (vazio = instalação oficial), `MaxParallelDownloads=4`, `CatalogCacheMinutes=10`, `PreferOldJoinForVersioned=true` (launch direto do exe para versões gerenciadas), `ShowPreReleaseVersions=false`, `AllowLaunchOnOpenVersion=false` (ligado, a guarda de versão aceita abrir numa versão que já tem cliente aberto — ver [launch.md](launch.md)).
+`DefaultVersion=""` (vazio = instalação oficial), `MaxParallelDownloads=4`, `CatalogCacheMinutes=10`, `PreferOldJoinForVersioned=true` (launch direto do exe para versões gerenciadas), `ShowPreReleaseVersions=false`, `AllowLaunchOnOpenVersion=false` (ligado, a guarda de versão aceita abrir numa versão que já tem cliente aberto — ver [launch.md](launch.md)), `AllowOutdated=false` (ligado, versão do catálogo que ficou para trás da atual abre sem perguntar — ver [roblox-versions.md](roblox-versions.md#versão-velha-31102026)).
 
 ### `[Isolation]` — detalhes em [isolation.md](isolation.md)
 
@@ -298,6 +299,8 @@ Página **Live** e a janela "MultiAlt Live" (para transmitir as contas).
 | `Generator.MaxAccounts` | `0` | Parar após N contas (0 = sem limite). |
 | `Generator.MaxConsecutiveFailures` | `3` | Para após N falhas seguidas. |
 | `Generator.SignupAutoSubmit` | `true` | O criador de contas (formulário do Roblox) clica em "Cadastrar-se" sozinho; o CAPTCHA continua sendo do usuário. Desligado = o usuário clica. Caixa "Press Create Account by itself" no painel. Ver [account-creation.md](account-creation.md). |
+| `Generator.SignupUsernameNumbered` | `false` | Com prefixo, nomes em ordem (`arvore_1`, `arvore_2`...) em vez dos 5 caracteres sorteados. Caixa "Number the names in order" no painel de criação. Ver [account-creation.md](account-creation.md). |
+| `Generator.SignupUsernameNext` | `1` | Próximo número dos nomes em ordem; o criador avança a cada conta salva. |
 | `Generator.SignupUsernamePrefix` | `""` | Prefixo do nome das contas criadas pelo **formulário do Roblox**: `arvore` gera `arvore_k3p9z`. Vazio = nome de palavras. Não vale para o BloxGen, cujo nome vem do provedor. Ver [account-creation.md](account-creation.md). |
 | `BloxGen.Endpoint` | `https://core.bloxgen.net` | URL da API. |
 | `BloxGen.ApiKey` | `""` | Chave (em texto no INI). |

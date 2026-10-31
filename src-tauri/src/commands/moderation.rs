@@ -54,43 +54,59 @@ fn ban_is_active(status: &ModerationStatus, now: chrono::DateTime<chrono::Utc>) 
     }
 }
 
-fn moderator_note_suffix(status: &ModerationStatus) -> String {
-    match status.note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
-        Some(note) => {
-            let short: String = note.chars().take(200).collect();
-            format!(" Moderator note: \"{short}\"")
-        }
-        None => String::new(),
-    }
+/// A nota do moderador (texto do Roblox), no tamanho que cabe numa linha.
+fn moderator_note_of(status: &ModerationStatus) -> Option<String> {
+    status
+        .note
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(|note| note.chars().take(200).collect())
 }
 
 /// A frase do launch pulado, ou `None` quando a conta pode abrir. Advertência
 /// não bloqueia; ban que já acabou também não (o Roblox pode pedir para
-/// reativar a conta no site, e aí o próprio launch diz).
+/// reativar a conta no site, e aí o próprio launch diz). Esta é a frase do
+/// Console, traduzível; `moderation_block_message` é a mesma em inglês montada.
+fn moderation_block_log(
+    status: &ModerationStatus,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<LogMsg> {
+    if !ban_is_active(status, now) {
+        return None;
+    }
+    let note = moderator_note_of(status);
+    let terminated = matches!(status.state, ModerationState::Terminated);
+    let until = status
+        .until
+        .as_deref()
+        .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
+        .map(|end| end.with_timezone(&chrono::Local).format("%d/%m/%Y %H:%M").to_string());
+    Some(match (terminated, until, note) {
+        (true, _, None) => log_msg!("Skipped: Roblox terminated this account."),
+        (true, _, Some(note)) => log_msg!(
+            "Skipped: Roblox terminated this account. Moderator note: \"{{note}}\"",
+            note = note
+        ),
+        (false, Some(date), None) => log_msg!("Skipped: this account is banned until {{date}}.", date = date),
+        (false, Some(date), Some(note)) => log_msg!(
+            "Skipped: this account is banned until {{date}}. Moderator note: \"{{note}}\"",
+            date = date,
+            note = note
+        ),
+        (false, None, None) => log_msg!("Skipped: this account is banned."),
+        (false, None, Some(note)) => log_msg!(
+            "Skipped: this account is banned. Moderator note: \"{{note}}\"",
+            note = note
+        ),
+    })
+}
+
 fn moderation_block_message(
     status: &ModerationStatus,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Option<String> {
-    if !ban_is_active(status, now) {
-        return None;
-    }
-    let note = moderator_note_suffix(status);
-    Some(match status.state {
-        ModerationState::Terminated => {
-            format!("Skipped: Roblox terminated this account.{note}")
-        }
-        _ => match status
-            .until
-            .as_deref()
-            .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
-        {
-            Some(end) => format!(
-                "Skipped: this account is banned until {}.{note}",
-                end.with_timezone(&chrono::Local).format("%d/%m/%Y %H:%M")
-            ),
-            None => format!("Skipped: this account is banned.{note}"),
-        },
-    })
+    moderation_block_log(status, now).map(|msg| msg.render())
 }
 
 /// Lê a moderação sem refresh, guarda no cache e avisa a tela (`account-moderation`).
@@ -162,7 +178,7 @@ async fn moderation_launch_block(
     app: &tauri::AppHandle,
     settings: &SettingsStore,
     user_id: i64,
-) -> Option<String> {
+) -> Option<LogMsg> {
     if !settings.get_bool("General", "CheckModerationBeforeLaunch") {
         return None;
     }
@@ -178,7 +194,7 @@ async fn moderation_launch_block(
             fetch_moderation(state, Some(app), user_id, client).await.ok()?
         }
     };
-    let message = moderation_block_message(&status, chrono::Utc::now())?;
+    let message = moderation_block_log(&status, chrono::Utc::now())?;
     // O cache pode ter vindo de antes; garante o grupo também nesse caso.
     mark_account_moderated(state, app, user_id);
     Some(message)

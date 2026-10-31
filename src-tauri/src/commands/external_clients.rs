@@ -55,7 +55,7 @@ pub(crate) fn start_external_client_scanner(app: tauri::AppHandle) {
                     user_id,
                     "info",
                     "external",
-                    format!("Cliente aberto fora do app reconhecido pelo log do Roblox (PID {pid})"),
+                    log_msg!("Client opened outside the app recognized from the Roblox log (PID {{pid}})", pid = pid),
                 );
             }
             tokio::time::sleep(EXTERNAL_CLIENT_SCAN_INTERVAL).await;
@@ -150,7 +150,7 @@ fn identify_external_client(
             user_id,
             "info",
             "external",
-            format!("Cliente aberto fora do app identificado à mão (PID {pid})"),
+            log_msg!("Client opened outside the app identified by hand (PID {{pid}})", pid = pid),
         );
         return Ok(true);
     }

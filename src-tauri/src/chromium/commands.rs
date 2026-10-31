@@ -823,23 +823,23 @@ pub async fn relogin_account(
     // Rastro no Console de cada etapa (relato do dono, 26/10/2026: a janela
     // fechou "como se tivesse dado certo" e a conta voltou a pedir login, sem
     // motivo nenhum à vista). Nunca leva a senha nem o cookie.
-    let log = |level: &str, message: String| crate::emit_launch_log(&app, user_id, level, "relogin", message);
+    let log = |level: &str, message: crate::LogMsg| crate::emit_launch_log(&app, user_id, level, "relogin", message);
     log(
         "info",
         if credentials.is_some() {
-            "Fazer login de novo: navegador aberto com usuário e senha preenchidos".to_string()
+            log_msg!("Sign in again: browser opened with the username and password filled in")
         } else {
-            "Fazer login de novo: navegador aberto (sem senha salva para preencher)".to_string()
+            log_msg!("Sign in again: browser opened (no saved password to fill in)")
         },
     );
     let BrowserSignIn { cookie, typed_password: typed, login_user } = match sign_in_in_browser(&app, &chromium, &settings, credentials).await {
         Ok(found) => found,
         Err(e) => {
-            log("warn", format!("O login não terminou: {e}"));
+            log("warn", log_msg!("The sign-in did not finish: {{error}}", error = e.to_string()));
             return Err(e);
         }
     };
-    log("info", "Sessão capturada no navegador; conferindo de quem é".to_string());
+    log("info", log_msg!("Session captured in the browser; checking whose it is"));
     // Conta moderada (relato de 26/10/2026): o login dá certo, mas as consultas
     // de "de quem é" recusam. A moderação diz o ID da conta punida — com ele a
     // sessão é conferida e gravada, em vez de jogada fora.
@@ -855,7 +855,10 @@ pub async fn relogin_account(
                     _ => {
                         log(
                             "warn",
-                            format!("O Roblox está restringindo a conta e não deu para saber de quem é a sessão; nada foi gravado: {e}"),
+                            log_msg!(
+                                "Roblox is restricting the account and it was not possible to tell whose session this is; nothing was saved: {{error}}",
+                                error = e.to_string()
+                            ),
                         );
                         return Err(e);
                     }
@@ -863,14 +866,18 @@ pub async fn relogin_account(
             }
         }
         Err(e) => {
-            log("warn", format!("O Roblox não aceitou a sessão capturada: {e}"));
+            log("warn", log_msg!("Roblox did not accept the captured session: {{error}}", error = e.to_string()));
             return Err(e);
         }
     };
     if let Err(e) = relogin_identity_check(user_id, &account.username, session_user_id, &session_name) {
         log(
             "warn",
-            format!("A sessão capturada é de {} (ID {}), não desta conta; nada foi gravado", session_name, session_user_id),
+            log_msg!(
+                "The captured session belongs to {{name}} (ID {{userId}}), not to this account; nothing was saved",
+                name = session_name.clone(),
+                userId = session_user_id
+            ),
         );
         return Err(e);
     }
@@ -883,9 +890,9 @@ pub async fn relogin_account(
     log(
         if moderated { "warn" } else { "info" },
         match (password_changed, moderated) {
-            (_, true) => "Login feito: sessão nova gravada, mas o Roblox está restringindo a conta (banida, advertida ou em análise). Veja em roblox.com/not-approved".to_string(),
-            (true, false) => "Login feito: sessão nova gravada e a senha guardada atualizada (a anterior ficou no histórico)".to_string(),
-            (false, false) => "Login feito: sessão nova gravada".to_string(),
+            (_, true) => log_msg!("Signed in: new session saved, but Roblox is restricting the account (banned, warned or under review). See roblox.com/not-approved"),
+            (true, false) => log_msg!("Signed in: new session saved and the saved password updated (the previous one stayed in the history)"),
+            (false, false) => log_msg!("Signed in: new session saved"),
         },
     );
 

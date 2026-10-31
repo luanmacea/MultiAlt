@@ -1,5 +1,6 @@
 import { Check, ChevronDown, ChevronRight, ChevronUp, GripVertical, Pencil } from "lucide-react";
 import { useStore } from "../../store";
+import { groupLabel } from "../../types";
 import type { ParsedGroup } from "../../types";
 import { AccountRow } from "./AccountRow";
 import { useAccountListView } from "./accountListView";
@@ -165,7 +166,7 @@ export function GroupSection({
             </div>
           </div>
           <ChevronRight size={12} fill="currentColor" stroke="none" className={`theme-muted transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`} />
-          <span className="theme-label font-medium">{group.displayName === "Default" ? t("Default") : group.displayName}</span>
+          <span className="theme-label font-medium">{groupLabel(group.key, t)}</span>
           <span className="theme-muted text-[11px] tabular-nums">{group.accounts.length}</span>
 
           {/* Setas à direita: o caminho que não depende de arrastar. */}

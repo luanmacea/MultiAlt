@@ -1137,27 +1137,157 @@ fn most_common_size(wins: &[RobloxWin]) -> (i32, i32) {
         .unwrap_or((800, 600))
 }
 
+/// A borda invisível de redimensionar que o Windows 10/11 põe em volta de uma
+/// janela com moldura: o retângulo da janela passa da parte visível por estes
+/// pixels de cada lado (em 100% de escala, 7 dos lados e embaixo, 0 em cima).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct FrameMargins {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+/// O espaço entre as janelas da grade, medido entre as partes **visíveis**.
+///
+/// Relato do Discord (31/10/2026): com a moldura do Roblox, gap 0 ainda
+/// deixava ~14 px entre as colunas e ~7 px entre as linhas — a grade encostava
+/// os retângulos das janelas, que incluem a borda invisível. Sem moldura a
+/// borda some e o gap já batia. Agora as células descontam `frame`: os
+/// retângulos se cruzam só na parte invisível, e o que aparece encosta.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct GridGap {
+    gap: i32,
+    frame: FrameMargins,
+}
+
+impl From<i32> for GridGap {
+    fn from(gap: i32) -> Self {
+        GridGap { gap, frame: FrameMargins::default() }
+    }
+}
+
+/// Mais que isto não é borda invisível (é medida errada): fica sem desconto.
+const MAX_INVISIBLE_FRAME: i32 = 32;
+
+/// A borda invisível de uma janela visível com moldura, ou `None` se não dá
+/// para medir.
+fn invisible_frame(hwnd: HWND) -> Option<FrameMargins> {
+    let (x, y, w, h) = get_window_position(hwnd)?;
+    let visible = visible_bounds(hwnd)?;
+    let frame = FrameMargins {
+        left: visible.left - x,
+        top: visible.top - y,
+        right: x + w - visible.right,
+        bottom: y + h - visible.bottom,
+    };
+    let plausible = |v: i32| (0..=MAX_INVISIBLE_FRAME).contains(&v);
+    (plausible(frame.left) && plausible(frame.top) && plausible(frame.right) && plausible(frame.bottom))
+        .then_some(frame)
+}
+
+/// A borda das janelas da grade: medida em `probe` (uma janela com moldura
+/// normal — maximizada ou em tela cheia diz outra coisa), nenhuma sem moldura.
+fn grid_frame(style: GridWindowStyle, probe: Option<HWND>) -> FrameMargins {
+    if style.borderless {
+        return FrameMargins::default();
+    }
+    probe.and_then(invisible_frame).unwrap_or_default()
+}
+
+/// A primeira janela com moldura normal (nem minimizada, nem maximizada, nem
+/// em tela cheia): é nela que a borda invisível da grade é medida.
+fn framed_window(candidates: impl IntoIterator<Item = (HWND, (i32, i32, i32, i32))>) -> Option<HWND> {
+    candidates
+        .into_iter()
+        .find(|&(hwnd, rect)| unsafe { IsIconic(hwnd) } == 0 && window_enforces_min_size(hwnd, rect))
+        .map(|(hwnd, _)| hwnd)
+}
+
+/// O retângulo de uma janela na célula: a parte visível da célula (sem a
+/// borda `grid`) mais a borda que a própria janela tem. Uma janela sem moldura
+/// (a tela cheia do Roblox) no meio das com moldura fica só na parte visível —
+/// do tamanho da célula, cobriria 7 px da vizinha.
+fn rect_in_cell(cell: (i32, i32, i32, i32), grid: FrameMargins, own: FrameMargins) -> (i32, i32, i32, i32) {
+    (
+        cell.0 + grid.left - own.left,
+        cell.1 + grid.top - own.top,
+        cell.2 - grid.left - grid.right + own.left + own.right,
+        cell.3 - grid.top - grid.bottom + own.top + own.bottom,
+    )
+}
+
+/// A borda da própria janela. Sem moldura (pelo estilo, que vale até
+/// minimizada): nenhuma. Minimizada, maximizada ou sem medida: a da grade.
+fn own_frame(hwnd: HWND, grid: FrameMargins) -> FrameMargins {
+    if grid == FrameMargins::default() {
+        return grid;
+    }
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    if !frame_enforces_min_size(style) {
+        return FrameMargins::default();
+    }
+    if unsafe { IsIconic(hwnd) } != 0 || unsafe { IsZoomed(hwnd) } != 0 {
+        return grid;
+    }
+    invisible_frame(hwnd).unwrap_or(grid)
+}
+
+/// A janela vista pela célula em que está (o inverso de `rect_in_cell`): a sem
+/// moldura conta com o tamanho da célula inteira. Sem isso, três janelas sem
+/// moldura viravam o "tamanho mais comum" da grade e a próxima célula saía
+/// menor, por cima da vizinha (fuzz de 31/10/2026).
+fn cell_of_window(w: RobloxWin, grid: FrameMargins) -> RobloxWin {
+    let own = own_frame(w.hwnd as HWND, grid);
+    RobloxWin {
+        x: w.x - grid.left + own.left,
+        y: w.y - grid.top + own.top,
+        w: w.w + grid.left + grid.right - own.left - own.right,
+        h: w.h + grid.top + grid.bottom - own.top - own.bottom,
+        ..w
+    }
+}
+
+/// Os retângulos das janelas de fora, vistos pelas partes visíveis contra a
+/// célula: encostada (gap 0), a vizinha não bloqueia a célula só porque as
+/// bordas invisíveis se cruzam.
+fn visible_blockers(blockers: &[(i32, i32, i32, i32)], frame: FrameMargins) -> Vec<(i32, i32, i32, i32)> {
+    let (dx, dy) = (frame.left + frame.right, frame.top + frame.bottom);
+    blockers
+        .iter()
+        .map(|&(x, y, w, h)| (x + dx, y + dy, (w - 2 * dx).max(0), (h - 2 * dy).max(0)))
+        .collect()
+}
+
 /// Distribute `count` windows of `win_w`×`win_h` into cells across `monitors`.
 fn compute_grid(
     monitors: &[MonitorInfoDto],
     win_w: i32,
     win_h: i32,
     count: usize,
-    gap: i32,
+    gap: impl Into<GridGap>,
 ) -> Vec<GridCell> {
+    let GridGap { gap, frame: f } = gap.into();
+    let gap = gap.max(0);
+    // De uma célula à próxima: a janela, o gap, menos as duas bordas
+    // invisíveis que se cruzam.
+    let (step_x, step_y) = (win_w + gap - f.left - f.right, win_h + gap - f.top - f.bottom);
+    if step_x <= 0 || step_y <= 0 {
+        return Vec::new();
+    }
     let mut cells: Vec<GridCell> = Vec::new();
     for mon in monitors {
         let mut row = 0;
         while cells.len() < count {
-            let cell_y = mon.y + gap + row * (win_h + gap);
-            if cell_y + win_h > mon.y + mon.height {
+            let cell_y = mon.y + gap - f.top + row * step_y;
+            if cell_y + win_h - f.bottom > mon.y + mon.height {
                 break; // row doesn't fit vertically -> monitor exhausted
             }
             let mut col = 0;
             let mut placed_in_row = false;
             while cells.len() < count {
-                let cell_x = mon.x + gap + col * (win_w + gap);
-                if cell_x + win_w > mon.x + mon.width {
+                let cell_x = mon.x + gap - f.left + col * step_x;
+                if cell_x + win_w - f.right > mon.x + mon.width {
                     break; // column doesn't fit -> end of row
                 }
                 cells.push(GridCell { x: cell_x, y: cell_y });
@@ -1179,11 +1309,11 @@ fn compute_grid(
 const MAX_GRID_SLOTS: usize = 512;
 
 /// Todas as células de `cell_w`×`cell_h` que cabem nos monitores, em ordem.
-fn grid_slots(monitors: &[MonitorInfoDto], cell_w: i32, cell_h: i32, gap: i32) -> Vec<GridCell> {
+fn grid_slots(monitors: &[MonitorInfoDto], cell_w: i32, cell_h: i32, gap: impl Into<GridGap>) -> Vec<GridCell> {
     if cell_w <= 0 || cell_h <= 0 {
         return Vec::new();
     }
-    compute_grid(monitors, cell_w, cell_h, MAX_GRID_SLOTS, gap.max(0))
+    compute_grid(monitors, cell_w, cell_h, MAX_GRID_SLOTS, gap)
 }
 
 /// A célula da grade cruza o retângulo `(x, y, w, h)`?
@@ -1237,10 +1367,11 @@ fn grid_is_full(
 fn cell_that_fits(
     monitors: &[MonitorInfoDto],
     cell: (i32, i32),
-    gap: i32,
+    gap: impl Into<GridGap>,
     count: usize,
     blockers: &[(i32, i32, i32, i32)],
 ) -> Option<(i32, i32)> {
+    let gap: GridGap = gap.into();
     let fits = |c: (i32, i32)| -> bool {
         let slots = grid_slots(monitors, c.0, c.1, gap);
         let free = slots.iter().filter(|s| !blockers.iter().any(|&b| slot_overlaps(s, c, b))).count();
@@ -1276,14 +1407,15 @@ const AUTO_FIT_RATIOS: [(i64, i64); 4] = [(4, 3), (3, 2), (16, 10), (16, 9)];
 /// maior para o menor, em vez de varrer pixel a pixel.
 fn best_fit_cell(
     monitors: &[MonitorInfoDto],
-    gap: i32,
+    gap: impl Into<GridGap>,
     count: usize,
     blockers: &[(i32, i32, i32, i32)],
 ) -> Option<(i32, i32)> {
     if count == 0 || monitors.is_empty() {
         return None;
     }
-    let gap = gap.max(0);
+    let gap: GridGap = gap.into();
+    let (g, f) = (gap.gap.max(0), gap.frame);
     let fits = |c: (i32, i32)| -> bool {
         grid_slots(monitors, c.0, c.1, gap)
             .iter()
@@ -1297,10 +1429,11 @@ fn best_fit_cell(
         let mut widths: Vec<i32> = Vec::new();
         for m in monitors {
             for n in 1..=lines {
-                // `n` colunas: gap + n*w + (n-1)*gap <= largura.
-                widths.push((m.width - n * gap) / n);
+                // `n` colunas: gap + n*w + (n-1)*gap <= largura, com `w` a
+                // parte visível (a janela mais a borda invisível).
+                widths.push((m.width - n * g) / n + f.left + f.right);
                 // `n` linhas, convertidas em largura pelo formato.
-                let h = (m.height - n * gap) / n;
+                let h = (m.height - n * g) / n + f.top + f.bottom;
                 widths.push(((h as i64 * a) / b) as i32);
             }
         }
@@ -1437,17 +1570,6 @@ fn borderless_style(style: u32) -> u32 {
 /// antes voltam — uma janela que nunca teve borda não ganha uma.
 fn restored_frame_style(current: u32, original: u32) -> u32 {
     current | (original & GRID_FRAME_BITS)
-}
-
-/// Célula menor que o mínimo só se todas as janelas da grade forem do app:
-/// a de um cliente aberto pelo site cresceria até o mínimo e sobreporia as
-/// vizinhas.
-fn grid_small_allowed(
-    allow_small: bool,
-    window_pids: &[u32],
-    own: &std::collections::HashSet<u32>,
-) -> bool {
-    allow_small && window_pids.iter().all(|pid| own.contains(pid))
 }
 
 /// Janelas sem moldura pela grade: `hwnd -> (pid, estilo original)`.
@@ -1756,18 +1878,26 @@ pub fn place_in_grid(
     // A grade já foi encolhida para caber mais janelas (`cell_that_fits`): a
     // nova entra no tamanho dela, não no mínimo do Roblox — senão as células
     // não batem e ela cai por cima das outras.
-    let own = launched_client_pids();
-    let grid_pids: Vec<u32> = occupant_wins.iter().map(|w| w.pid).chain([pid]).collect();
     // E vale também para célula maior: com a grade organizada em 1272x695 (a
     // base era uma janela que a pessoa aumentou), a nova num 816x639 caía numa
-    // célula que só existe nesse tamanho, por cima das outras.
-    let all_own = !occupant_wins.is_empty() && grid_small_allowed(true, &grid_pids, &own);
+    // célula que só existe nesse tamanho, por cima das outras. Vale com janela
+    // aberta pelo site na grade: ela também vai sem o mínimo (ver
+    // `arrange_roblox_grid_locked`).
+    let grid_in_use = !occupant_wins.is_empty();
+    // O gap conta da parte visível: a borda invisível da moldura sai da conta,
+    // medida nesta janela ou numa das outras (esta pode estar sem moldura).
+    let probe = framed_window(
+        std::iter::once((hwnd, current)).chain(occupant_wins.iter().map(|w| (w.hwnd as HWND, (w.x, w.y, w.w, w.h)))),
+    );
+    let gap = GridGap { gap: request.gap, frame: grid_frame(request.style, probe) };
+    let own = own_frame(hwnd, gap.frame);
+    let occupant_wins: Vec<RobloxWin> = occupant_wins.into_iter().map(|w| cell_of_window(w, gap.frame)).collect();
     if request.style.auto_fit {
         let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
         let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
         let occupants: Vec<(i32, i32, i32, i32)> = occupant_wins.iter().map(rect).collect();
-        let blockers: Vec<(i32, i32, i32, i32)> = blocker_wins.iter().map(rect).collect();
-        if let Some(best) = best_fit_cell(&monitors, request.gap, occupants.len() + 1, &blockers) {
+        let blockers = visible_blockers(&blocker_wins.iter().map(rect).collect::<Vec<_>>(), gap.frame);
+        if let Some(best) = best_fit_cell(&monitors, gap, occupants.len() + 1, &blockers) {
             // Uma janela a mais muda o melhor tamanho: rearruma todas nele.
             // Com o tamanho igual, a nova só pega a primeira célula livre e
             // ninguém se mexe.
@@ -1785,14 +1915,13 @@ pub fn place_in_grid(
                     None => WindowEnforcement::Skipped,
                 };
             }
-            let small = grid_small_allowed(true, &grid_pids, &own);
-            let slots = grid_slots(&monitors, best.0, best.1, request.gap);
+            let slots = grid_slots(&monitors, best.0, best.1, gap);
             let target = match pick_grid_slot(&slots, best, &occupants, &blockers) {
-                Some(i) => (slots[i].x, slots[i].y, best.0, best.1),
+                Some(i) => rect_in_cell((slots[i].x, slots[i].y, best.0, best.1), gap.frame, own),
                 None => (current.0, current.1, best.0, best.1),
             };
             remember_grid_cell(hwnd as isize, Some(target), false);
-            return move_to_with(hwnd, current, target, small);
+            return move_to_with(hwnd, current, target, true);
         }
     }
     // Janela que já está no tamanho da grade (uma organização anterior a pegou,
@@ -1801,21 +1930,20 @@ pub fn place_in_grid(
     // (teste real `real_grid_scenario_launch_placement_with_more_windows_than_cells`,
     // 26/10/2026). A célula é a que as outras já têm, então não há o que medir.
     let (small, requested) = match grid_cell_in_use(&occupant_wins) {
-        Some(cell) if all_own => (small || cell == requested || grid_already_shrunk(cell, requested), cell),
+        Some(cell) if grid_in_use => (small || cell == requested || grid_already_shrunk(cell, requested), cell),
         _ => (small, requested),
     };
     let (cell_w, cell_h) =
         grid_cell_size(requested, accepted_size(hwnd, current, requested, small), small);
     let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
-    let slots = grid_slots(&monitors, cell_w, cell_h, request.gap);
+    let slots = grid_slots(&monitors, cell_w, cell_h, gap);
     let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
     let occupants: Vec<(i32, i32, i32, i32)> = occupant_wins.iter().map(rect).collect();
-    let blockers: Vec<(i32, i32, i32, i32)> = blocker_wins.iter().map(rect).collect();
+    let blockers = visible_blockers(&blocker_wins.iter().map(rect).collect::<Vec<_>>(), gap.frame);
     // Grade lotada: em vez de pôr esta por cima de outra, rearruma todas num
-    // tamanho em que caibam (só com todas abertas pelo app).
+    // tamanho em que caibam.
     if grid_is_full(&slots, (cell_w, cell_h), &occupants, &blockers)
-        && grid_small_allowed(true, &grid_pids, &own)
-        && cell_that_fits(&monitors, (cell_w, cell_h), request.gap, occupants.len() + 1, &blockers).is_some()
+        && cell_that_fits(&monitors, (cell_w, cell_h), gap, occupants.len() + 1, &blockers).is_some()
     {
         let _ = arrange_roblox_grid_locked(
             &request.monitor_indices,
@@ -1831,7 +1959,7 @@ pub fn place_in_grid(
         };
     }
     let target = match pick_grid_slot(&slots, (cell_w, cell_h), &occupants, &blockers) {
-        Some(i) => (slots[i].x, slots[i].y, cell_w, cell_h),
+        Some(i) => rect_in_cell((slots[i].x, slots[i].y, cell_w, cell_h), gap.frame, own),
         None => (current.0, current.1, cell_w, cell_h),
     };
     remember_grid_cell(hwnd as isize, Some(target), false);
@@ -1905,8 +2033,11 @@ fn arrange_roblox_grid_locked(
     style: GridWindowStyle,
     restore_minimized: bool,
 ) -> Result<(usize, usize), String> {
-    // Moldura e célula pequena só nos clientes que o app abriu; o aberto pelo
-    // site é arrumado como sempre foi.
+    // Moldura só nos clientes que o app abriu. A célula pequena vale para
+    // todas as janelas da grade, inclusive a do cliente aberto pelo site:
+    // antes, uma janela dele na grade fazia **nenhuma** encolher (relato do
+    // Discord, 30/10/2026: "Windows stopped shrinking"). O `SWP_NOSENDCHANGING`
+    // passa por baixo do mínimo em qualquer janela do Roblox, seja quem a abriu.
     let own: std::collections::HashSet<u32> = launched_client_pids()
         .into_iter()
         .filter(|pid| !excluded_pids.contains(pid))
@@ -1927,8 +2058,7 @@ fn arrange_roblox_grid_locked(
         grid_windows(list_roblox_windows(), minimized)
             .into_iter()
             .partition(|w| excluded_pids.contains(&w.pid));
-    let window_pids: Vec<u32> = wins.iter().map(|w| w.pid).collect();
-    let mut small = grid_small_allowed(style.small_cells(), &window_pids, &own);
+    let mut small = style.small_cells();
     let blockers: Vec<(i32, i32, i32, i32)> = excluded.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
     if wins.is_empty() {
         return Err("Nenhuma janela de Roblox aberta foi encontrada.".to_string());
@@ -1952,6 +2082,12 @@ fn arrange_roblox_grid_locked(
         .find(|w| window_enforces_min_size(w.hwnd as HWND, (w.x, w.y, w.w, w.h)))
         .or_else(|| visible.first())
         .copied();
+    // O gap conta da parte visível (ver `GridGap`). A borda é medida só numa
+    // janela com moldura normal: maximizada, a conta sai errada.
+    let framed = framed_window(visible.iter().map(|w| (w.hwnd as HWND, (w.x, w.y, w.w, w.h))));
+    let gap = GridGap { gap, frame: grid_frame(style, framed) };
+    let wins: Vec<RobloxWin> = wins.into_iter().map(|w| cell_of_window(w, gap.frame)).collect();
+    let blockers = visible_blockers(&blockers, gap.frame);
     // "Melhor tamanho": a célula sai da conta, não do tamanho configurado.
     let auto_cell = if style.auto_fit {
         best_fit_cell(&monitors, gap, wins.len(), &blockers)
@@ -1978,8 +2114,7 @@ fn arrange_roblox_grid_locked(
     };
     let (cell_w, cell_h) = match probe {
         // A célula do "melhor tamanho" já é a final: medir a janela aqui só
-        // traria o mínimo do Roblox de volta (fora os clientes do site, que
-        // `grid_small_allowed` já deixa crescer).
+        // traria o mínimo do Roblox de volta.
         _ if auto_cell.is_some() => (cell_w, cell_h),
         Some(first) => grid_cell_size(
             (cell_w, cell_h),
@@ -1994,10 +2129,9 @@ fn arrange_roblox_grid_locked(
         None => (cell_w, cell_h),
     };
     // Mais janelas do que cabem: encolhe a célula até caberem todas, em vez de
-    // dar a volta e empilhar. Só com todas abertas pelo app — a de um cliente
-    // aberto pelo site cresceria de volta até o mínimo do Roblox.
+    // dar a volta e empilhar.
     let (cell_w, cell_h) = match cell_that_fits(&monitors, (cell_w, cell_h), gap, wins.len(), &blockers) {
-        Some(fit) if fit != (cell_w, cell_h) && grid_small_allowed(true, &window_pids, &own) => {
+        Some(fit) if fit != (cell_w, cell_h) => {
             small = true;
             fit
         }
@@ -2016,7 +2150,7 @@ fn arrange_roblox_grid_locked(
             // 26/10/2026: abria uma por uma). Antes de restaurar, a posição
             // normal vira a célula e sai o "voltar maximizada"; restaura sem
             // roubar o foco e põe no tamanho da célula como as visíveis.
-            let rect = (cell.x, cell.y, cell_w, cell_h);
+            let rect = rect_in_cell((cell.x, cell.y, cell_w, cell_h), gap.frame, own_frame(hwnd, gap.frame));
             let _ = place_minimized_window(hwnd, rect);
             unsafe {
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -2028,7 +2162,7 @@ fn arrange_roblox_grid_locked(
             continue;
         }
         if minimized_hwnds.contains(&w.hwnd) {
-            let rect = (cell.x, cell.y, cell_w, cell_h);
+            let rect = rect_in_cell((cell.x, cell.y, cell_w, cell_h), gap.frame, own_frame(hwnd, gap.frame));
             if place_minimized_window(hwnd, rect) {
                 arranged += 1;
             }
@@ -2046,15 +2180,12 @@ fn arrange_roblox_grid_locked(
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
         }
-        if place_window_with(hwnd, (cell.x, cell.y, cell_w, cell_h), grid_swp_flags(small)) {
+        let rect = rect_in_cell((cell.x, cell.y, cell_w, cell_h), gap.frame, own_frame(hwnd, gap.frame));
+        if place_window_with(hwnd, rect, grid_swp_flags(small)) {
             arranged += 1;
         }
         // A pessoa pode minimizá-la depois: ao voltar, ela volta para cá.
-        remember_grid_cell(
-            w.hwnd,
-            (small || own.contains(&w.pid)).then_some((cell.x, cell.y, cell_w, cell_h)),
-            false,
-        );
+        remember_grid_cell(w.hwnd, (small || own.contains(&w.pid)).then_some(rect), false);
     }
     Ok((arranged, wins.len()))
 }
@@ -2383,6 +2514,62 @@ mod win_windowing_tests {
                 assert!(!(overlaps_x && overlaps_y), "cells overlap");
             }
         }
+    }
+
+    /// Relato do Discord (31/10/2026): gap 0 com a moldura do Roblox ainda
+    /// deixava espaço entre as janelas — a borda invisível de redimensionar
+    /// (7 px dos lados e embaixo). O gap vale entre as partes visíveis.
+    #[test]
+    fn the_gap_is_measured_between_the_visible_frames() {
+        let frame = FrameMargins { left: 7, top: 0, right: 7, bottom: 7 };
+        let monitors = vec![monitor(1, 0, 0, 1000, 1000)];
+        // Janela de 414x407 = 400x400 visíveis.
+        let visible = |c: &GridCell| (c.x + 7, c.y, c.x + 414 - 7, c.y + 407 - 7);
+        for gap in [0, 10] {
+            let cells = compute_grid(&monitors, 414, 407, 16, GridGap { gap, frame });
+            assert_eq!(cells.len(), 4, "gap {gap}");
+            let v: Vec<_> = cells.iter().map(visible).collect();
+            assert_eq!((v[0].0, v[0].1), (gap, gap), "gap {gap}: first visible corner");
+            assert_eq!(v[1].0 - v[0].2, gap, "gap {gap}: between columns");
+            assert_eq!(v[2].1 - v[0].3, gap, "gap {gap}: between rows");
+            assert!(v.iter().all(|r| r.2 <= 1000 && r.3 <= 1000), "gap {gap}: left the monitor");
+        }
+        // Sem borda invisível (sem moldura), nada muda.
+        assert_eq!(
+            compute_grid(&monitors, 400, 400, 4, GridGap { gap: 0, frame: FrameMargins::default() }),
+            compute_grid(&monitors, 400, 400, 4, 0)
+        );
+        // O "melhor tamanho" também conta a borda: 2x2 em 1000x1000 com gap 0.
+        let best = best_fit_cell(&monitors, GridGap { gap: 0, frame }, 4, &[]).expect("fits");
+        assert_eq!(compute_grid(&monitors, best.0, best.1, 4, GridGap { gap: 0, frame }).len(), 4);
+        assert!(best.0 - 14 >= 495, "the visible cell should fill the monitor: {best:?}");
+    }
+
+    /// Janela sem moldura (tela cheia do Roblox) numa grade com moldura fica só
+    /// na parte visível da célula; com moldura, na célula inteira.
+    #[test]
+    fn a_window_without_a_frame_takes_only_the_visible_part_of_the_cell() {
+        let frame = FrameMargins { left: 7, top: 0, right: 7, bottom: 7 };
+        let cell = (393, 0, 414, 407);
+        assert_eq!(rect_in_cell(cell, frame, frame), cell);
+        assert_eq!(rect_in_cell(cell, frame, FrameMargins::default()), (400, 0, 400, 400));
+        assert_eq!(rect_in_cell(cell, FrameMargins::default(), FrameMargins::default()), cell);
+    }
+
+    /// Janela de fora encostada na célula (gap 0) não a bloqueia: só as bordas
+    /// invisíveis se cruzam.
+    #[test]
+    fn a_blocker_touching_a_cell_only_by_the_invisible_frame_does_not_block_it() {
+        let frame = FrameMargins { left: 7, top: 0, right: 7, bottom: 7 };
+        let slot = GridCell { x: 393, y: 0 };
+        // A vizinha da esquerda, visível de 0 a 400; a célula começa em 400.
+        let blocker = (-7, 0, 414, 407);
+        assert!(slot_overlaps(&slot, (414, 407), blocker));
+        let seen = visible_blockers(&[blocker], frame);
+        assert!(!slot_overlaps(&slot, (414, 407), seen[0]));
+        // Por cima de verdade continua bloqueando.
+        let on_top = visible_blockers(&[(393, 0, 414, 407)], frame);
+        assert!(slot_overlaps(&slot, (414, 407), on_top[0]));
     }
 
     #[test]
@@ -2827,15 +3014,6 @@ mod win_grid_style_tests {
         assert!(grid_already_shrunk((600, 450), (816, 639)));
         assert!(!grid_already_shrunk((816, 639), (816, 639)));
         assert!(!grid_already_shrunk((1000, 700), (816, 639)));
-    }
-
-    #[test]
-    fn a_website_client_in_the_grid_keeps_the_cells_at_the_roblox_minimum() {
-        let own: HashSet<u32> = [10, 20].into_iter().collect();
-        assert!(grid_small_allowed(true, &[10, 20], &own));
-        // 77 foi aberto pelo site: cresceria e sobreporia as vizinhas.
-        assert!(!grid_small_allowed(true, &[10, 77], &own));
-        assert!(!grid_small_allowed(false, &[10, 20], &own));
     }
 
     // ── sem moldura ────────────────────────────────────────────────────────
@@ -3683,6 +3861,99 @@ $w = New-Object FakeRobloxWindow
         }
     }
 
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_a_website_client_shrinks_with_the_rest() {
+        // Relato do Discord (30/10/2026): "Windows stopped shrinking". Com uma
+        // janela aberta pelo site na grade, nenhuma encolhia — nem as do app.
+        let monitor = primary_monitor_index();
+        let mut clients = spawn_fake_clients(3);
+        // A última vira "aberta pelo site": sai do rastreamento do app.
+        let site_uid = clients.user_ids.pop().expect("uid");
+        tracker().untrack(site_uid);
+        let style = GridWindowStyle { allow_small: true, ..GridWindowStyle::default() };
+        let result = arrange_roblox_grid_locked(
+            &[monitor],
+            8,
+            Some((400, 300)),
+            &std::collections::HashSet::new(),
+            style,
+            true,
+        );
+        std::thread::sleep(Duration::from_millis(600));
+        let sizes: Vec<(i32, i32)> = list_roblox_windows().iter().map(|w| (w.w, w.h)).collect();
+        eprintln!("arrange with a website client -> {result:?}, sizes: {sizes:?}");
+        assert_eq!(sizes.len(), 3);
+        for (w, h) in sizes {
+            assert!(w < 816 && h < 639, "a window kept the Roblox minimum: {w}x{h}");
+        }
+        assert!(overlapping_pairs().is_empty());
+    }
+
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_a_zero_gap_with_borders_leaves_no_space() {
+        // Relato do Discord (31/10/2026): gap 0 com a moldura ainda deixava
+        // espaço; sem a moldura, não. As partes visíveis têm que encostar.
+        let monitor = primary_monitor_index();
+        let _clients = spawn_fake_clients(3);
+        let result = arrange_roblox_grid(
+            &[monitor],
+            0,
+            None,
+            &std::collections::HashSet::new(),
+            GridWindowStyle::default(),
+        );
+        std::thread::sleep(Duration::from_millis(600));
+        let rects: Vec<ScreenRect> = list_roblox_windows()
+            .into_iter()
+            .filter_map(|w| visible_bounds(w.hwnd as HWND))
+            .collect();
+        eprintln!("zero gap with borders -> {result:?}, visible: {rects:?}");
+        let mut neighbours = 0;
+        for a in &rects {
+            for b in &rects {
+                if b.top == a.top && b.left > a.left {
+                    let space = b.left - rects.iter().filter(|r| r.top == a.top && r.left < b.left).map(|r| r.right).max().unwrap();
+                    assert!(space.abs() <= 1, "space between columns: {space}px");
+                    neighbours += 1;
+                }
+                if b.left == a.left && b.top > a.top {
+                    let space = b.top - rects.iter().filter(|r| r.left == a.left && r.top < b.top).map(|r| r.bottom).max().unwrap();
+                    assert!(space.abs() <= 1, "space between rows: {space}px");
+                    neighbours += 1;
+                }
+            }
+        }
+        assert!(neighbours >= 2, "the windows were not side by side: {rects:?}");
+        assert!(overlapping_pairs().is_empty(), "windows on top of one another");
+        assert_eq!(windows_outside(monitor), 0, "a window left the monitor");
+    }
+
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_live_keeps_a_window_minimized_later_rendering() {
+        // Relato do Discord (30/10/2026): conta minimizada com a Live aberta
+        // congelava. Minimizar depois de a Live montar a grade também tem que
+        // voltar (invisível), inclusive minimizar de novo a mesma janela.
+        let clients = spawn_fake_clients(1);
+        let uid = clients.user_ids[0];
+        let hwnd = find_main_window(clients.children[0].id()).expect("window");
+        let iconic = || unsafe { IsIconic(hwnd) } != 0;
+        for round in 0..2 {
+            unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(iconic(), "round {round}: not minimized");
+            assert!(live_keep_rendering(uid, hwnd as isize), "round {round}");
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(!iconic(), "round {round}: still minimized, the Live would freeze");
+        }
+        // A Live fecha: volta a minimizar, e a transparência sai.
+        live_release_hidden();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(iconic());
+    }
+
     /// Pedido do dono (26/10/2026): com as janelas minimizadas, o botão
     /// "Arrange in grid" só mudava onde elas voltariam, e ele tinha de abrir uma
     /// por uma. O botão agora as traz de volta, cada uma na sua célula.
@@ -3740,7 +4011,9 @@ $w = New-Object FakeRobloxWindow
             let clients = spawn_fake_clients(count);
             let result = arrange_roblox_grid(&[monitor], gap, None, &std::collections::HashSet::new(), style);
             std::thread::sleep(Duration::from_millis(500));
-            let best = best_fit_cell(&monitors, gap, count, &[]).expect("fits");
+            // A célula conta a borda invisível da moldura (GridGap).
+            let framed = GridGap { gap, frame: invisible_frame(find_main_window(clients.children[0].id()).expect("window")).unwrap_or_default() };
+            let best = best_fit_cell(&monitors, framed, count, &[]).expect("fits");
             let sizes: Vec<(i32, i32)> = list_roblox_windows().iter().map(|w| (w.w, w.h)).collect();
             eprintln!("best size, {count} windows -> {result:?}, cell {best:?}, sizes {sizes:?}");
             assert!(sizes.iter().all(|&s| s == best), "{count}: not every window got the best cell");
@@ -3763,7 +4036,8 @@ $w = New-Object FakeRobloxWindow
             std::thread::sleep(Duration::from_millis(300));
         }
         std::thread::sleep(Duration::from_millis(500));
-        let best = best_fit_cell(&monitors, gap, 5, &[]).expect("fits");
+        let framed = GridGap { gap, frame: invisible_frame(find_main_window(clients.children[0].id()).expect("window")).unwrap_or_default() };
+        let best = best_fit_cell(&monitors, framed, 5, &[]).expect("fits");
         let sizes: Vec<(i32, i32)> = list_roblox_windows().iter().map(|w| (w.w, w.h)).collect();
         eprintln!("best size, 5 windows one by one -> cell {best:?}, sizes {sizes:?}");
         assert!(sizes.iter().all(|&s| s == best), "one by one: not every window got the best cell");

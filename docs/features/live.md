@@ -63,6 +63,15 @@ minimizada (ela ficou restaurada com alfa 0, invisível); maximizar a Live refez
 a grade; fechar a Live minimizou de novo a que estava minimizada e tirou a
 transparência, sem mexer na outra. **Falta conferir no OBS** (Captura de janela).
 
+**Conta minimizada depois de a Live abrir (30/10/2026).** Relato do Discord:
+"i had them minimized and they stopped loading". A restauração invisível só
+rodava quando a grade era montada (`live_set_layout`), então quem minimizava a
+conta com a Live já aberta a via congelar. Agora a janela da Live chama
+`live_keep_minimized` a cada passada (2 s), que faz o mesmo para toda conta
+marcada que estiver minimizada — inclusive a que a Live já tinha deixado
+invisível e a pessoa minimizou de novo pela barra de tarefas. Teste real:
+`real_grid_scenario_live_keeps_a_window_minimized_later_rendering`.
+
 ## Regras de negócio
 
 - **Só Windows.** Nas outras plataformas a lista vem vazia.

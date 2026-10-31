@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -1210,5 +1210,79 @@ describe("ClicksTab — parada de emergência por chacoalhar", () => {
       afkEmergencyStop: { reason: "shake", afk: true, recordings: false, atMs: Date.now() },
     });
     expect(screen.getByTestId("clicks-status")).toHaveTextContent("Emergency stop: you shook the mouse.");
+  });
+});
+
+/**
+ * A lista "Accounts in AFK mode" seleciona como a lista principal: Shift marca
+ * um intervalo, arrastar passa por cima das linhas, e "Add all" / "Clear" mexem
+ * na lista toda (pedido de um usuário no Discord: marcar uma a uma era a única
+ * forma).
+ */
+describe("ClicksTab — selecionar várias contas de uma vez", () => {
+  const FOUR = [
+    makeAccount({ UserID: 11, Username: "alpha" }),
+    makeAccount({ UserID: 22, Username: "bravo" }),
+    makeAccount({ UserID: 33, Username: "charlie" }),
+    makeAccount({ UserID: 44, Username: "delta" }),
+  ];
+  const open = (overrides: Partial<StoreValue> = {}) =>
+    renderDialog({ accounts: FOUR, launchedByProgram: new Set([11, 22, 33, 44]), ...overrides });
+  const row = (name: string) => screen.getByRole("button", { name });
+  const pressed = () =>
+    FOUR.filter((a) => row(a.Username).getAttribute("aria-pressed") === "true").map((a) => a.UserID);
+  const RUNNING = makeAfkStatus({
+    active: true,
+    startedAtMs: 1_000,
+    key: "Space",
+    accounts: [makeAfkAccount({ userId: 11 })],
+  });
+
+  it("Add all coloca todas as contas da lista no modo, e Clear tira todas", async () => {
+    open();
+    await userEvent.click(screen.getByRole("button", { name: "Add all" }));
+    expect(pressed()).toEqual([11, 22, 33, 44]);
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(pressed()).toEqual([]);
+  });
+
+  it("Shift+clique marca o intervalo desde a última conta clicada", async () => {
+    open();
+    await userEvent.click(row("alpha"));
+    fireEvent.click(row("charlie"), { shiftKey: true });
+    expect(pressed()).toEqual([11, 22, 33]);
+  });
+
+  it("arrastar por cima das linhas marca todas por onde passa", () => {
+    open();
+    fireEvent.mouseDown(row("bravo"), { button: 0 });
+    fireEvent.mouseMove(row("charlie"));
+    fireEvent.mouseMove(row("delta"));
+    fireEvent.mouseUp(row("delta"));
+    expect(pressed()).toEqual([22, 33, 44]);
+  });
+
+  it("com a sessão ligada, o Shift manda uma troca só para o backend, com a lista inteira", async () => {
+    const { store } = open({ afkStatus: RUNNING });
+    await userEvent.click(row("delta"));
+    expect(store.setAfkAccounts).toHaveBeenLastCalledWith([11, 44]);
+    vi.mocked(store.setAfkAccounts).mockClear();
+    fireEvent.click(row("bravo"), { shiftKey: true });
+    await act(async () => {});
+    // Da 44 (última clicada) até a 22: as três entram numa troca só (o dublê
+    // do store não devolve o status, então a base é a sessão de antes).
+    expect(store.setAfkAccounts).toHaveBeenCalledTimes(1);
+    expect(store.setAfkAccounts).toHaveBeenCalledWith([11, 22, 33, 44]);
+  });
+
+  it("com a sessão ligada, arrastar manda as trocas em ordem, cada uma partindo da anterior", async () => {
+    const { store } = open({ afkStatus: RUNNING });
+    fireEvent.mouseDown(row("bravo"), { button: 0 });
+    fireEvent.mouseMove(row("charlie"));
+    fireEvent.mouseMove(row("delta"));
+    fireEvent.mouseUp(row("delta"));
+    await act(async () => {});
+    const calls = vi.mocked(store.setAfkAccounts).mock.calls.map((c) => c[0]);
+    expect(calls[calls.length - 1]).toEqual([11, 22, 33, 44]);
   });
 });

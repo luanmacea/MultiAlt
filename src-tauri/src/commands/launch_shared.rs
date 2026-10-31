@@ -2,21 +2,20 @@
 /// "launch-log" event). `level` is one of "info" | "success" | "warn" | "error";
 /// `step` is a short machine code (start, isolation, auth, target, pid, spawn,
 /// wait, done) the UI can use for coloring/icons.
+///
+/// `message` é uma frase em inglês com `{{parametros}}` (`log_msg!`), nunca
+/// português nem texto já montado: a tela a traduz com `t(key, params)`. Ver
+/// `log_msg.rs` e `docs/features/console.md`.
 pub(crate) fn emit_launch_log(
     app: &tauri::AppHandle,
     user_id: i64,
     level: &str,
     step: &str,
-    message: impl Into<String>,
+    message: impl Into<LogMsg>,
 ) {
     let _ = app.emit(
         "launch-log",
-        serde_json::json!({
-            "userId": user_id,
-            "level": level,
-            "step": step,
-            "message": message.into(),
-        }),
+        log_msg::launch_log_payload(Some(user_id), level, step, &message.into()),
     );
 }
 
@@ -27,16 +26,11 @@ pub(crate) fn emit_session_log(
     app: &tauri::AppHandle,
     level: &str,
     step: &str,
-    message: impl Into<String>,
+    message: impl Into<LogMsg>,
 ) {
     let _ = app.emit(
         "launch-log",
-        serde_json::json!({
-            "userId": serde_json::Value::Null,
-            "level": level,
-            "step": step,
-            "message": message.into(),
-        }),
+        log_msg::launch_log_payload(None, level, step, &message.into()),
     );
 }
 
@@ -1130,6 +1124,247 @@ async fn wait_launch_anyway_answer(
 #[tauri::command]
 fn answer_multi_roblox_confirm(allow: bool) -> bool {
     answer_launch_anyway(allow)
+}
+
+/// Resposta do "abrir versão antiga?" (`outdated-version-confirm`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutdatedVersionChoice {
+    /// Abrir a versão velha mesmo assim.
+    OpenOld,
+    /// Abrir a atual só desta vez.
+    UseCurrent,
+    /// Abrir a atual e deixar de usar a velha (padrão e contas).
+    SwitchToCurrent,
+}
+
+impl OutdatedVersionChoice {
+    /// Valor desconhecido conta como "atual só desta vez": o caminho seguro.
+    fn parse(choice: &str) -> Self {
+        match choice {
+            "open-old" => Self::OpenOld,
+            "switch" => Self::SwitchToCurrent,
+            _ => Self::UseCurrent,
+        }
+    }
+}
+
+/// Resposta pendente do "abrir versão antiga?" (`outdated-version-confirm`).
+/// Uma por vez: uma pergunta nova responde "atual" à anterior.
+#[cfg(target_os = "windows")]
+static OUTDATED_VERSION_ANSWER: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<OutdatedVersionChoice>>> =
+    std::sync::Mutex::new(None);
+
+/// Versões que a pessoa mandou abrir mesmo velhas, com a hora: numa fila de
+/// várias contas na mesma versão, a pergunta aparece uma vez só.
+#[cfg(target_os = "windows")]
+static OUTDATED_VERSION_ALLOWED: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// Quanto vale um "sim" para a mesma versão.
+#[cfg(target_os = "windows")]
+const OUTDATED_VERSION_ALLOW_TTL: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// `choice`: "open-old", "current" ou "switch".
+#[tauri::command]
+fn answer_outdated_version_confirm(choice: String) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let pending = OUTDATED_VERSION_ANSWER.lock().unwrap_or_else(|e| e.into_inner()).take();
+        pending
+            .map(|tx| tx.send(OutdatedVersionChoice::parse(&choice)).is_ok())
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = choice;
+        false
+    }
+}
+
+/// Pergunta na tela o que fazer com a versão velha. Sem resposta em 2 min,
+/// vale "atual": o launch nunca trava por isso (regra nº 1).
+#[cfg(target_os = "windows")]
+async fn ask_outdated_version(
+    app: &tauri::AppHandle,
+    outdated: &platform::windows::OutdatedVersion,
+) -> OutdatedVersionChoice {
+    let now = std::time::Instant::now();
+    if let Ok(mut allowed) = OUTDATED_VERSION_ALLOWED.lock() {
+        allowed.retain(|_, at| now.duration_since(*at) < OUTDATED_VERSION_ALLOW_TTL);
+        if allowed.contains_key(&outdated.version_id) {
+            return OutdatedVersionChoice::OpenOld;
+        }
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let previous = OUTDATED_VERSION_ANSWER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .replace(tx);
+    if let Some(previous) = previous {
+        let _ = previous.send(OutdatedVersionChoice::UseCurrent);
+    }
+    let choice = if app.emit("outdated-version-confirm", outdated).is_ok() {
+        match tokio::time::timeout(LAUNCH_ANYWAY_WAIT, rx).await {
+            Ok(Ok(choice)) => choice,
+            _ => OutdatedVersionChoice::UseCurrent,
+        }
+    } else {
+        OutdatedVersionChoice::UseCurrent
+    };
+    if choice == OutdatedVersionChoice::OpenOld {
+        if let Ok(mut allowed) = OUTDATED_VERSION_ALLOWED.lock() {
+            allowed.insert(outdated.version_id.clone(), std::time::Instant::now());
+        }
+    }
+    choice
+}
+
+/// Pasta de onde o cliente abre (`windows::client_dir`) e se o launch vai
+/// mesmo pelo old join. Old join sem versão do catálogo (`Developer.UseOldJoin`)
+/// abre o exe direto, sem a checagem de update do Roblox: se a pasta não é a
+/// build atual (o download da atual falhou e sobrou uma velha), vai pelo
+/// protocolo, que atualiza o cliente, em vez de entrar com versão velha
+/// (31/10/2026). Versão do catálogo escolhida passa pelo aviso de versão velha.
+#[cfg(target_os = "windows")]
+pub(crate) async fn resolve_client_dir(
+    app: &tauri::AppHandle,
+    user_id: i64,
+    use_old_join: bool,
+    version_id: Option<&str>,
+    base_path: &str,
+) -> (bool, String) {
+    let source = platform::windows::client_source(use_old_join, version_id.is_some());
+    let dir = platform::windows::client_dir(source, base_path).await;
+    if source != platform::windows::ClientSource::RegistryChannel
+        || platform::windows::old_join_folder_is_current(&dir).await
+    {
+        return (use_old_join, dir);
+    }
+    emit_launch_log(
+        app,
+        user_id,
+        "warn",
+        "version",
+        log_msg!(
+            "The Roblox build in {{folder}} is not the current one, so this account opens through the normal Roblox launch, which updates it, instead of the old join.",
+            folder = dir.as_str()
+        ),
+    );
+    let dir = platform::windows::client_dir(platform::windows::ClientSource::Production, base_path).await;
+    (false, dir)
+}
+
+/// A pasta do Roblox para o launch (`resolve_roblox_install_path_with_notice`),
+/// conferindo antes se a versão do catálogo escolhida ficou velha. Velha: com
+/// `ask`, pergunta na tela; sem `ask` (Auto Rejoin), ou com "atual", abre a
+/// build atual. O motivo vai para o Console desta conta.
+#[cfg(target_os = "windows")]
+pub(crate) async fn resolve_launch_install(
+    app: &tauri::AppHandle,
+    user_id: i64,
+    account_version: Option<&str>,
+    settings: &SettingsStore,
+    catalog: &crate::data::versions::VersionsCatalogStore,
+    ask: bool,
+) -> (String, Option<String>) {
+    let (path, id, notices) = platform::windows::resolve_roblox_install_path_with_notice(account_version, settings, catalog);
+    for notice in notices {
+        emit_launch_log(app, user_id, "warn", "version", notice);
+    }
+    let Some(outdated) = platform::windows::outdated_catalog_version(id.as_deref(), settings, catalog).await else {
+        return (path, id);
+    };
+    let choice = if ask {
+        ask_outdated_version(app, &outdated).await
+    } else {
+        OutdatedVersionChoice::UseCurrent
+    };
+    let line = match choice {
+        OutdatedVersionChoice::OpenOld => {
+            emit_launch_log(
+                app,
+                user_id,
+                "warn",
+                "version",
+                log_msg!(
+                    "Opening the outdated Roblox version {{version}} (the current one is {{current}}) because you confirmed it.",
+                    version = outdated.version_id.as_str(),
+                    current = outdated.current.as_str()
+                ),
+            );
+            return (path, id);
+        }
+        OutdatedVersionChoice::SwitchToCurrent => {
+            let accounts = app.state::<AccountStore>();
+            match stop_using_version(settings, &accounts, &outdated.version_id) {
+                Ok(()) => log_msg!(
+                    "Switched from the outdated Roblox version {{version}} to the current Roblox ({{current}}); it is no longer used as the default or by any account.",
+                    version = outdated.version_id.as_str(),
+                    current = outdated.current.as_str()
+                ),
+                Err(e) => log_msg!(
+                    "Opened the current Roblox ({{current}}), but could not stop using the outdated version {{version}}: {{error}}",
+                    current = outdated.current.as_str(),
+                    version = outdated.version_id.as_str(),
+                    error = e
+                ),
+            }
+        }
+        OutdatedVersionChoice::UseCurrent => log_msg!(
+            "The Roblox version {{version}} is outdated (the current one is {{current}}), so the current Roblox was opened instead. Old versions can get accounts banned.",
+            version = outdated.version_id.as_str(),
+            current = outdated.current.as_str()
+        ),
+    };
+    emit_launch_log(app, user_id, "warn", "version", line);
+    (platform::windows::get_roblox_path().unwrap_or_default(), None)
+}
+
+/// O aviso do Multi Roblox (`ensure_multi_roblox_enabled`) como linha
+/// traduzível do Console. As frases moram em `platform/windows/core.rs` como
+/// constantes em inglês; aqui cada uma ganha a mesma frase como chave
+/// (`multi_roblox_notice_log_tests` confere que não se separaram).
+#[cfg(target_os = "windows")]
+fn multi_roblox_notice_log(notice: String) -> LogMsg {
+    if notice == platform::windows::MULTI_ROBLOX_LAUNCHED_ANYWAY {
+        return log_msg!("You chose to open it anyway: the Roblox window that could not be unlocked may close.");
+    }
+    let programs_prefix = format!("{} ", platform::windows::MULTI_ROBLOX_PROGRAM_NOTICE);
+    if let Some(programs) = notice.strip_prefix(&programs_prefix) {
+        return log_msg!(
+            "Another program is also handling Roblox windows, so the launch went ahead anyway. If a window closes or does not open, close this program: {{programs}}",
+            programs = programs
+        );
+    }
+    LogMsg::raw(notice)
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod multi_roblox_notice_log_tests {
+    use super::*;
+
+    #[test]
+    fn the_translatable_sentences_are_the_ones_the_launch_produces() {
+        let anyway = platform::windows::MULTI_ROBLOX_LAUNCHED_ANYWAY.to_string();
+        let msg = multi_roblox_notice_log(anyway.clone());
+        assert!(!msg.is_raw(), "a frase do 'abrir mesmo assim' tem de ter chave");
+        assert_eq!(msg.render(), anyway);
+
+        let outcome = platform::windows::MultiRobloxOutcome::EnabledDespiteProgram { programs: "Fishtrap, Real".into() };
+        let notice = platform::windows::multi_roblox_notice(&outcome).expect("notice");
+        let msg = multi_roblox_notice_log(notice.clone());
+        assert!(!msg.is_raw(), "a frase do outro programa tem de ter chave");
+        assert_eq!(msg.render(), notice);
+        assert_eq!(msg.params()["programs"], "Fishtrap, Real");
+    }
+
+    #[test]
+    fn an_unknown_notice_goes_raw_instead_of_being_lost() {
+        let msg = multi_roblox_notice_log("something else".into());
+        assert!(msg.is_raw());
+        assert_eq!(msg.render(), "something else");
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -3399,5 +3634,19 @@ mod launch_anyway_tests {
         assert!(!wait_launch_anyway_answer(old, std::time::Duration::from_secs(1)).await);
         assert!(answer_launch_anyway(true));
         assert!(wait_launch_anyway_answer(new, std::time::Duration::from_secs(1)).await);
+    }
+}
+
+#[cfg(test)]
+mod outdated_version_choice_tests {
+    use super::*;
+
+    #[test]
+    fn an_unknown_answer_opens_the_current_roblox() {
+        assert_eq!(OutdatedVersionChoice::parse("open-old"), OutdatedVersionChoice::OpenOld);
+        assert_eq!(OutdatedVersionChoice::parse("switch"), OutdatedVersionChoice::SwitchToCurrent);
+        assert_eq!(OutdatedVersionChoice::parse("current"), OutdatedVersionChoice::UseCurrent);
+        assert_eq!(OutdatedVersionChoice::parse(""), OutdatedVersionChoice::UseCurrent);
+        assert_eq!(OutdatedVersionChoice::parse("yes"), OutdatedVersionChoice::UseCurrent);
     }
 }

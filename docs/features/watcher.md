@@ -273,8 +273,30 @@ continua sem relançar nada).
 - **Destino:** servidor privado/VIP → os **mesmos dados** que o app usou no
   launch (`remember_launch_target`, em memória), nunca um link inventado.
   Público → place e Job ID do último `Joining game` do log (depois de um
-  teleporte, o place novo; o launch data só vai junto no mesmo place);
+  teleporte, o jogo que o app abriu — ver abaixo);
   servidor fechado → só o place (qualquer servidor). Sem log, o que o app pediu.
+- **Entrar pelo jogo, não pelo servidor (31/10/2026):** alguns jogos movem a
+  conta logo depois de entrar (lobby → partida, teleporte para um servidor
+  reservado) e o Roblox recusa entrar direto nesse servidor ("you don't have
+  permission"); a reconexão ficava em laço. Agora o destino é o **jogo que o
+  app abriu, sem Job ID** (o Roblox escolhe o servidor; o launch data do jogo
+  aberto vai junto) quando:
+  - **teleporte detectado:** o place do último `Joining game` difere do que o
+    app abriu, ou o app pediu um servidor (GUID) e o log mostra outro do mesmo
+    place. O log do cliente **não** marca servidor reservado: um teleporte
+    para dentro do mesmo place, sem servidor pedido, **não** se distingue;
+  - **servidor recusado:** a tentativa não chegou a entrar no jogo (relançado
+    que cai antes de entrar, fecha, ou passa 2 min sem entrar). Daí em diante
+    todas as tentativas daquela queda vão pelo jogo, nunca de novo o mesmo
+    servidor. O erro de permissão do join não é lido do log (formato não
+    conhecido): a falha da tentativa é o sinal. Falha do launch antes de o
+    cliente abrir não conta;
+  - **opção desligada:** `General.ReconnectSameServer` (padrão ligado), em
+    Settings › Keep in game, "Reconnect to the same server", com a explicação
+    do problema. Desligada, sempre entra pelo jogo.
+
+  Servidor privado/VIP nunca muda (a única porta é o link). Cada tentativa por
+  jogo escreve uma linha no Console dizendo por quê.
 - **Espera:** 10 s, 30 s, 1 min, 2 min, 5 min (teto). Cada tentativa: confere a
   internet (HEAD em `endpoints::host("www")`; qualquer resposta HTTP conta; sem
   internet espera 10 s e confere de novo **sem gastar tentativa**), o ban, fecha

@@ -155,7 +155,9 @@ impl ClosedClientBook {
             .and_then(|c| c.destination.clone())
             .or_else(|| last.destination.clone());
         let launched = ctx.launched_target(last.user_id);
-        let target = reconnect_target(launched.as_ref(), destination.as_ref(), drop.kind);
+        // "Entrar novamente" é escolha da pessoa na hora: vale o padrão (mesmo
+        // servidor), com a mesma correção de teleporte da reconexão.
+        let target = reconnect_target(launched.as_ref(), destination.as_ref(), drop.kind, true);
         let place_id = destination
             .as_ref()
             .map(|d| d.place_id)

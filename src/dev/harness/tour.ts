@@ -59,14 +59,51 @@ export function seedTourStorage(): void {
  * Linhas do Console (evento `launch-log`) para o cenário `tour`: um launch,
  * uma volta do Auto Rejoin e um aviso do Watcher, como o backend mandaria.
  */
-export function tourLogLines(userIds: number[]): { userId: number | null; level: string; step: string; message: string }[] {
+export function tourLogLines(userIds: number[]): HarnessLogLine[] {
   const [first = null, second = null] = userIds;
   return [
-    { userId: first, level: "info", step: "start", message: "Iniciando launch — place 15101393044" },
-    { userId: first, level: "success", step: "pid", message: "Cliente detectado (pid 4200)" },
-    { userId: second, level: "success", step: "rejoin", message: "Entrou no jogo pelo ciclo do Auto Rejoin" },
-    { userId: second, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s" },
+    harnessLogLine(first, "info", "start", "Starting launch — place {{placeId}} ({{target}})", {
+      placeId: 15101393044,
+      target: { key: "public server", params: {} },
+    }),
+    harnessLogLine(first, "success", "pid", "Client started (PID {{pid}})", { pid: 4200 }),
+    harnessLogLine(second, "success", "rejoin", "Joined the game through the Auto Rejoin cycle"),
+    harnessLogLine(second, "warn", "watcher", "Client closed by the Watcher: no connection for {{seconds}}s", { seconds: 30 }),
   ];
+}
+
+/** Uma linha do evento `launch-log` como o backend a manda: frase em inglês (`key`) + `params`. */
+export interface HarnessLogLine {
+  userId: number | null;
+  level: string;
+  step: string;
+  message: string;
+  key: string;
+  params: Record<string, unknown>;
+}
+
+function renderHarnessParam(value: unknown): string {
+  if (Array.isArray(value)) return value.map(renderHarnessParam).join(", ");
+  if (value && typeof value === "object" && typeof (value as { key?: unknown }).key === "string") {
+    const nested = value as { key: string; params?: Record<string, unknown> };
+    return nested.key.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, name: string) => renderHarnessParam(nested.params?.[name]));
+  }
+  return String(value ?? "");
+}
+
+/**
+ * Monta a linha como `log_msg::launch_log_payload` (Rust) monta: `message` é a
+ * frase em inglês já com os valores, `key`/`params` são o que a tela traduz.
+ * Um cenário não implementa o comportamento testado; isto só entrega o dado.
+ */
+export function harnessLogLine(
+  userId: number | null,
+  level: string,
+  step: string,
+  key: string,
+  params: Record<string, unknown> = {},
+): HarnessLogLine {
+  return { userId, level, step, message: renderHarnessParam({ key, params }), key, params };
 }
 
 const SCRIPT_PERMISSIONS = {

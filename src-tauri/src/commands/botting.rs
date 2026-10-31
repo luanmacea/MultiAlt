@@ -272,11 +272,9 @@ async fn launch_account_for_cycle(
     let (resolved_base_path, resolved_version_id) = {
         let settings = app.state::<SettingsStore>();
         let versions = app.state::<data::versions::VersionsCatalogStore>();
-        windows::resolve_roblox_install_path(
-            account_version_override.as_deref(),
-            &settings,
-            &versions,
-        )?
+        // Ciclo automático: ninguém na frente para responder, então versão
+        // velha abre a atual (só `Versions.AllowOutdated` libera).
+        resolve_launch_install(app, user_id, account_version_override.as_deref(), &settings, &versions, false).await
     };
     // O Botting não roda isolamento pré-launch (`run_pre_launch_isolation` é
     // exclusivo da fila em `commands/launch.rs`), então não há pasta sendo
@@ -298,11 +296,8 @@ async fn launch_account_for_cycle(
     // build do canal do registro no old join sem catálogo, e a de produção
     // pelo protocolo (`launch_url`) — versão por conta não se aplica nesse
     // caminho (CLAUDE.md). Ver `windows::client_source`.
-    let client_dir = windows::client_dir(
-        windows::client_source(use_old_join, resolved_version_id.is_some()),
-        &resolved_base_path,
-    )
-    .await;
+    let (use_old_join, client_dir) =
+        resolve_client_dir(app, user_id, use_old_join, resolved_version_id.as_deref(), &resolved_base_path).await;
 
     windows::refresh_production_version().await;
 
@@ -488,29 +483,42 @@ fn emit_botting_cycle(
     );
 
     if ok {
-        emit_launch_log(app, user_id, "success", "rejoin", "Entrou no jogo pelo ciclo do Auto Rejoin");
+        emit_launch_log(app, user_id, "success", "rejoin", "Joined the game through the Auto Rejoin cycle");
         return;
     }
 
-    let motivo = error
-        .clone()
-        .unwrap_or_else(|| String::from("erro desconhecido"));
+    // O motivo é o texto do erro (do Roblox/Windows, como veio); sem erro, a
+    // frase "unknown error" é traduzida.
+    let motivo: serde_json::Value = match error {
+        Some(text) => serde_json::Value::String(text.clone()),
+        None => log_msg!("unknown error").into(),
+    };
     match falha {
         Some((delay, true, tentativa)) => emit_launch_log(
             app,
             user_id,
             "warn",
             "rejoin-retry",
-            format!("Rate limit do Roblox (tentativa {tentativa}) — nova tentativa em {delay}s: {motivo}"),
+            log_msg!(
+                "Roblox rate limit (attempt {{attempt}}) — trying again in {{seconds}}s: {{reason}}",
+                attempt = tentativa,
+                seconds = delay,
+                reason = motivo
+            ),
         ),
         Some((delay, false, tentativa)) => emit_launch_log(
             app,
             user_id,
             "error",
             "rejoin-retry",
-            format!("Falha no ciclo (tentativa {tentativa}) — nova tentativa em {delay}s: {motivo}"),
+            log_msg!(
+                "Cycle failed (attempt {{attempt}}) — trying again in {{seconds}}s: {{reason}}",
+                attempt = tentativa,
+                seconds = delay,
+                reason = motivo
+            ),
         ),
-        None => emit_launch_log(app, user_id, "error", "rejoin", format!("Falha no ciclo: {motivo}")),
+        None => emit_launch_log(app, user_id, "error", "rejoin", log_msg!("Cycle failed: {{reason}}", reason = motivo)),
     }
 }
 
@@ -537,12 +545,12 @@ async fn run_botting_session(
             &app,
             "info",
             "rejoin",
-            format!(
-                "Auto Rejoin iniciado — {} conta(s), place {}, ciclo de {} min, {}s entre launches",
-                initial_user_ids.len(),
-                cfg.place_id,
-                cfg.interval_minutes,
-                cfg.launch_delay_seconds
+            log_msg!(
+                "Auto Rejoin started — {{accounts}} account(s), place {{placeId}}, {{minutes}} min cycle, {{seconds}}s between launches",
+                accounts = initial_user_ids.len(),
+                placeId = cfg.place_id,
+                minutes = cfg.interval_minutes,
+                seconds = cfg.launch_delay_seconds
             ),
         );
     }
@@ -782,7 +790,7 @@ async fn run_botting_session(
                 uid,
                 "info",
                 "rejoin",
-                format!("Reiniciando a conta (reinicio #{numero} nesta sessao)"),
+                log_msg!("Restarting the account (restart #{{number}} this session)", number = numero),
             );
 
             let closed = tracker.kill_for_user_graceful_async(uid, 4500).await;
@@ -818,8 +826,10 @@ async fn run_botting_session(
                     uid,
                     "warn",
                     "rejoin-retry",
-                    format!(
-                        "O cliente anterior nao fechou a tempo{pid_hint} — nova tentativa em {atraso}s"
+                    log_msg!(
+                        "The previous client did not close in time{{pidHint}} — trying again in {{seconds}}s",
+                        pidHint = pid_hint.clone(),
+                        seconds = atraso
                     ),
                 );
                 emit_botting_status(&app);
@@ -915,7 +925,7 @@ async fn run_botting_session(
         BOTTING_MANAGER.replace_session(None);
     }
     stopped_notify.notify_waiters();
-    emit_session_log(&app, "info", "rejoin", "Auto Rejoin parado");
+    emit_session_log(&app, "info", "rejoin", "Auto Rejoin stopped");
     let _ = app.emit("botting-stopped", serde_json::json!({}));
     emit_botting_status(&app);
 }
@@ -1909,17 +1919,17 @@ mod botting_console_tests {
             "sucesso, rate limit, falha com retry e falha sem retry"
         );
         assert!(helper.contains("\"success\""));
-        assert!(helper.contains("Rate limit"));
+        assert!(helper.contains("Roblox rate limit"));
     }
 
     #[test]
     fn o_inicio_e_o_fim_da_sessao_aparecem_no_console() {
         let sessao = corpo("async fn run_botting_session(");
         assert!(
-            sessao.contains("Auto Rejoin iniciado"),
+            sessao.contains("Auto Rejoin started"),
             "quem abre o console depois precisa saber que a sessao comecou"
         );
-        assert!(sessao.contains("Auto Rejoin parado"));
+        assert!(sessao.contains("Auto Rejoin stopped"));
         // Linha de sessao nao pertence a conta nenhuma: `userId` nulo, senao o
         // console imprime "0" no lugar do nome.
         assert!(sessao.contains("emit_session_log("));
@@ -1928,7 +1938,7 @@ mod botting_console_tests {
     #[test]
     fn o_reinicio_diz_quantas_vezes_a_conta_ja_reiniciou() {
         let sessao = corpo("async fn run_botting_session(");
-        assert!(sessao.contains("reinicio #"), "o numero foi pedido explicitamente");
+        assert!(sessao.contains("restart #"), "o numero foi pedido explicitamente");
         assert!(sessao.contains("restarts.entry(uid)"));
     }
 

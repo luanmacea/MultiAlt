@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
+import { useListSelection } from "../../hooks/useListSelection";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
@@ -285,9 +286,6 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
     []
   );
   useEscapeStack(armedClose !== null, () => setArmedClose(null));
-  // Shift+clique: a última conta clicada e a ordem das linhas na tela.
-  const anchorRef = useRef<number | null>(null);
-  const visibleOrderRef = useRef<number[]>([]);
   // Filtro da faixa de números (só o estado escolhido na lista).
   const [filter, setFilter] = useState<SessionFilter | null>(null);
   const joiningRef = useRef<HTMLElement>(null);
@@ -411,37 +409,6 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
     } finally {
       setReconnectSaving(false);
     }
-  }
-
-  /**
-   * Marca/desmarca uma conta. Com Shift, o intervalo desde a última clicada
-   * (na ordem em que as linhas estão na tela) recebe o novo estado da clicada,
-   * como na lista de contas.
-   */
-  function toggleChecked(userId: number, event?: { shiftKey: boolean }) {
-    const anchor = anchorRef.current;
-    anchorRef.current = userId;
-    const order = visibleOrderRef.current;
-    if (event?.shiftKey && anchor !== null && anchor !== userId && order.includes(anchor) && order.includes(userId)) {
-      const [from, to] = [order.indexOf(anchor), order.indexOf(userId)].sort((a, b) => a - b);
-      const range = order.slice(from, to + 1);
-      const on = !checked.has(userId);
-      setChecked((prev) => {
-        const next = new Set(prev);
-        for (const id of range) {
-          if (on) next.add(id);
-          else next.delete(id);
-        }
-        return next;
-      });
-      return;
-    }
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(userId)) next.delete(userId);
-      else next.add(userId);
-      return next;
-    });
   }
 
   function toggleAll() {
@@ -699,13 +666,29 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusSignature]);
   // Ordem das linhas como aparecem (grupos recolhidos ficam de fora).
-  visibleOrderRef.current = grouped
+  const visibleOrder = grouped
     ? [
         ...(collapsed.has("attention") ? [] : groups.attention),
         ...groups.games.flatMap((game) => (collapsed.has(game.key) ? [] : game.servers.flatMap((sv) => sv.userIds))),
         ...(collapsed.has("no-game") ? [] : groups.noGame),
       ]
     : shownIds;
+
+  // Shift, Ctrl e arrastar por cima das linhas, como na lista principal: a
+  // mesma seleção das outras listas de contas (hooks/useListSelection).
+  const selection = useListSelection<number>({
+    order: visibleOrder,
+    isSelected: (id) => checked.has(id),
+    apply: (ids, on) =>
+      setChecked((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) {
+          if (on) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      }),
+  });
 
   function selectionOf(ids: number[]): "all" | "some" | "none" {
     const count = ids.filter((id) => checked.has(id)).length;
@@ -822,6 +805,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
     return (
       <li
         key={userId}
+        {...selection.rowProps(userId)}
         data-testid={`session-running-${userId}`}
         className={`flex items-start gap-2 px-3 py-1.5 text-[12px] ${
           checked.has(userId) ? "session-row-selected" : "hover:bg-[var(--row-hover)]"
@@ -831,7 +815,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           <SelectBox
             label={t("Select {{name}}", { name })}
             checked={checked.has(userId)}
-            onChange={(event) => toggleChecked(userId, event)}
+            onChange={(event) => selection.toggle(userId, event)}
           />
         </span>
         {/* A informação ao vivo tem a largura que sobra; os controles são

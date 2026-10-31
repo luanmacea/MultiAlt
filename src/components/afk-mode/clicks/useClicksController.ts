@@ -9,6 +9,7 @@ import {
 } from "../../../afkClickPoint";
 import { useTr } from "../../../i18n/text";
 import { useAccountLabel } from "../../../hooks/useAccountLabel";
+import { applyToList } from "../../../utils/listSelection";
 import { useRecordings } from "../recordings/useRecordings";
 import { recordingForAccount } from "../../../recordings";
 import { recordingErrorText } from "../RecordingsTab";
@@ -187,6 +188,13 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
   );
   /** Quem está no modo: a sessão manda quando há sessão; senão, o rascunho. */
   const inAfk = running ? sessionUserIds : draftUserIds;
+  // Quem está no modo contando o que já foi pedido e o backend ainda não
+  // devolveu (arrasto e Shift mandam várias trocas seguidas). Sem escrita em
+  // andamento, é só `inAfk`.
+  const latestIds = useRef<number[]>(inAfk);
+  const pendingWrites = useRef(0);
+  const writeChain = useRef<Promise<void>>(Promise.resolve());
+  if (pendingWrites.current === 0) latestIds.current = inAfk;
 
   // Com sessão, o rascunho acompanha quem está nela. Quando a sessão acaba —
   // Parar, ou por qualquer outro caminho —, a tela continua marcando quem
@@ -324,27 +332,59 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     }
   }
 
-  async function toggleAccount(userId: number) {
-    const next = inAfk.includes(userId) ? inAfk.filter((id) => id !== userId) : [...inAfk, userId];
+  /**
+   * Passa `userIds` para dentro (`on`) ou para fora do modo. Vale para um clique,
+   * para o intervalo do Shift, para o arrasto por cima das linhas e para
+   * "Add all"/"Clear". Chamadas em sequência (o arrasto manda várias) partem da
+   * lista que a anterior pediu, não da que a tela ainda mostra, e vão ao backend
+   * uma de cada vez e em ordem.
+   */
+  function setAccountsOn(userIds: number[], on: boolean) {
+    const base = latestIds.current;
+    const next = applyToList(base, userIds, on);
+    if (next.length === base.length && next.every((id, i) => id === base[i])) return;
+    latestIds.current = next;
     if (!running) {
       setDraftUserIds(next);
       return;
     }
+    pendingWrites.current += 1;
     setBusy(true);
-    try {
-      await store.setAfkAccounts(next);
-      // Desmarcar a última conta encerra a sessão, e aí o espelho acima não
-      // roda mais: o rascunho fica com o que o usuário pediu, e não com a
-      // conta que ele acabou de tirar.
-      setDraftUserIds(next);
-      // E diz que desligou: sem isto a pílula virava "Off" calada, enquanto o
-      // Parar avisa.
-      if (next.length === 0) store.addToast(t("AFK mode off: no account is left in it"));
-    } catch {
-      // O erro já virou toast no store.
-    } finally {
-      setBusy(false);
-    }
+    writeChain.current = writeChain.current.then(async () => {
+      try {
+        await store.setAfkAccounts(next);
+        // Desmarcar a última conta encerra a sessão, e aí o espelho acima não
+        // roda mais: o rascunho fica com o que o usuário pediu, e não com a
+        // conta que ele acabou de tirar.
+        setDraftUserIds(next);
+        // E diz que desligou: sem isto a pílula virava "Off" calada, enquanto o
+        // Parar avisa.
+        if (next.length === 0) store.addToast(t("AFK mode off: no account is left in it"));
+      } catch {
+        // O erro já virou toast no store; ao fim das escritas a lista volta a
+        // seguir a sessão (o `setBusy(false)` abaixo refaz a tela).
+      } finally {
+        pendingWrites.current -= 1;
+        if (pendingWrites.current === 0) setBusy(false);
+      }
+    });
+  }
+
+  function toggleAccount(userId: number) {
+    setAccountsOn([userId], !latestIds.current.includes(userId));
+  }
+
+  /** "Add all": todas as contas da lista entram no modo. */
+  function addAllAccounts() {
+    setAccountsOn(
+      candidates.map((a) => a.UserID),
+      true
+    );
+  }
+
+  /** "Clear": ninguém fica no modo (com a sessão ligada, isso a encerra). */
+  function clearAccounts() {
+    setAccountsOn([...latestIds.current], false);
   }
 
   async function handleStart() {
@@ -528,6 +568,9 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     startMark,
     clearOwnPoint,
     toggleAccount,
+    setAccountsOn,
+    addAllAccounts,
+    clearAccounts,
     handleStart,
     handleSendNow,
     handleStop,

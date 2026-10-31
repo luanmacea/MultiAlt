@@ -410,7 +410,7 @@ Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das p
 - **Estado global** em um único Context ([store.tsx](../src/store.tsx)); componentes usam `useStore()`. Diálogos são abertos por flags na store (`setSettingsOpen`, `setServerListOpen`, ...).
 - **Settings no frontend**: leia com `store.settings?.Section?.Key` (sempre string) ou, em telas de configuração, com o hook [useSettings.ts](../src/hooks/useSettings.ts) (`get/getBool/getNumber/set`), que agrupa gravações com debounce de 160 ms.
 - **Erros** do backend são `String`; no frontend vão para `store.setError` (faixa vermelha em [App.tsx](../src/App.tsx)) ou `store.addToast`.
-- **Commits** majoritariamente em português, curtos (ex.: `juste de tempo no join`, `multiplos servidores vips`); também há commits em inglês. Mensagens do log de launch em Rust também estão em português (ex.: `"Alvo resolvido: servidor privado/VIP"` em [launch.rs](../src-tauri/src/commands/launch.rs)).
+- **Commits** majoritariamente em português, curtos (ex.: `juste de tempo no join`, `multiplos servidores vips`); também há commits em inglês. As linhas do Console do backend são frases em inglês traduzidas pela tela (`log_msg!`, ex.: `"Target resolved: private/VIP server"` em [launch.rs](../src-tauri/src/commands/launch.rs)) — nunca português: ver [console.md](features/console.md).
 - **PRs**: [scripts/pr-flow.ps1](../scripts/pr-flow.ps1) automatiza o fluxo com `gh`, com base default `develop` (onde o trabalho vive; a `main` é só release). E PR só com pedido do dono (regra de Git do [CLAUDE.md](../CLAUDE.md)).
 
 ## Como adicionar um novo comando Tauri (ponta a ponta)

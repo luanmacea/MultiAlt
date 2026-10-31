@@ -52,6 +52,9 @@ export function LiveWindow() {
       ]);
       setTiles(next);
       setSettings(all?.Live ?? {});
+      // Conta minimizada depois de a Live abrir congelaria no último quadro:
+      // o backend a traz de volta, invisível, a cada passada.
+      void invoke("live_keep_minimized").catch(() => {});
     } catch {
       // A janela fecha junto com o app; uma passada perdida não importa.
     }

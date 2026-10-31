@@ -1063,33 +1063,50 @@ pub(crate) fn client_health_of(user_id: i64, pid: u32) -> Option<ClientHealthVie
 }
 
 /// Linha do Console para o cliente que entrou como outra conta.
-fn wrong_account_console_line(logged_user_id: i64, queue_stopped: bool) -> String {
-    let base = format!("Entrou como outra conta do Roblox (usuário {logged_user_id})");
+fn wrong_account_console_line(logged_user_id: i64, queue_stopped: bool) -> LogMsg {
     if queue_stopped {
-        format!("{base}. A fila de launch foi pausada")
+        log_msg!(
+            "Joined as another Roblox account (user {{userId}}). The launch queue was paused",
+            userId = logged_user_id
+        )
     } else {
-        base
+        log_msg!("Joined as another Roblox account (user {{userId}})", userId = logged_user_id)
     }
 }
 
-/// Linha do Console (português, como as do Watcher) para uma queda.
-fn drop_console_line(drop: &ClientDrop) -> String {
-    let code = drop.code.map(|c| format!(" (código {c})")).unwrap_or_default();
+/// Linha do Console (traduzível, como as do Watcher) para uma queda. O código
+/// do Roblox, quando há, vai como `{{code}}` (cada frase tem a variante com e
+/// sem ele).
+fn drop_console_line(drop: &ClientDrop) -> LogMsg {
+    let code = drop.code;
     match drop.kind {
-        DropKind::Disconnected => match drop.reason {
-            Some(DropReason::ConnectionLost) => format!("Caiu: perdeu a conexão{code}"),
-            Some(DropReason::JoinedElsewhere) => {
-                format!("Caiu: a conta entrou em outro lugar{code}")
+        DropKind::Disconnected => match (drop.reason, code) {
+            (Some(DropReason::ConnectionLost), Some(code)) => {
+                log_msg!("Dropped: lost the connection (code {{code}})", code = code)
             }
-            Some(DropReason::Idle) => format!("Caiu: ficou parada tempo demais{code}"),
-            _ => format!("Caiu{code}"),
+            (Some(DropReason::ConnectionLost), None) => log_msg!("Dropped: lost the connection"),
+            (Some(DropReason::JoinedElsewhere), Some(code)) => {
+                log_msg!("Dropped: the account joined somewhere else (code {{code}})", code = code)
+            }
+            (Some(DropReason::JoinedElsewhere), None) => log_msg!("Dropped: the account joined somewhere else"),
+            (Some(DropReason::Idle), Some(code)) => {
+                log_msg!("Dropped: it stayed idle for too long (code {{code}})", code = code)
+            }
+            (Some(DropReason::Idle), None) => log_msg!("Dropped: it stayed idle for too long"),
+            (_, Some(code)) => log_msg!("Dropped (code {{code}})", code = code),
+            (_, None) => log_msg!("Dropped"),
         },
-        DropKind::Kicked => match &drop.message {
-            Some(message) => format!("Foi expulso: {message}"),
-            None => format!("Foi expulso do jogo{code}"),
+        DropKind::Kicked => match (&drop.message, code) {
+            // A mensagem da expulsão é do jogo (texto de fora): vai como veio.
+            (Some(message), _) => log_msg!("Kicked: {{message}}", message = message.clone()),
+            (None, Some(code)) => log_msg!("Kicked from the game (code {{code}})", code = code),
+            (None, None) => log_msg!("Kicked from the game"),
         },
-        DropKind::ServerShutdown => format!("O servidor fechou{code}"),
-        DropKind::Crashed => String::from("O cliente fechou sem sair do jogo"),
+        DropKind::ServerShutdown => match code {
+            Some(code) => log_msg!("The server shut down (code {{code}})", code = code),
+            None => log_msg!("The server shut down"),
+        },
+        DropKind::Crashed => log_msg!("The client closed without leaving the game"),
     }
 }
 
@@ -1290,11 +1307,11 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 }),
             );
             let line = if *not_responding {
-                "Não respondendo há 30 s"
+                log_msg!("Not responding for 30 s")
             } else {
-                "Voltou a responder"
+                log_msg!("Responding again")
             };
-            emit_launch_log(app, *user_id, if *not_responding { "warn" } else { "info" }, "client", String::from(line));
+            emit_launch_log(app, *user_id, if *not_responding { "warn" } else { "info" }, "client", line);
         }
         HealthNotice::WrongAccount {
             user_id,
@@ -1341,11 +1358,11 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 }),
             );
             let line = if *pending {
-                "O Roblox pediu uma verificação (confirme que é humano): resolva na janela do jogo"
+                log_msg!("Roblox asked for a verification (confirm you are human): solve it in the game window")
             } else {
-                "A verificação do Roblox saiu da tela"
+                log_msg!("The Roblox verification left the screen")
             };
-            emit_launch_log(app, *user_id, if *pending { "warn" } else { "info" }, "client", String::from(line));
+            emit_launch_log(app, *user_id, if *pending { "warn" } else { "info" }, "client", line);
         }
         HealthNotice::Recovered { user_id } => {
             let _ = app.emit(
@@ -1355,7 +1372,7 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                     "drop": serde_json::Value::Null,
                 }),
             );
-            emit_launch_log(app, *user_id, "info", "client", String::from("Entrou num jogo de novo"));
+            emit_launch_log(app, *user_id, "info", "client", "Joined a game again");
         }
     }
 }
@@ -2327,16 +2344,16 @@ mod client_health_monitor_tests {
             since_ms: T0,
         };
         assert_eq!(
-            drop_console_line(&drop(DropKind::Disconnected, Some(DropReason::ConnectionLost), Some(277), None)),
-            "Caiu: perdeu a conexão (código 277)"
+            drop_console_line(&drop(DropKind::Disconnected, Some(DropReason::ConnectionLost), Some(277), None)).render(),
+            "Dropped: lost the connection (code 277)"
         );
         assert_eq!(
-            drop_console_line(&drop(DropKind::Kicked, None, Some(267), Some("bye"))),
-            "Foi expulso: bye"
+            drop_console_line(&drop(DropKind::Kicked, None, Some(267), Some("bye"))).render(),
+            "Kicked: bye"
         );
         assert_eq!(
-            drop_console_line(&drop(DropKind::ServerShutdown, None, Some(274), None)),
-            "O servidor fechou (código 274)"
+            drop_console_line(&drop(DropKind::ServerShutdown, None, Some(274), None)).render(),
+            "The server shut down (code 274)"
         );
     }
 
@@ -2658,10 +2675,13 @@ mod client_wrong_account_tests {
     #[test]
     fn the_console_line_says_whether_the_queue_was_paused() {
         assert_eq!(
-            wrong_account_console_line(42, true),
-            "Entrou como outra conta do Roblox (usuário 42). A fila de launch foi pausada"
+            wrong_account_console_line(42, true).render(),
+            "Joined as another Roblox account (user 42). The launch queue was paused"
         );
-        assert_eq!(wrong_account_console_line(42, false), "Entrou como outra conta do Roblox (usuário 42)");
+        assert_eq!(
+            wrong_account_console_line(42, false).render(),
+            "Joined as another Roblox account (user 42)"
+        );
     }
 
     /// O aviso de conta errada para a fila do jeito do Stop da Sessão (só quem

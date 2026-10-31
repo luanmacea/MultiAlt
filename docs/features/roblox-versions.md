@@ -14,6 +14,20 @@ Permitir instalar builds específicas do Roblox Player (direto do CDN oficial) n
 | [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | `running_version_keys` (guarda de versão concorrente) |
 | [launch.rs](../../src-tauri/src/commands/launch.rs) | Uso no launch único e múltiplo |
 
+## Versão velha (31/10/2026)
+
+Relato do Discord: todas as contas de uma pessoa banidas por "using a disallowed version of Roblox". Há relatos de ban por rodar uma build oficial **anterior** à atual, e o Roblox Version Manager herdado do niccdevs existe justamente para instalar builds velhas. Por isso:
+
+- Antes de abrir uma versão do catálogo, o launch confere a build atual do canal dela (`outdated_catalog_version`, [versions.rs](../../src-tauri/src/platform/windows/versions.rs), a mesma consulta do clientsettings que o launch já usa). Ficou para trás → **pergunta** na tela ([OutdatedVersionConfirm.tsx](../../src/components/OutdatedVersionConfirm.tsx), evento `outdated-version-confirm`, resposta por `answer_outdated_version_confirm`, `resolve_launch_install` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)):
+  - **Switch to the current version** (pedido do dono, para a pessoa não procurar onde trocar): abre a atual e tira a velha da versão padrão e de toda conta (`stop_using_version`, o mesmo do desinstalar);
+  - **Use the current version this time**: abre a atual; Esc, fundo ou 2 min sem resposta também;
+  - **Open the old version anyway**: abre a velha; o "sim" vale 10 min para a mesma versão (uma fila de várias contas pergunta uma vez).
+- O ciclo do Auto Rejoin não pergunta (ninguém na frente): abre a atual, com o motivo no log.
+- `Versions.AllowOutdated` (Settings › Versions › "Open outdated versions without asking", desligado) abre a velha sem perguntar.
+- Consulta de versão sem resposta: abre a escolhida (não dá para afirmar que é velha). Nunca recusa o launch (regra nº 1).
+- **Old join sem versão do catálogo** (`Developer.UseOldJoin`, desligado por padrão): ele abre o exe direto e pula a checagem de update que o Roblox faz no launch pelo protocolo. Se a pasta não é a build atual do canal (o download da atual falhou e sobrou uma velha), o launch vai pelo protocolo, que atualiza o cliente, com aviso no Console (`resolve_client_dir` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs), `old_join_folder_is_current` em [launch.rs](../../src-tauri/src/platform/windows/launch.rs); teste `old_join_current_build_tests`). Pelo protocolo uma build um pouco velha não entra no jogo: o próprio Roblox a atualiza antes.
+- Testes: `an_outdated_catalog_version_gives_way_to_the_current_build`, `outdated_version_choice_tests`, [OutdatedVersionConfirm.test.tsx](../../src/components/OutdatedVersionConfirm.test.tsx).
+
 ## Fluxo
 
 ### Listar versões remotas
@@ -34,7 +48,7 @@ Permitir instalar builds específicas do Roblox Player (direto do CDN oficial) n
 Precedência:
 1. **Override da conta** (`account.fields["RobloxVersion"]`, formato `<canal>:<hash>`): precisa existir no catálogo e ter `RobloxPlayerBeta.exe`, senão **erro** (não cai para o próximo nível). As mensagens de erro mandam "clear the per-account override" — e isso só se faz editando o campo à mão (ver "Override por conta" abaixo).
 2. **`Versions.DefaultVersion`**: mesma validação e erro.
-3. **Versão do catálogo usada mais recentemente** (`last_launched_at`, ou `installed_at`) que tenha o exe.
+3. ~~Versão do catálogo usada mais recentemente~~ — **removida em 31/10/2026**: instalar uma versão pela tela fazia o launch usá-la para sempre, sem ela ser escolhida, enquanto a tela dizia "Default: Roblox official install". Com o primeiro update do Roblox ela envelhecia (ver "Versão velha" abaixo).
 4. **Instalação do sistema** (`get_roblox_path`: a pasta da **última build de produção resolvida** — `cached_production_player_dir` —, senão a do `HKCR/roblox/DefaultIcon`, senão a pasta `version-*` mais recente da primeira pasta `Versions` que tiver alguma, nesta ordem: `%LOCALAPPDATA%/Roblox`, `Bloxstrap`, `Fishstrap`, `Voidstrap` — `candidate_versions_dirs` em [core.rs](../../src-tauri/src/platform/windows/core.rs); a instalação oficial ganha de qualquer bootstrapper) → `version_id = None`. No spawn essa pasta é só a reserva: pelo protocolo, `launch_url` abre a build de **produção**; no old join, `default_player_dir` troca pela pasta da build do canal **lido** do registro, instalando-a se faltar, e só devolve esta pasta se nem isso der (ver [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix)). O app não fixa canal: só o lê — a única escrita é o reparo de canal morto descrito lá.
 
 ```mermaid

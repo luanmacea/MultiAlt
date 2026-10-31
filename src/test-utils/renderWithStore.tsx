@@ -18,7 +18,7 @@ import type { ReactElement, ReactNode } from "react";
 import { render, type RenderOptions, type RenderResult } from "@testing-library/react";
 import { vi } from "vitest";
 import type { BottingStatus, GeneratorStatus, StoreValue } from "../store";
-import type { Account, ModerationStatus, ParsedGroup, PlatformCapabilities } from "../types";
+import type { Account, ModerationStatus, ParsedGroup, PlatformCapabilities, TermsState } from "../types";
 import { parseGroupName } from "../types";
 
 /** A realistic account row; override any field per test. */
@@ -221,6 +221,13 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     moderationByUserId: new Map<number, ModerationStatus>(),
     checkModeration: vi.fn(async () => null),
     checkAccounts: vi.fn(async () => null),
+    termsByUserId: new Map<number, TermsState>(),
+    checkTerms: vi.fn(async () => null),
+    checkTermsBatch: vi.fn(async () => {}),
+    termsChecking: false,
+    termsDialogIds: null,
+    setTermsDialogIds: vi.fn(),
+    acceptTerms: vi.fn(async () => true),
     accountCheckProgress: null,
     accountCheckReport: null,
     setAccountCheckReport: vi.fn(),

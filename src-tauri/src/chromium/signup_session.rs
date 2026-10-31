@@ -26,8 +26,8 @@ use super::cdp::{spawn_chrome, CdpClient};
 use super::download::resolve_browser_binary;
 use super::manager::{ChromiumManager, LOGIN_KEY};
 use super::signup::{
-    generate_identity, marked_field_selector, missing_fields, signup_prepare_script, signup_submit_script,
-    submit_result, SeededRng, SignupIdentity, SubmitResult, ROBLOX_SIGNUP_URL, SIGNUP_FORM_SELECTOR,
+    generate_identity, marked_field_selector, missing_fields, numbered_username, signup_prepare_script,
+    signup_submit_script, submit_result, with_chosen_password, SeededRng, SignupIdentity, SubmitResult, ROBLOX_SIGNUP_URL, SIGNUP_FORM_SELECTOR,
 };
 
 /// Depois de clicar em "Cadastrar-se", quanto esperar antes de poder clicar de
@@ -186,6 +186,28 @@ async fn pick_free_username(identity: &mut SignupIdentity, seed: u64, prefix: &s
         let mut rng = SeededRng::new(seed ^ ((attempt as u64 + 1).wrapping_mul(0x9E37_79B9)));
         identity.username = super::signup::generate_username(&mut rng, prefix);
     }
+}
+
+/// Quantos números seguidos o nome numerado tenta antes de voltar ao sorteio
+/// (`vibe_1` a `vibe_20` todos em uso: o prefixo é comum demais).
+const NUMBERED_ATTEMPTS: u32 = 20;
+
+/// Nome numerado livre a partir de `start` (`prefixo_N`). Devolve o número
+/// usado; `None` deixa o nome sorteado da identidade (sem número que caiba ou
+/// todos em uso). Serviço fora do ar: segue com o número, como o sorteio.
+async fn pick_free_numbered_username(identity: &mut SignupIdentity, prefix: &str, start: u32) -> Option<u32> {
+    let birthday = crate::api::roblox::signup_birthday_iso(&identity.day, &identity.month, &identity.year);
+    for number in start..start.saturating_add(NUMBERED_ATTEMPTS) {
+        let name = numbered_username(prefix, number)?;
+        match crate::api::roblox::check_signup_username(&name, &birthday).await {
+            Ok(check) if !check.available => continue,
+            _ => {
+                identity.username = name;
+                return Some(number);
+            }
+        }
+    }
+    None
 }
 
 /// Preenche o que falta no formulário que estiver na tela.
@@ -350,6 +372,7 @@ pub async fn start_signup_session(
     chromium: State<'_, ChromiumManager>,
     settings: State<'_, SettingsStore>,
     count: usize,
+    password: Option<String>,
 ) -> Result<SignupStatus, String> {
     if current_status().active {
         return Err("Já existe uma criação de contas em andamento".to_string());
@@ -370,6 +393,16 @@ pub async fn start_signup_session(
     // Vazio mantém o nome de palavras de sempre.
     let username_prefix =
         super::signup::sanitize_username_prefix(&settings.get_string("Generator", "SignupUsernamePrefix"));
+    // Nomes em ordem (`prefixo_1`, `prefixo_2`...): o próximo número fica
+    // gravado, e o lote seguinte continua de onde este parou.
+    let numbered = settings.get_bool("Generator", "SignupUsernameNumbered") && !username_prefix.is_empty();
+    let mut next_number = settings
+        .get_int("Generator", "SignupUsernameNext")
+        .unwrap_or(1)
+        .clamp(1, u32::MAX as i64) as u32;
+    // A senha escolhida para o lote fica só na memória desta sessão: não vai
+    // para o RAMSettings.ini (que é texto puro).
+    let chosen_password = password.filter(|p| !p.is_empty());
     let profile = ChromiumManager::login_profile(&app)?;
     super::commands::wipe_profile_dir(&profile)?;
 
@@ -439,7 +472,16 @@ pub async fn start_signup_session(
 
             let seed = identity_seed(index);
             let mut identity = generate_identity(seed, current_year(), &username_prefix);
-            pick_free_username(&mut identity, seed, &username_prefix).await;
+            let number = if numbered {
+                pick_free_numbered_username(&mut identity, &username_prefix, next_number).await
+            } else {
+                None
+            };
+            if number.is_none() {
+                pick_free_username(&mut identity, seed, &username_prefix).await;
+            }
+            // Depois do nome: a senha escolhida não pode conter o nome final.
+            let identity = with_chosen_password(identity, chosen_password.as_deref());
             let missing = fill_signup_form(&mut cdp, &identity).await;
 
             update(&app_task, |s| {
@@ -465,6 +507,14 @@ pub async fn start_signup_session(
                         update(&app_task, |s| s.phase = "saving".to_string());
                         match save_account(&accounts, cookie, &identity, typed_password.as_deref()).await {
                             Ok(SignupSave::Saved(name)) => {
+                                if let Some(used) = number {
+                                    next_number = used.saturating_add(1);
+                                    let _ = app_task.state::<SettingsStore>().set(
+                                        "Generator",
+                                        "SignupUsernameNext",
+                                        &next_number.to_string(),
+                                    );
+                                }
                                 // A lista principal recarrega neste evento. Sem
                                 // ele, as contas criadas só apareciam no próximo
                                 // start do app — inclusive as de uma sessão que o

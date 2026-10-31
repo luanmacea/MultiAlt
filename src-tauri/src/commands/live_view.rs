@@ -114,6 +114,37 @@ fn set_live_accounts(app: tauri::AppHandle, user_ids: Vec<i64>, all: Option<bool
     Ok(())
 }
 
+/// A janela da Live pergunta a cada passada (2 s): conta que a pessoa
+/// minimizou **depois** de a Live abrir também volta a desenhar, invisível.
+/// Antes só a que já estava minimizada quando a grade foi montada (relato do
+/// Discord, 30/10/2026: "i had them minimized and they stopped loading").
+#[tauri::command]
+fn live_keep_minimized(app: tauri::AppHandle) -> usize {
+    #[cfg(target_os = "windows")]
+    {
+        if app.get_webview_window(LIVE_WINDOW).is_none()
+            || app.state::<SettingsStore>().get_string("Live", "KeepMinimized") == "false"
+        {
+            return 0;
+        }
+        let tracker = platform::windows::tracker();
+        let mut kept = 0;
+        for account in live_accounts_list(&app, true) {
+            let Some(pid) = tracker.get_pid(account.user_id) else { continue };
+            let Some(hwnd) = platform::windows::find_main_window(pid) else { continue };
+            if platform::windows::live_keep_rendering(account.user_id, hwnd as isize) {
+                kept += 1;
+            }
+        }
+        return kept;
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = app;
+        0
+    }
+}
+
 /// A janela da Live mandou a grade: põe (ou move) a miniatura de cada conta na
 /// célula dela. Devolve quantas estão de pé.
 #[tauri::command]

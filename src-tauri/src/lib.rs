@@ -1,5 +1,8 @@
 #![cfg_attr(debug_assertions, allow(dead_code))]
 
+// Primeiro: o `log_msg!` precisa estar à vista de todo módulo declarado depois.
+#[macro_use]
+mod log_msg;
 mod api;
 mod chromium;
 mod data;
@@ -10,6 +13,8 @@ mod python;
 mod roblox_log;
 #[cfg(target_os = "windows")]
 mod webview_recovery;
+
+pub(crate) use log_msg::LogMsg;
 
 use api::batch::ImageCache;
 use data::accounts::{get_account_data_path, AccountStore};
@@ -65,6 +70,7 @@ include!("commands/session_history.rs");
 include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
+include!("commands/agreements.rs");
 include!("commands/reconnect.rs");
 include!("commands/closed_clients.rs");
 include!("commands/keep_awake.rs");
@@ -628,6 +634,9 @@ pub fn run() {
             copy_account_secret,
             check_account_moderation,
             check_accounts,
+            check_account_terms,
+            check_accounts_terms,
+            accept_account_terms,
             get_robux,
             get_user_info,
             lookup_user,
@@ -719,6 +728,7 @@ pub fn run() {
             live_tiles,
             set_live_accounts,
             live_set_layout,
+            live_keep_minimized,
             open_live_window,
             close_live_window,
             live_window_open,
@@ -731,6 +741,7 @@ pub fn run() {
             get_launch_queue,
             cancel_account_launch,
             answer_multi_roblox_confirm,
+            answer_outdated_version_confirm,
             stop_launch_queue,
             next_account,
             start_botting_mode,

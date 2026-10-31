@@ -262,6 +262,62 @@ describe("DetailSidebar — moderation", () => {
   });
 });
 
+/** Acordos atualizados (Termos / Privacidade): o mesmo desenho da moderação. */
+describe("DetailSidebar — terms", () => {
+  it("says nothing was checked yet and checks on demand", async () => {
+    const store = renderSidebar();
+    expect(screen.getByText("Terms not checked yet")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Check terms" }));
+    expect(store.checkTerms).toHaveBeenCalledWith(1);
+  });
+
+  it("shows a clean account as having no pending terms", () => {
+    renderSidebar({ termsByUserId: new Map([[1, { kind: "none" }]]) });
+    expect(screen.getByText("No pending terms")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Accept terms" })).not.toBeInTheDocument();
+  });
+
+  it("lists the pending titles and accepts only after the confirmation", async () => {
+    const pending = new Map([
+      [
+        1,
+        {
+          kind: "pending" as const,
+          pending: [
+            { id: "a-1", title: "Terms of Use" },
+            { id: "a-2", title: "Privacy Policy" },
+          ],
+        },
+      ],
+    ]);
+    promptAnswers.confirm = false;
+    const store = renderSidebar({ termsByUserId: pending });
+    expect(screen.getByTestId("terms-status-text")).toHaveTextContent("Terms pending: Terms of Use, Privacy Policy");
+
+    await userEvent.click(screen.getByRole("button", { name: "Accept terms" }));
+    expect(store.acceptTerms).not.toHaveBeenCalled();
+
+    promptAnswers.confirm = true;
+    await userEvent.click(screen.getByRole("button", { name: "Accept terms" }));
+    await waitFor(() => expect(store.acceptTerms).toHaveBeenCalledWith(1));
+  });
+
+  it("always offers the browser as the way out for a pending account", async () => {
+    const store = renderSidebar({
+      termsByUserId: new Map([[1, { kind: "pending" as const, pending: [{ id: "", title: "Agreement" }] }]]),
+    });
+    // Sem id do acordo, a API não é tentada: só "Check terms" e o navegador.
+    expect(screen.queryByRole("button", { name: "Accept terms" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Open in browser" }));
+    expect(store.openAccountBrowser).toHaveBeenCalledWith(1);
+  });
+
+  it("shows why the check failed instead of a clean account", () => {
+    renderSidebar({ termsByUserId: new Map([[1, { kind: "error", message: "Try again in a minute." }]]) });
+    expect(screen.getByTestId("terms-status-text")).toHaveTextContent("Couldn't check terms: Try again in a minute.");
+  });
+});
+
 /** Revisão da UI (pacote Organização): o painel cresceu e o uso diário ficou lá embaixo. */
 describe("DetailSidebar — layout", () => {
   beforeEach(() => {

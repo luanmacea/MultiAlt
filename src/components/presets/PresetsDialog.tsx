@@ -14,8 +14,10 @@ import { accountLabel } from "../../utils/accountName";
 import { Toggle } from "../ui/Toggle";
 import { Select } from "../ui/Select";
 import { GameBadge } from "../ui/GameBadge";
+import { useListSelection } from "../../hooks/useListSelection";
+import { applyToList } from "../../utils/listSelection";
 import { loadFavorites, parsePlaceIdInput } from "../server-list/types";
-import { collectGroupNames, parseGroupName } from "../../types";
+import { collectGroupNames, groupLabel } from "../../types";
 import type { LaunchPreset, LaunchPresetView, PresetSchedule } from "../../types";
 import {
   EMPTY_SCHEDULE,
@@ -229,7 +231,7 @@ function PresetRow({
 
   // Preset de grupo: quem está no grupo agora; contas fixas: as que ainda existem.
   const present = presetAccountIds(preset, store.accounts);
-  const groupName = preset.group ? parseGroupName(preset.group).displayName : null;
+  const groupName = preset.group ? groupLabel(preset.group, t) : null;
   const gameName = identity?.name ?? preset.gameName ?? t("Place {{placeId}}", { placeId: preset.placeId });
   const server = preset.vipName
     ? t("VIP: {{name}}", { name: preset.vipName })
@@ -407,11 +409,11 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
   const groupOptions = useMemo(() => {
     const options = groupNames.map((g) => ({
       value: g,
-      label: `${parseGroupName(g).displayName} (${store.accounts.filter((a) => (a.Group || "Default") === g).length})`,
+      label: `${groupLabel(g, t)} (${store.accounts.filter((a) => (a.Group || "Default") === g).length})`,
     }));
     // Grupo do preset renomeado/esvaziado: continua na lista, marcado.
     if (draft.group && !groupNames.includes(draft.group)) {
-      options.unshift({ value: draft.group, label: `${parseGroupName(draft.group).displayName} (0)` });
+      options.unshift({ value: draft.group, label: `${groupLabel(draft.group, t)} (0)` });
     }
     return options;
   }, [groupNames, store.accounts, draft.group]);
@@ -466,12 +468,12 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
     setDraft((d) => ({ ...d, schedule: { ...(d.schedule ?? EMPTY_SCHEDULE), ...patch } }));
   }
 
-  function toggleAccount(userId: number) {
-    setDraft((d) => ({
-      ...d,
-      userIds: d.userIds.includes(userId) ? d.userIds.filter((id) => id !== userId) : [...d.userIds, userId],
-    }));
-  }
+  // Shift, Ctrl e arrastar por cima das contas, como na lista principal.
+  const accountSelection = useListSelection<number>({
+    order: store.accounts.map((a) => a.UserID),
+    isSelected: (id) => draft.userIds.includes(id),
+    apply: (ids, on) => setDraft((d) => ({ ...d, userIds: applyToList(d.userIds, ids, on) })),
+  });
 
   function toggleDay(day: number) {
     const days = schedule.days.includes(day) ? schedule.days.filter((d) => d !== day) : [...schedule.days, day];
@@ -658,11 +660,15 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
             <>
               <div className="max-h-[150px] overflow-y-auto rounded-lg border theme-border divide-y divide-[var(--border-color)]">
                 {store.accounts.map((a) => (
-                  <label key={a.UserID} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px] cursor-pointer hover:bg-[var(--panel-soft)]">
+                  <label
+                    key={a.UserID}
+                    {...accountSelection.rowProps(a.UserID)}
+                    className="flex items-center gap-2 px-2.5 py-1.5 text-[12px] cursor-pointer hover:bg-[var(--panel-soft)]"
+                  >
                     <input
                       type="checkbox"
                       checked={draft.userIds.includes(a.UserID)}
-                      onChange={() => toggleAccount(a.UserID)}
+                      onChange={(e) => accountSelection.toggle(a.UserID, e.nativeEvent)}
                     />
                     <span className="truncate text-[var(--panel-fg)]">{accountLabel(a, store)}</span>
                   </label>

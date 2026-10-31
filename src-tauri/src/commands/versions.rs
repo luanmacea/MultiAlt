@@ -126,23 +126,26 @@ fn versions_uninstall(
         platform::windows::uninstall_version(&channel, &version_hash)?;
     }
     catalog.remove(&channel, &version_hash)?;
-    let default = settings.get_string("Versions", "DefaultVersion");
-    if default == version_id {
+    stop_using_version(&settings, &accounts, &version_id)
+}
+
+/// Tira `version_id` de onde ela foi escolhida — versão padrão e versão de
+/// cada conta —, para os próximos launches abrirem a instalação normal. Usado
+/// ao desinstalar e pelo "trocar para a versão atual" do aviso de versão velha.
+pub(crate) fn stop_using_version(
+    settings: &SettingsStore,
+    accounts: &AccountStore,
+    version_id: &str,
+) -> Result<(), String> {
+    if settings.get_string("Versions", "DefaultVersion") == version_id {
         let _ = settings.set("Versions", "DefaultVersion", "");
     }
-
-    let mut updated = false;
-    let mut snapshot = accounts.get_all()?;
-    for account in snapshot.iter_mut() {
-        if let Some(value) = account.fields.get("RobloxVersion") {
-            if value == &version_id {
-                account.fields.remove("RobloxVersion");
-                updated = true;
-                accounts.update(account.clone())?;
-            }
+    for mut account in accounts.get_all()? {
+        if account.fields.get("RobloxVersion").is_some_and(|value| value == version_id) {
+            account.fields.remove("RobloxVersion");
+            accounts.update(account)?;
         }
     }
-    let _ = updated;
     Ok(())
 }
 

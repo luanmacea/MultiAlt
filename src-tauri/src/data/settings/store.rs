@@ -138,6 +138,11 @@ impl SettingsStore {
                 "false",
                 Some("Default for every account: reopen a client this app opened in the same game when it drops (each account's AutoReconnect field wins)"),
             ),
+            (
+                "ReconnectSameServer",
+                "true",
+                Some("Auto-reconnect rejoins the exact server the account was in; off = rejoin the game and let Roblox pick the server (for games that move you to a reserved server)"),
+            ),
             ("BottingUseSharedClientProfile", "true", None),
             ("BottingAutoShareLaunchFields", "true", None),
             ("BottingDualPanelDialog", "true", None),
@@ -368,6 +373,10 @@ impl SettingsStore {
             // gera "arvore_k3p9z". Vazio mantem o nome de palavras de sempre.
             // Nao vale para o BloxGen, cujo nome vem pronto do provedor.
             ("SignupUsernamePrefix", ""),
+            // Com prefixo, nomes em ordem (prefixo_1, prefixo_2...) em vez
+            // dos 5 caracteres sorteados; o próximo número fica gravado.
+            ("SignupUsernameNumbered", "false"),
+            ("SignupUsernameNext", "1"),
             // O criador de contas clica em "Cadastrar-se" sozinho; o CAPTCHA,
             // se aparecer, continua sendo da pessoa (14/10/2026).
             ("SignupAutoSubmit", "true"),
@@ -400,6 +409,7 @@ impl SettingsStore {
             ("PreferOldJoinForVersioned", "true"),
             ("ShowPreReleaseVersions", "false"),
             ("AllowLaunchOnOpenVersion", "false"),
+            ("AllowOutdated", "false"),
         ];
 
         let versions = ini.section("Versions");
@@ -722,6 +732,7 @@ mod settings_store_tests {
                 ("BottingEnabled", "false"),
                 ("KeepPcAwake", "true"),
                 ("AutoReconnect", "false"),
+                ("ReconnectSameServer", "true"),
                 ("BottingUseSharedClientProfile", "true"),
                 ("BottingAutoShareLaunchFields", "true"),
                 ("BottingDualPanelDialog", "true"),
@@ -858,6 +869,7 @@ mod settings_store_tests {
                 ("PreferOldJoinForVersioned", "true"),
                 ("ShowPreReleaseVersions", "false"),
                 ("AllowLaunchOnOpenVersion", "false"),
+                ("AllowOutdated", "false"),
             ],
         );
 
@@ -956,6 +968,8 @@ mod settings_store_tests {
                 ("TargetGroup", "BloxGen"),
                 ("MaxAccounts", "0"),
                 ("MaxConsecutiveFailures", "3"),
+                ("SignupUsernameNumbered", "false"),
+                ("SignupUsernameNext", "1"),
                 ("SignupAutoSubmit", "true"),
             ],
         );

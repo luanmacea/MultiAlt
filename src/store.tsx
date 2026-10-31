@@ -22,6 +22,10 @@ import type {
   LaunchOutcome,
   LaunchQueuePayload,
   ModerationStatus,
+  PendingAgreement,
+  TermsState,
+  TermsAcceptResult,
+  TermsCheckEntry,
   ServerPreference,
   UnidentifiedClient,
   ClientDrop,
@@ -36,9 +40,12 @@ import type {
   LaunchPresetView,
 } from "./types";
 import { playAfkBeep, playAfkWarningBeep } from "./utils/afkBeep";
+import { acceptFailureText, termsStateOf } from "./utils/terms";
 import type { TabId as SettingsTabId } from "./components/settings/tabs";
 import type { AfkMode } from "./afkClickPoint";
 import {
+  groupLabel,
+  MODERATED_GROUP,
   orderGroupKeys,
   parseAccountDate,
   parseGroupName,
@@ -221,7 +228,16 @@ export interface LaunchLogEntry {
   userId: number | null;
   level: LaunchLogLevel;
   step: string;
+  /** A frase em inglês já montada: o que vale quando a linha não traz `key`. */
   message: string;
+  /**
+   * A frase em inglês com `{{parametros}}` (também a chave do catálogo de
+   * idiomas). O Console traduz `t(key, params)` na hora de desenhar, então
+   * trocar o idioma traduz as linhas que já estão na tela. Ver
+   * `utils/launchLog.ts` e docs/features/console.md.
+   */
+  key?: string;
+  params?: Record<string, unknown>;
   ts: number;
 }
 
@@ -567,6 +583,29 @@ export interface StoreValue {
   /** Resultado do último "Check accounts" em lote; não nulo = a janela de resultados está aberta. */
   accountCheckReport: { results: AccountCheckSummary["results"]; at: number } | null;
   setAccountCheckReport: (report: { results: AccountCheckSummary["results"]; at: number } | null) => void;
+  /**
+   * Acordos pendentes ("Acordos atualizados") lidos nesta sessão, por conta.
+   * Só em memória; `checkTerms` e o evento `account-terms` alimentam.
+   */
+  termsByUserId: Map<number, TermsState>;
+  /** Confere os acordos de uma conta (leitura, sem refresh). */
+  checkTerms: (userId: number) => Promise<TermsState | null>;
+  /**
+   * Confere várias contas e abre a janela de resultados (`termsDialogIds`),
+   * que vai enchendo conforme as respostas chegam.
+   */
+  checkTermsBatch: (userIds: number[]) => Promise<void>;
+  /** Uma conta de `checkTermsBatch` ainda não respondeu enquanto isto for `true`. */
+  termsChecking: boolean;
+  /** Contas da janela de termos; não nulo = a janela está aberta. */
+  termsDialogIds: number[] | null;
+  setTermsDialogIds: (ids: number[] | null) => void;
+  /**
+   * Aceita os acordos pendentes da conta (só depois da confirmação da tela).
+   * Devolve `true` quando o aceite foi confirmado; senão mostra a resposta
+   * exata do Roblox num aviso.
+   */
+  acceptTerms: (userId: number) => Promise<boolean>;
   launchedByProgram: Set<number>;
   /** Contas de `launchedByProgram` cujo cliente foi aberto fora do app (pelo site). */
   adoptedClients: Set<number>;
@@ -1031,6 +1070,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setModerationByUserId((prev) => {
       const next = new Map(prev);
       next.set(userId, status);
+      return next;
+    });
+  }, []);
+  const [termsByUserId, setTermsByUserId] = useState<Map<number, TermsState>>(new Map());
+  const [termsChecking, setTermsChecking] = useState(false);
+  const [termsDialogIds, setTermsDialogIds] = useState<number[] | null>(null);
+  const rememberTerms = useCallback((userId: number, state: TermsState) => {
+    setTermsByUserId((prev) => {
+      const next = new Map(prev);
+      next.set(userId, state);
       return next;
     });
   }, []);
@@ -1765,6 +1814,61 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Acordos pendentes de uma conta (leitura, sem refresh). Falha vira o estado
+   * "error" da linha — nunca "sem pendência".
+   */
+  async function checkTerms(userId: number): Promise<TermsState | null> {
+    try {
+      const status = await invoke<{ pending: PendingAgreement[] }>("check_account_terms", { userId });
+      const state = termsStateOf({ status, error: null });
+      rememberTerms(userId, state);
+      return state;
+    } catch (e) {
+      const state = termsStateOf({ status: null, error: String(e) });
+      rememberTerms(userId, state);
+      return state;
+    }
+  }
+
+  async function checkTermsBatch(userIds: number[]): Promise<void> {
+    const ids = Array.from(new Set(userIds));
+    if (ids.length === 0) return;
+    setTermsDialogIds(ids);
+    setTermsChecking(true);
+    try {
+      const entries = await invoke<TermsCheckEntry[]>("check_accounts_terms", { userIds: ids });
+      for (const entry of entries) rememberTerms(entry.userId, termsStateOf(entry));
+    } catch (e) {
+      addToast(tr("Check failed: {{error}}", { error: String(e) }), "error");
+    } finally {
+      setTermsChecking(false);
+    }
+  }
+
+  async function acceptTerms(userId: number): Promise<boolean> {
+    try {
+      const result = await invoke<TermsAcceptResult>("accept_account_terms", { userId });
+      if (result.accepted) {
+        rememberTerms(userId, { kind: "none" });
+        addToast(tr("Terms accepted"), "success");
+        return true;
+      }
+      if (result.remaining) {
+        rememberTerms(
+          userId,
+          result.remaining.length > 0 ? { kind: "pending", pending: result.remaining } : { kind: "none" }
+        );
+      }
+      addToast(acceptFailureText(result, tr), "warn");
+      return false;
+    } catch (e) {
+      // Falha antes de enviar (cookie, CSRF, rede, acordo sem id).
+      addToast(tr("Couldn't accept the terms: {{error}}. Use Open in browser.", { error: String(e) }), "warn");
+      return false;
+    }
+  }
+
   async function checkAccounts(userIds: number[]): Promise<AccountCheckSummary | null> {
     if (userIds.length === 0) return null;
     setAccountCheckProgress({ done: 0, total: userIds.length });
@@ -1856,7 +1960,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   async function moveToGroup(userIds: number[], group: string, options?: ActionReportOptions) {
-    const groupName = parseGroupName(group).displayName;
+    const groupName = groupLabel(group, tr);
     if (options?.report) startActionReport("move-group", tr("Move to {{group}}", { group: groupName }), userIds);
     const updated = accounts.map((a) =>
       userIds.includes(a.UserID) ? { ...a, Group: group } : a
@@ -1903,7 +2007,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return next;
       });
       await loadAccounts();
-      addToast(tr("Renamed group to {{group}}", { group: parseGroupName(name).displayName }), "success");
+      addToast(tr("Renamed group to {{group}}", { group: groupLabel(name, tr) }), "success");
       return true;
     } catch (e) {
       setError(String(e));
@@ -1944,7 +2048,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       return next;
     });
-    addToast(tr("Sorted {{group}}", { group: parseGroupName(groupKey).displayName }));
+    addToast(tr("Sorted {{group}}", { group: groupLabel(groupKey, tr) }));
   }
 
   /**
@@ -3314,7 +3418,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const unsubs: Array<() => void> = [];
 
     const listeners = [
-      listen<{ userId: number | null; level: LaunchLogLevel; step: string; message: string }>(
+      listen<{
+        userId: number | null;
+        level: LaunchLogLevel;
+        step: string;
+        message: string;
+        key?: string;
+        params?: Record<string, unknown>;
+      }>(
         "launch-log",
         (e) => {
           const p = e.payload;
@@ -3325,6 +3436,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               level: p.level ?? "info",
               step: p.step ?? "",
               message: p.message ?? "",
+              // Sem `key` (linha antiga ou texto de fora) a tela mostra o `message`.
+              ...(p.key ? { key: p.key, params: p.params ?? {} } : {}),
               ts: Date.now(),
             };
             // Cap the buffer so a long botting session can't grow unbounded.
@@ -3389,6 +3502,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
         if (e.payload?.status) rememberModeration(e.payload.userId, e.payload.status);
       }),
+      // Acordos pendentes lidos em lote: a janela de termos enche conforme chegam.
+      listen<TermsCheckEntry>("account-terms", (e) => {
+        if (e.payload) rememberTerms(e.payload.userId, termsStateOf(e.payload));
+      }),
       // Conta jogada fora do app (pelo site, ou "em jogo" pela presença): o
       // backend regrava o "usado há" e avisa — a linha anda sem recarregar.
       // Launch que falhou com a sessão morta: o backend marcou `Valid=false`.
@@ -3418,12 +3535,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
       listen<{ userId: number; group?: string }>("account-moderated", (e) => {
         const userId = e.payload.userId;
-        // The backend already moved the account into the "moderadas" group and
+        // The backend already moved the account into the moderated group and
         // persisted it — reload so the list reflects the new grouping right away.
         void loadAccounts().catch(() => {});
         const acct = accountsRef.current.find((a) => a.UserID === userId);
         const name = accountLabel(acct, nameMaskingRef.current, userId);
-        addToast(tr("{{name}} is moderated — moved to 'moderadas'", { name }));
+        addToast(tr("{{name}} is moderated — moved to the {{group}} group", { name, group: groupLabel(MODERATED_GROUP, tr) }));
       }),
       listen<{ userId: number; index: number; total: number }>("launch-progress", (e) => {
         const current = (e.payload.index ?? 0) + 1;
@@ -4147,6 +4264,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     moderationByUserId,
     checkModeration,
     checkAccounts,
+    termsByUserId,
+    checkTerms,
+    checkTermsBatch,
+    termsChecking,
+    termsDialogIds,
+    setTermsDialogIds,
+    acceptTerms,
     accountCheckProgress,
     accountCheckReport,
     setAccountCheckReport,
