@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -292,6 +292,27 @@ describe("PresetsDialog — editor", () => {
     expect(await screen.findByRole("switch", { name: "Open at a set time" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Close at a set time" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "alpha_main" })).toBeChecked();
+  });
+
+  it("Shift+click ticks a range of accounts and dragging ticks the ones it passes", async () => {
+    setInvokeMap({ get_launch_presets: [] });
+    renderWithStore(<PresetsDialog />, { accounts: ACCOUNTS, presetsDialog: { draft: newPresetDraft([]) } });
+    const box = (name: string) => screen.getByRole("checkbox", { name });
+    await screen.findByRole("switch", { name: "Open at a set time" });
+    fireEvent.click(box("alpha_main"));
+    fireEvent.click(box("charlie_alt"), { shiftKey: true });
+    expect(["alpha_main", "bravo_alt", "charlie_alt"].map((n) => (box(n) as HTMLInputElement).checked)).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    // Dragging from a ticked row unticks what it passes.
+    fireEvent.mouseDown(box("charlie_alt"), { button: 0 });
+    fireEvent.mouseMove(box("bravo_alt").closest("label") as HTMLElement);
+    fireEvent.mouseUp(box("bravo_alt"));
+    expect(box("alpha_main")).toBeChecked();
+    expect(box("bravo_alt")).not.toBeChecked();
+    expect(box("charlie_alt")).not.toBeChecked();
   });
 
   it("shows how many characters are left near the name limit", async () => {

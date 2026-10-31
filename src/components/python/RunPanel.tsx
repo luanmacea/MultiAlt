@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Play, Square } from "lucide-react";
 import { useStore } from "../../store";
 import { useAccountLabel } from "../../hooks/useAccountLabel";
+import { useListSelection } from "../../hooks/useListSelection";
+import { applyToSet } from "../../utils/listSelection";
 import { Select } from "../ui/Select";
 import { errorText, pythonApi, type PythonRunConfig, type PythonRunInfo, type PythonRunMode } from "./pythonApi";
 import { isRunActive } from "./usePythonRuns";
@@ -86,21 +88,17 @@ export function RunPanel({ script, runtimeInstalled, runs, onToast }: RunPanelPr
     update({ accounts: [...ids] });
   }
 
-  function toggleAccount(id: number) {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setAccounts(next);
+  function setGroup(ids: number[], on: boolean) {
+    setAccounts(applyToSet(selected, ids, on));
   }
 
-  function setGroup(ids: number[], on: boolean) {
-    const next = new Set(selected);
-    for (const id of ids) {
-      if (on) next.add(id);
-      else next.delete(id);
-    }
-    setAccounts(next);
-  }
+  // Shift, Ctrl e arrastar por cima das contas, como na lista principal (a
+  // ordem é a da tela: grupo por grupo).
+  const selection = useListSelection<number>({
+    order: store.groups.flatMap((group) => group.accounts.map((account) => account.UserID)),
+    isSelected: (id) => selected.has(id),
+    apply: setGroup,
+  });
 
   function setTriggerKind(kind: TriggerKind) {
     if (kind === "interval") {
@@ -197,13 +195,14 @@ export function RunPanel({ script, runtimeInstalled, runs, onToast }: RunPanelPr
                     {group.accounts.map((account) => (
                       <label
                         key={account.UserID}
+                        {...selection.rowProps(account.UserID)}
                         className="flex cursor-pointer items-center gap-2 px-2.5 py-1 text-[12px] text-zinc-300 hover:bg-zinc-800/40"
                       >
                         <input
                           type="checkbox"
                           className="accent-sky-400"
                           checked={selected.has(account.UserID)}
-                          onChange={() => toggleAccount(account.UserID)}
+                          onChange={(e) => selection.toggle(account.UserID, e.nativeEvent)}
                         />
                         <span className="min-w-0 flex-1 truncate">{labelOf(account, account.UserID)}</span>
                         {openClients.has(account.UserID) ? (

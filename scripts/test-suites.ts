@@ -525,6 +525,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/server-list",
       "src/App.test.tsx",
       "src/hooks",
+      // Seleção em lista (Shift, Ctrl, arrastar) das listas de contas fora da principal.
+      "src/utils/listSelection.test.ts",
       "src/i18n",
       "src/types.test.ts",
       "src/tauriWindowConfig.test.ts",

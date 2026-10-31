@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -486,6 +486,25 @@ describe("SessionPanel — seleção em lote", () => {
     expect(screen.getByRole("checkbox", { name: "Select charlie" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Select delta" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Select Bravo Alt" })).toBeChecked();
+  });
+
+  it("Ctrl-click toggles one row and dragging over the rows selects every row it passes", () => {
+    renderFive();
+    const box = (name: string) => screen.getByRole("checkbox", { name: `Select ${name}` });
+    fireEvent.click(box("alpha"), { ctrlKey: true });
+    fireEvent.click(box("echo"), { ctrlKey: true });
+    expect(box("alpha")).toBeChecked();
+    expect(box("echo")).toBeChecked();
+    expect(box("charlie")).not.toBeChecked();
+
+    fireEvent.mouseDown(box("Bravo Alt"), { button: 0 });
+    fireEvent.mouseMove(screen.getByTestId("session-running-3"));
+    fireEvent.mouseMove(screen.getByTestId("session-running-4"));
+    fireEvent.mouseUp(screen.getByTestId("session-running-4"));
+    for (const name of ["Bravo Alt", "charlie", "delta"]) expect(box(name)).toBeChecked();
+    // The click the browser sends after a drag is not a second toggle.
+    fireEvent.click(box("Bravo Alt"));
+    expect(box("Bravo Alt")).toBeChecked();
   });
 
   it("clears the selection from the bar", async () => {

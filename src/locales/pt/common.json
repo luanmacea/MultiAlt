@@ -3039,5 +3039,6 @@
   "Next number": "Próximo número",
   "Empty: a random password for each account. At least 8 characters, without the username. It is kept only in each account.": "Vazio: uma senha sorteada para cada conta. Pelo menos 8 caracteres, sem o nome de usuário. Ela fica só em cada conta.",
   "Moderated": "Moderadas",
-  "{{name}} is moderated — moved to the {{group}} group": "{{name}} está moderada — movida para o grupo {{group}}"
+  "{{name}} is moderated — moved to the {{group}} group": "{{name}} está moderada — movida para o grupo {{group}}",
+  "Add all": "Adicionar todas"
 }

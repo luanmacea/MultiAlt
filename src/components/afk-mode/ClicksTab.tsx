@@ -1,5 +1,6 @@
 import { Check, Crosshair, Send } from "lucide-react";
 import { formatAfkPoint, readAfkPoint, type AfkMode } from "../../afkClickPoint";
+import { useListSelection } from "../../hooks/useListSelection";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
 import { ToggleRow } from "../ui/ToggleRow";
@@ -17,6 +18,8 @@ import { afkKeyLabel } from "./clicks/afkKeyLabels";
 export { formatAfkElapsed };
 
 const CARD = "theme-surface rounded-xl border theme-border p-3";
+const SMALL_BUTTON =
+  "px-2 py-0.5 text-[12px] rounded-md border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed";
 
 /**
  * Aba de cliques AFK do Modo AFK (antes o diálogo de AFK mode): o app manda uma
@@ -298,14 +301,33 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
 
 function AccountsCard({ ctl }: { ctl: ClicksController }) {
   const { t, store, running, inAfk, candidates, statusByUserId, clickMode, capture } = ctl;
+  // Shift, Ctrl e arrastar por cima das linhas, como na lista principal.
+  const selection = useListSelection<number>({
+    order: candidates.map((a) => a.UserID),
+    isSelected: (id) => inAfk.includes(id),
+    apply: (ids, on) => ctl.setAccountsOn(ids, on),
+  });
   return (
     <section data-tour="afk-clicks-accounts" className={`@container ${CARD}`}>
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <div className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Accounts in AFK mode")}</div>
         {candidates.length > 0 ? (
-          <span className="text-[12px] theme-muted">
-            {inAfk.length} / {candidates.length}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[12px] theme-muted">
+              {inAfk.length} / {candidates.length}
+            </span>
+            <button
+              type="button"
+              onClick={ctl.addAllAccounts}
+              disabled={inAfk.length === candidates.length}
+              className={SMALL_BUTTON}
+            >
+              {t("Add all")}
+            </button>
+            <button type="button" onClick={ctl.clearAccounts} disabled={inAfk.length === 0} className={SMALL_BUTTON}>
+              {t("Clear")}
+            </button>
+          </div>
         ) : null}
       </div>
       {candidates.length === 0 ? (
@@ -327,8 +349,8 @@ function AccountsCard({ ctl }: { ctl: ClicksController }) {
                 }`}
               >
                 <button
-                  onClick={() => void ctl.toggleAccount(account.UserID)}
-                  disabled={ctl.busy}
+                  {...selection.rowProps(account.UserID)}
+                  onClick={(e) => selection.toggle(account.UserID, e)}
                   aria-pressed={picked}
                   // O nome acessível é só o da conta: o relógio e o aviso ao
                   // lado mudam a cada segundo e tornariam o botão impossível de

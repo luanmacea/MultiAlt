@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -124,6 +124,20 @@ describe("RunPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Open clients" }));
     expect(lastSaved().accounts).toEqual([1001]);
+  });
+
+  it("Shift+click selects the range across groups and dragging over the rows adds the ones it passes", async () => {
+    render(<RunPanel script="farm.py" runtimeInstalled runs={[]} onToast={vi.fn()} />);
+    const box = async (name: string) => (await screen.findByText(name)).closest("label")!.querySelector("input")!;
+    fireEvent.click(await box("Main_01"));
+    fireEvent.click(await box("Alt_03"), { shiftKey: true });
+    await waitFor(() => expect(lastSaved().accounts.sort()).toEqual([1001, 1002, 1003]));
+
+    // Drag from the ticked Alt_03 up to Alt_02: unticks what it passes.
+    fireEvent.mouseDown(await box("Alt_03"), { button: 0 });
+    fireEvent.mouseMove((await box("Alt_02")).closest("label")!);
+    fireEvent.mouseUp(await box("Alt_02"));
+    await waitFor(() => expect(lastSaved().accounts).toEqual([1001]));
   });
 
   it("starts a run with the selected accounts", async () => {
