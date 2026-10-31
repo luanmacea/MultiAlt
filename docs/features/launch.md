@@ -236,6 +236,24 @@ Auditoria do caminho do launch, pedido do dono (regra nº 1: abrir e jogar):
 - **Auto Rejoin com Multi Roblox desligado**: o Start liga o Multi Roblox em vez de recusar.
 - Continuam parando (protegem algo): conta banida, sessão inválida, link de servidor privado que não resolve, versão aberta diferente (`AllowLaunchOnOpenVersion`).
 
+## Build sem a `RobloxPlayerBeta.dll` (30/10/2026)
+
+Relato do Discord: caixa "RobloxPlayerBeta.dll was not found" ao abrir. O
+`RobloxPlayerBeta.exe` importa a `RobloxPlayerBeta.dll` (vem no
+`RobloxApp.zip`, na mesma pasta). Uma pasta de build com o exe e sem a DLL
+(apagada por outro programa, instalação interrompida) passava por instalada,
+porque a conferência olhava só o exe, e o cliente morria nessa caixa a cada
+launch.
+
+Agora `build_folder_ready` ([launch.rs](../../src-tauri/src/platform/windows/launch.rs))
+lê a tabela de importação do exe (só os cabeçalhos PE, não os 140 MB) e exige
+toda DLL começando por "Roblox" que ele importa. Faltando, a build conta como
+não instalada: o launch a baixa de novo, ou cai na próxima instalada. Exe que
+não dá para ler como PE continua valendo (na dúvida, abre). Vale para a build
+de produção e de canal (`installed_player_exe`, `installed_builds_newest_first`,
+`cached_production_player_dir`); o catálogo de versões não muda. Testes em
+`production_build_fallback_tests`.
+
 ## Configurações relacionadas
 
 Arquivo `RAMSettings.ini`.
