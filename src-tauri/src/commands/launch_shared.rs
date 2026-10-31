@@ -914,7 +914,7 @@ pub(crate) fn get_or_create_browser_tracker_id(
     Ok(generated)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn get_or_create_browser_tracker_id(state: &AccountStore, user_id: i64) -> Result<String, String> {
     let accounts = state.get_all()?;
     if let Some(existing) = accounts
@@ -926,7 +926,7 @@ fn get_or_create_browser_tracker_id(state: &AccountStore, user_id: i64) -> Resul
         return Ok(existing);
     }
 
-    let generated = platform::macos::generate_browser_tracker_id();
+    let generated = platform::unix_host::generate_browser_tracker_id();
     save_browser_tracker_id(state, user_id, &generated)?;
     Ok(generated)
 }

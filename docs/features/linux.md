@@ -127,26 +127,31 @@ Espelha o macOS: `tracker()`, `get_roblox_pids` (só o que o app abriu),
 (no-op: o multi é o netns), `get_roblox_path`, `generate_browser_tracker_id`.
 Extras: `diagnose()`, `host_env()`.
 
-### Fase 2: ligar (depois que o agente de compilação do Linux terminar)
+### Fase 2: ligado (31/10/2026)
 
-1. `commands/launch.rs` tem ~20 pontos `cfg(macos)`/`cfg(not(macos))`
-   (`launch_roblox`, `launch_multiple`, `cmd_kill_roblox`, `kill_all`, listas de
-   contas abertas...). Acrescentar o ramo `cfg(target_os = "linux")` em cada um
-   com `platform::linux`: o corpo do launch é o do macOS, trocando ticket/URL
-   `roblox-player:` por `resolve_launch_job` + `platform::linux::launch_account`
-   (cookie via `get_cookie`, `data_dir` do `SettingsStore`, `RunnerSettings`
-   das quatro chaves `[Linux]`, `spawn_blocking`). Sem `wait_for_new_roblox_pid`:
-   o pid já vem do `launch_account`. Avisos (`LaunchedClient::warnings`) vão
-   para `emit_launch_log` como `warn`.
-2. `lib.rs`: o ramo de saída do app (hoje só `windows`/`macos`, ~l.280-310)
-   precisa do equivalente que solta o rastreio sem fechar clientes.
-3. `get_platform_capabilities` (`platform_info.rs`): o ramo `linux` hoje diz
-   "sem launch"; trocar por suporte a launch único/múltiplo, `detected_runner`
-   `sober`/`custom`, `runner_path` e `reasons` vindos de `diagnose().problems()`.
-4. Watcher/`cleanup_dead_processes` e o fechamento de contas fora do jogo.
-5. Ao apagar uma conta: `sober::remove_profile`.
-6. Validar de verdade com o dono num Linux com Sober + `passt` (o bug conhecido
-   do concorrente: com dois abertos o mais novo às vezes fecha em 1-3 min).
+Compila no Linux (`cargo check` nas duas edições e `--tests`, 0 erros) e os 54
+testes `sober_tests` passam no Linux, inclusive os de symlink e de permissão
+0600. **Ainda nunca rodou com um Sober de verdade.**
+
+- `commands/launch_linux.rs` (só Linux): `launch_account_linux` — frases do
+  Console por `log_msg!` (en/pt/es/de em `src/locales`), checagem do que falta
+  (Flatpak, Sober, `unshare`, `pasta`, com o que instalar), sessão válida,
+  servidor privado, sorteio de servidor, `spawn_blocking` do
+  `platform::linux::launch_account`, avisos (`SoberWarning`) como `warn`.
+  Seguir usuário não existe no Sober: abre o jogo dele, com aviso.
+- `commands/launch.rs`: o launch avulso e a fila (`run_launch_queue_unix`, a
+  antiga `_macos` agora serve aos dois), cancelar, próxima conta, fechar uma
+  conta, fechar todas (só as do app), instâncias abertas, multi, caminho do
+  runner. O que é igual no macOS e no Linux usa `platform::unix_host`.
+- `lib.rs`: ao fechar o app só solta o rastreio; **nenhum cliente é fechado**.
+- Apagar conta (`remove_account`/`remove_accounts`) chama
+  `sober::remove_profile` (só dentro de `linux-profiles`; pula conta com
+  cliente aberto).
+- Pendente: capacidades em `platform_info.rs` e telas (agente da UI); o cookie
+  fica em texto puro no perfil (0600) porque o Sober o lê de lá; fallback sem
+  `pasta` para uma conta só; validar com o dono num Linux com Sober + `passt`
+  (bug conhecido do concorrente: com dois abertos o mais novo às vezes fecha
+  em 1-3 min).
 
 ## Onde parou (31/10/2026)
 

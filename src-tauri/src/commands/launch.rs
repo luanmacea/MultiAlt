@@ -1755,8 +1755,8 @@ async fn launch_roblox(
         Admitted::Appended(added) => return Ok(LaunchOutcome::appended(added)),
         Admitted::Started(sequence) => sequence,
     };
-    #[cfg(target_os = "macos")]
-    platform::macos::tracker().reset_launch_cancelled();
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+    platform::unix_host::tracker().reset_launch_cancelled();
     let started = std::time::Instant::now();
     sequence.mark(user_id, LaunchQueueState::Launching, None);
     let result = launch_roblox_other(
@@ -1780,7 +1780,7 @@ async fn launch_roblox(
         sequence.mark(user_id, LaunchQueueState::Failed, Some(err.clone()));
     }
     // Contas que entraram na fila enquanto esta abria (ver o caminho Windows).
-    #[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let previous = PreviousLaunch {
             user_id,
@@ -1789,13 +1789,13 @@ async fn launch_roblox(
         };
         if sequence.has_queued_or_finish() {
             tokio::spawn(async move {
-                let _ = run_launch_queue_macos(&sequence, Some(previous)).await;
+                let _ = run_launch_queue_unix(&sequence, Some(previous)).await;
                 sequence.finish();
                 let _ = sequence.app.emit("launch-complete", serde_json::json!({}));
             });
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = started;
         sequence.cancel_remaining();
@@ -1941,7 +1941,39 @@ async fn launch_roblox_other(
         return Ok(());
     }
 
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(reason) = moderation_launch_block(state.inner(), &app, &settings, user_id).await {
+            emit_launch_log(&app, user_id, "warn", "moderated", reason.clone());
+            return Err(reason.render());
+        }
+        let request = LaunchRequest {
+            place_id,
+            job_id: job_id.clone(),
+            launch_data,
+            follow_user,
+            join_vip,
+            link_code: link_code.clone(),
+            shuffle_job: shuffle_job_requested(shuffle_job),
+            follow_user_id: None,
+        };
+        let resolved = resolve_launch_job(&job_id, join_vip, &link_code);
+        let auto_close_last_process = settings.get_bool("General", "AutoCloseLastProcess");
+        launch_account_linux(
+            &app,
+            sequence,
+            state.inner(),
+            &settings,
+            user_id,
+            &request,
+            resolved,
+            auto_close_last_process,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
     {
         let _ = (
             app,
@@ -2557,7 +2589,7 @@ async fn launch_multiple(
     shuffle_job: Option<bool>,
     follow_user_id: Option<i64>,
 ) -> Result<LaunchOutcome, String> {
-    #[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         if user_ids.is_empty() {
             // Ver o caminho Windows: lote vazio não reserva sequência nenhuma.
@@ -2581,16 +2613,16 @@ async fn launch_multiple(
             Admitted::Started(sequence) => sequence,
         };
 
-        platform::macos::tracker().reset_launch_cancelled();
+        platform::unix_host::tracker().reset_launch_cancelled();
 
-        run_launch_queue_macos(&sequence, None).await?;
+        run_launch_queue_unix(&sequence, None).await?;
 
         sequence.finish();
         let _ = app.emit("launch-complete", serde_json::json!({}));
         return Ok(LaunchOutcome::ran(user_ids.len()));
     }
 
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
     {
         let _ = (app, user_ids, place_id, job_id, launch_data, shuffle_job);
         Err("Launching is only supported on Windows and macOS".into())
@@ -2600,12 +2632,12 @@ async fn launch_multiple(
 /// O laço do dono no macOS: o mesmo desenho do `run_launch_queue_windows` —
 /// a próxima conta `queued` da fila compartilhada, com o pedido do lote dela,
 /// e a espera entre contas antes de cada uma.
-#[cfg(target_os = "macos")]
-async fn run_launch_queue_macos(
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+async fn run_launch_queue_unix(
     sequence: &LaunchSequenceGuard,
     mut previous: Option<PreviousLaunch>,
 ) -> Result<(), String> {
-    use platform::macos;
+    use platform::unix_host as host;
 
     let app = &sequence.app;
     let state = app.state::<AccountStore>();
@@ -2617,11 +2649,13 @@ async fn run_launch_queue_macos(
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
     let delay = if multi_rbx { delay.max(12) } else { delay };
     let async_join = settings.get_bool("General", "AsyncJoin");
+    #[cfg(target_os = "macos")]
     let is_teleport = settings.get_bool("Developer", "IsTeleport");
+    #[cfg(target_os = "macos")]
     let use_old_join = settings.get_bool("Developer", "UseOldJoin");
     let auto_close_last_process = settings.get_bool("General", "AutoCloseLastProcess");
 
-    let tracker = macos::tracker();
+    let tracker = host::tracker();
 
     loop {
         if tracker.is_launch_cancelled() {
@@ -2710,7 +2744,7 @@ async fn run_launch_queue_macos(
         }
 
         if multi_rbx {
-            let enabled = match macos::enable_multi_roblox() {
+            let enabled = match host::enable_multi_roblox() {
                 Ok(value) => value,
                 Err(err) => {
                     sequence.abort(Some(uid), &err);
@@ -2725,9 +2759,11 @@ async fn run_launch_queue_macos(
                 return Err(err);
             }
         } else {
-            let _ = macos::disable_multi_roblox();
+            let _ = host::disable_multi_roblox();
         }
 
+        #[cfg(target_os = "macos")]
+        let pid = {
         let acct_overrides = state
             .get_all()
             .ok()
@@ -2786,10 +2822,10 @@ async fn run_launch_queue_macos(
             break;
         }
 
-        let pids_before = macos::get_roblox_pids();
+        let pids_before = platform::macos::get_roblox_pids();
 
         let launch_result = if use_old_join {
-            macos::launch_old_join(
+            platform::macos::launch_old_join(
                 &ticket,
                 follow_to.unwrap_or(private_join.place_id),
                 &resolved_launch.job_id,
@@ -2801,7 +2837,7 @@ async fn run_launch_queue_macos(
                 is_teleport,
             )
         } else {
-            let url = macos::build_launch_url(
+            let url = platform::macos::build_launch_url(
                 &ticket,
                 follow_to.unwrap_or(private_join.place_id),
                 &resolved_launch.job_id,
@@ -2813,7 +2849,7 @@ async fn run_launch_queue_macos(
                 &private_join.link_code,
                 is_teleport,
             );
-            macos::launch_url(&url)
+            platform::macos::launch_url(&url)
         };
 
         if let Err(err) = &launch_result {
@@ -2830,6 +2866,30 @@ async fn run_launch_queue_macos(
             // Sem PID não dá para afirmar que a conta entrou.
             sequence.mark(uid, LaunchQueueState::Failed, Some("PID não detectado no tempo esperado".to_string()));
         }
+        pid
+    };
+
+        #[cfg(target_os = "linux")]
+        let pid = match launch_account_linux(
+            app,
+            sequence,
+            state.inner(),
+            &settings,
+            uid,
+            &request,
+            resolved_launch,
+            auto_close_last_process,
+        )
+        .await
+        {
+            Ok(pid) => Some(pid),
+            Err(_) => {
+                // Falhou (já registrado no Console e na fila): respira e
+                // segue para a próxima conta.
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                continue;
+            }
+        };
 
         previous = Some(PreviousLaunch {
             user_id: uid,
@@ -2849,9 +2909,9 @@ fn signal_cancel_launch() {
     {
         platform::windows::tracker().cancel_launch();
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        platform::macos::tracker().cancel_launch();
+        platform::unix_host::tracker().cancel_launch();
     }
 }
 
@@ -2874,9 +2934,9 @@ fn next_account() -> Result<(), String> {
     {
         platform::windows::tracker().signal_next_account();
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        platform::macos::tracker().signal_next_account();
+        platform::unix_host::tracker().signal_next_account();
     }
     Ok(())
 }
@@ -2887,11 +2947,11 @@ fn cmd_kill_roblox(user_id: i64) -> Result<bool, String> {
     {
         return Ok(platform::windows::tracker().kill_for_user(user_id));
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        return Ok(platform::macos::tracker().kill_for_user(user_id));
+        return Ok(platform::unix_host::tracker().kill_for_user(user_id));
     }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
     {
         let _ = user_id;
         Err("Not supported on this platform".into())
@@ -2911,12 +2971,12 @@ fn focus_roblox_window(user_id: i64) -> Result<bool, String> {
         };
         return Ok(platform::windows::focus_window(hwnd));
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let _ = user_id;
         return Ok(false);
     }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
     {
         let _ = user_id;
         Ok(false)
@@ -2986,10 +3046,10 @@ fn cmd_kill_all_roblox() -> Result<u32, String> {
         }
         return Ok(killed);
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        let killed = platform::macos::kill_all_roblox();
-        let tracker = platform::macos::tracker();
+        let killed = platform::unix_host::kill_all_roblox();
+        let tracker = platform::unix_host::tracker();
         tracker.cancel_launch();
         let all = tracker.get_all();
         for p in all {
@@ -2997,7 +3057,7 @@ fn cmd_kill_all_roblox() -> Result<u32, String> {
         }
         return Ok(killed);
     }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
     {
         Err("Not supported on this platform".into())
     }
@@ -3035,9 +3095,9 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
             })
             .collect());
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        return Ok(platform::macos::tracker()
+        return Ok(platform::unix_host::tracker()
             .get_all()
             .into_iter()
             .map(|p| RunningInstance {
@@ -3050,7 +3110,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
             })
             .collect());
     }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
     {
         Ok(Vec::new())
     }
@@ -3062,11 +3122,11 @@ fn cmd_enable_multi_roblox() -> Result<bool, String> {
     {
         return platform::windows::enable_multi_roblox();
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        return platform::macos::enable_multi_roblox();
+        return platform::unix_host::enable_multi_roblox();
     }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
     {
         Err("Not supported on this platform".into())
     }
@@ -3078,11 +3138,11 @@ fn cmd_disable_multi_roblox() -> Result<(), String> {
     {
         return platform::windows::disable_multi_roblox();
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        return platform::macos::disable_multi_roblox();
+        return platform::unix_host::disable_multi_roblox();
     }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
     {
         Ok(())
     }
@@ -3094,11 +3154,11 @@ fn cmd_get_roblox_path() -> Result<String, String> {
     {
         return platform::windows::get_roblox_path();
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        return platform::macos::get_roblox_path();
+        return platform::unix_host::get_roblox_path();
     }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
     {
         Err("Not supported on this platform".into())
     }

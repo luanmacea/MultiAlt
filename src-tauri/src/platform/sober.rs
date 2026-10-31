@@ -141,6 +141,49 @@ pub fn sober_install_candidates(flatpak_user_dir: &Path) -> Vec<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+// Avisos
+// ---------------------------------------------------------------------------
+
+/// Aviso do launch que não impede o jogo (regra nº 1). É um tipo, e não um
+/// texto, para o Console traduzir cada um (`commands/launch_linux.rs`);
+/// `render` é o inglês, para log e teste.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SoberWarning {
+    /// `PreferredRunner = custom` sem `CustomLaunchCommand`.
+    CustomCommandEmpty,
+    /// `CustomLaunchCommand` com aspas abertas.
+    CustomCommandInvalid(String),
+    /// `PreferredRunner` com um nome que ainda não existe.
+    UnknownRunner(String),
+    /// Servidor privado sem código de link: abre o jogo comum.
+    PrivateServerWithoutCode,
+    /// Symlinks do Sober principal que não foram copiados.
+    SkippedSymlinks(usize),
+}
+
+impl SoberWarning {
+    pub fn render(&self) -> String {
+        match self {
+            Self::CustomCommandEmpty => {
+                "PreferredRunner is custom but CustomLaunchCommand is empty; using Sober".to_string()
+            }
+            Self::CustomCommandInvalid(e) => {
+                format!("CustomLaunchCommand is invalid ({e}); using Sober")
+            }
+            Self::UnknownRunner(name) => {
+                format!("Runner \"{name}\" is not supported on Linux yet; using Sober")
+            }
+            Self::PrivateServerWithoutCode => {
+                "Private server without a link code; opening the experience instead".to_string()
+            }
+            Self::SkippedSymlinks(n) => {
+                format!("{n} symbolic link(s) in the main Sober folder were not copied")
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Runner (settings `[Linux]`)
 // ---------------------------------------------------------------------------
 
@@ -169,7 +212,7 @@ pub struct RunnerPlan {
     /// `CustomLogDir`, quando preenchido.
     pub log_dir: Option<PathBuf>,
     /// Avisos para o log do launch (nunca erro: a regra nº 1 manda seguir).
-    pub warnings: Vec<String>,
+    pub warnings: Vec<SoberWarning>,
 }
 
 /// Decide o runner. `custom` sem comando, ou um nome que ainda não existe
@@ -184,19 +227,16 @@ pub fn plan_runner(settings: &RunnerSettings) -> RunnerPlan {
         RUNNER_CUSTOM => match split_command(&settings.custom_launch_command) {
             Ok(spec) if !spec.program.is_empty() => Runner::Custom(spec),
             Ok(_) => {
-                warnings.push(
-                    "PreferredRunner is custom but CustomLaunchCommand is empty; using Sober"
-                        .to_string(),
-                );
+                warnings.push(SoberWarning::CustomCommandEmpty);
                 Runner::Sober
             }
             Err(e) => {
-                warnings.push(format!("CustomLaunchCommand is invalid ({e}); using Sober"));
+                warnings.push(SoberWarning::CustomCommandInvalid(e));
                 Runner::Sober
             }
         },
         other => {
-            warnings.push(format!("Runner \"{other}\" is not supported on Linux yet; using Sober"));
+            warnings.push(SoberWarning::UnknownRunner(other.to_string()));
             Runner::Sober
         }
     };
@@ -277,7 +317,7 @@ pub struct DeepLink {
     pub link_code: String,
     pub launch_data: String,
     /// Coisas que foram ignoradas por não darem para atender.
-    pub warnings: Vec<String>,
+    pub warnings: Vec<SoberWarning>,
 }
 
 impl DeepLink {
@@ -301,10 +341,7 @@ impl DeepLink {
             (String::new(), link_code.to_string())
         } else {
             if join_vip {
-                warnings.push(
-                    "Private server without a link code; opening the experience instead"
-                        .to_string(),
-                );
+                warnings.push(SoberWarning::PrivateServerWithoutCode);
             }
             (job_id.to_string(), String::new())
         };
@@ -844,24 +881,47 @@ pub struct Diagnostics {
     pub pasta: Option<PathBuf>,
 }
 
+/// O que falta para abrir uma conta. Tipo, e não texto, para o Console
+/// traduzir (`commands/launch_linux.rs`); `render` é o inglês.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupIssue {
+    FlatpakMissing,
+    SoberMissing,
+    UnshareMissing,
+    PastaMissing,
+}
+
+impl SetupIssue {
+    pub fn render(self) -> String {
+        match self {
+            Self::FlatpakMissing => "Flatpak was not found. Install it from your distribution (package \"flatpak\").".to_string(),
+            Self::SoberMissing => format!("Sober is not installed. Run: flatpak install flathub {SOBER_APP_ID}"),
+            Self::UnshareMissing => "\"unshare\" was not found (package \"util-linux\"); it is needed to run more than one account.".to_string(),
+            Self::PastaMissing => "\"pasta\" was not found. Install the \"passt\" package; it gives each account its own network so several can run at once.".to_string(),
+        }
+    }
+}
+
 impl Diagnostics {
-    /// Mensagens para a tela de diagnóstico/log. Vazio = tudo no lugar.
-    pub fn problems(&self) -> Vec<String> {
+    pub fn issues(&self) -> Vec<SetupIssue> {
         let mut out = Vec::new();
         if self.flatpak.is_none() {
-            out.push("Flatpak was not found. Install it from your distribution (package \"flatpak\").".to_string());
+            out.push(SetupIssue::FlatpakMissing);
         } else if !self.sober_installed {
-            out.push(format!(
-                "Sober is not installed. Run: flatpak install flathub {SOBER_APP_ID}"
-            ));
+            out.push(SetupIssue::SoberMissing);
         }
         if self.unshare.is_none() {
-            out.push("\"unshare\" was not found (package \"util-linux\"); it is needed to run more than one account.".to_string());
+            out.push(SetupIssue::UnshareMissing);
         }
         if self.pasta.is_none() {
-            out.push("\"pasta\" was not found. Install the \"passt\" package; it gives each account its own network so several can run at once.".to_string());
+            out.push(SetupIssue::PastaMissing);
         }
         out
+    }
+
+    /// Mensagens (em inglês) para diagnóstico. Vazio = tudo no lugar.
+    pub fn problems(&self) -> Vec<String> {
+        self.issues().into_iter().map(SetupIssue::render).collect()
     }
 }
 
@@ -1364,7 +1424,7 @@ mod sober_tests {
     fn an_unknown_runner_never_blocks_the_launch() {
         let plan = plan_runner(&settings("cordial", ""));
         assert_eq!(plan.runner, Runner::Sober);
-        assert!(plan.warnings[0].contains("cordial"));
+        assert!(plan.warnings[0].render().contains("cordial"));
     }
 
     #[test]

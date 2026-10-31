@@ -112,9 +112,9 @@ fn preset_tracked_clients() -> Vec<PresetTrackedClient> {
             .map(|p| (p.user_id, p.pid, p.adopted))
             .collect();
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        return platform::macos::tracker()
+        return platform::unix_host::tracker()
             .get_all()
             .into_iter()
             .map(|p| (p.user_id, p.pid, false))
@@ -138,9 +138,9 @@ fn close_preset_client(user_id: i64, pid: u32) -> bool {
         }
         return tracker.kill_for_user(user_id);
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        let tracker = platform::macos::tracker();
+        let tracker = platform::unix_host::tracker();
         if tracker.get_pid(user_id) != Some(pid) {
             return false;
         }

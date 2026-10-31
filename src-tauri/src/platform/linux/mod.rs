@@ -12,10 +12,10 @@ mod launch;
 mod process;
 mod tracker;
 
-pub use diagnostics::{diagnose, host_env};
-pub use launch::{launch_account, LaunchRequest, LaunchedClient};
+pub use diagnostics::diagnose;
+pub use launch::{launch_account, LaunchRequest};
 pub use process::{is_pid_alive, kill_process_tree};
-pub use tracker::{tracker, ProcessTracker, TrackedProcess};
+pub use tracker::tracker;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

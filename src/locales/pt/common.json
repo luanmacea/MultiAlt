@@ -3169,5 +3169,15 @@
   "Open the old version anyway": "Abrir a versão antiga mesmo assim",
   "Open outdated versions without asking": "Abrir versões desatualizadas sem perguntar",
   "Off: before opening a version older than the current Roblox, MultiAlt asks, and Auto Rejoin opens the current one. Roblox has banned accounts for using old versions.": "Desligado: antes de abrir uma versão mais antiga que o Roblox atual, o MultiAlt pergunta, e o Auto Rejoin abre a atual. O Roblox já baniu contas por usarem versões antigas.",
-  "Add all": "Adicionar todas"
+  "Add all": "Adicionar todas",
+  "Flatpak is not installed. Install the flatpak package from your distribution and try again.": "O Flatpak não está instalado. Instale o pacote flatpak da sua distribuição e tente de novo.",
+  "Sober is not installed. Run: {{command}}": "O Sober não está instalado. Execute: {{command}}",
+  "unshare was not found. Install the util-linux package; it opens each account in its own network.": "O unshare não foi encontrado. Instale o pacote util-linux; ele abre cada conta na sua própria rede.",
+  "pasta was not found. Install the passt package; it gives each account its own network so several can run at once.": "O pasta não foi encontrado. Instale o pacote passt; ele dá a cada conta a sua própria rede para várias rodarem ao mesmo tempo.",
+  "PreferredRunner is custom but CustomLaunchCommand is empty; using Sober": "PreferredRunner está em custom, mas CustomLaunchCommand está vazio; usando o Sober",
+  "CustomLaunchCommand is invalid ({{error}}); using Sober": "CustomLaunchCommand é inválido ({{error}}); usando o Sober",
+  "Runner {{runner}} is not supported on Linux yet; using Sober": "O runner {{runner}} ainda não é suportado no Linux; usando o Sober",
+  "Private server without a link code; opening the experience instead": "Servidor privado sem código de link; abrindo o jogo comum no lugar",
+  "{{count}} symbolic link(s) in the main Sober folder were not copied": "{{count}} link(s) simbólico(s) da pasta principal do Sober não foram copiados",
+  "Following a user is not supported with Sober; opening the game instead": "Seguir um usuário não é suportado com o Sober; abrindo o jogo dele"
 }

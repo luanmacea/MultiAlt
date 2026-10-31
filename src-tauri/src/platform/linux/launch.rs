@@ -10,7 +10,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::platform::sober::{
-    self, CommandSpec, DeepLink, EnvPlan, Runner, RunnerSettings,
+    self, CommandSpec, DeepLink, EnvPlan, Runner, RunnerSettings, SoberWarning,
 };
 
 use super::diagnostics::host_env;
@@ -43,7 +43,7 @@ pub struct LaunchedClient {
     pub pid: u32,
     pub profile_home: PathBuf,
     /// Avisos para o log do launch (nunca impedem o jogo).
-    pub warnings: Vec<String>,
+    pub warnings: Vec<SoberWarning>,
 }
 
 /// Abre a conta e a registra no `tracker()`. Em caso de erro nada fica rodando.
@@ -67,10 +67,7 @@ pub fn launch_account(req: &LaunchRequest<'_>) -> Result<LaunchedClient, String>
         Runner::Sober => {
             let report = sober::ensure_profile(req.data_dir, req.user_id, &host.home)?;
             if report.skipped_symlinks > 0 {
-                warnings.push(format!(
-                    "{} symbolic link(s) in the main Sober folder were not copied",
-                    report.skipped_symlinks
-                ));
+                warnings.push(SoberWarning::SkippedSymlinks(report.skipped_symlinks));
             }
             sober::write_cookie(req.data_dir, req.user_id, req.cookie)?;
 

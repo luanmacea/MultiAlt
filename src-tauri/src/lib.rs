@@ -48,6 +48,8 @@ include!("commands/botting.rs");
 include!("commands/generators.rs");
 include!("commands/launch.rs");
 include!("commands/launch_presets.rs");
+#[cfg(target_os = "linux")]
+include!("commands/launch_linux.rs");
 include!("commands/tray.rs");
 include!("commands/webhook.rs");
 include!("commands/discord_status.rs");
@@ -292,21 +294,21 @@ fn cleanup_multi_roblox_on_exit(app: &AppHandle<Wry>) {
     let _ = platform::windows::disable_multi_roblox();
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn cleanup_multi_roblox_on_exit(app: &AppHandle<Wry>) {
     let settings = app.state::<SettingsStore>();
-    let clients = platform::macos::get_roblox_pids().len();
+    let clients = platform::unix_host::get_roblox_pids().len();
     match exit_cleanup_plan(settings.get_bool("General", "EnableMultiRbx"), clients) {
         ExitCleanup::Nothing => return,
         ExitCleanup::ReleaseSingleton => {}
     }
 
-    let tracker = platform::macos::tracker();
+    let tracker = platform::unix_host::tracker();
     for process in tracker.get_all() {
         tracker.untrack(process.user_id);
     }
 
-    let _ = platform::macos::disable_multi_roblox();
+    let _ = platform::unix_host::disable_multi_roblox();
 }
 
 /// O frontend pintou o primeiro quadro.
@@ -897,7 +899,7 @@ pub fn run() {
                 // Devolve o PC ao normal (commands/keep_awake.rs).
                 #[cfg(target_os = "windows")]
                 keep_awake_release_on_exit();
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
                 cleanup_multi_roblox_on_exit(app);
             }
             tauri::RunEvent::Exit => {
@@ -911,7 +913,7 @@ pub fn run() {
                 cleanup_multi_roblox_on_exit(app);
                 #[cfg(target_os = "windows")]
                 keep_awake_release_on_exit();
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
                 cleanup_multi_roblox_on_exit(app);
                 app.state::<chromium::ChromiumManager>().close_login_session();
             }

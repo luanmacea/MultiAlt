@@ -3169,5 +3169,15 @@
   "Open the old version anyway": "Abrir la versión antigua de todos modos",
   "Open outdated versions without asking": "Abrir versiones desactualizadas sin preguntar",
   "Off: before opening a version older than the current Roblox, MultiAlt asks, and Auto Rejoin opens the current one. Roblox has banned accounts for using old versions.": "Desactivado: antes de abrir una versión más antigua que el Roblox actual, MultiAlt pregunta, y Auto Rejoin abre la actual. Roblox ha baneado cuentas por usar versiones antiguas.",
-  "Add all": "Añadir todas"
+  "Add all": "Añadir todas",
+  "Flatpak is not installed. Install the flatpak package from your distribution and try again.": "Flatpak no está instalado. Instala el paquete flatpak de tu distribución e inténtalo de nuevo.",
+  "Sober is not installed. Run: {{command}}": "Sober no está instalado. Ejecuta: {{command}}",
+  "unshare was not found. Install the util-linux package; it opens each account in its own network.": "No se encontró unshare. Instala el paquete util-linux; abre cada cuenta en su propia red.",
+  "pasta was not found. Install the passt package; it gives each account its own network so several can run at once.": "No se encontró pasta. Instala el paquete passt; da a cada cuenta su propia red para que varias funcionen a la vez.",
+  "PreferredRunner is custom but CustomLaunchCommand is empty; using Sober": "PreferredRunner es custom pero CustomLaunchCommand está vacío; se usa Sober",
+  "CustomLaunchCommand is invalid ({{error}}); using Sober": "CustomLaunchCommand no es válido ({{error}}); se usa Sober",
+  "Runner {{runner}} is not supported on Linux yet; using Sober": "El runner {{runner}} aún no es compatible con Linux; se usa Sober",
+  "Private server without a link code; opening the experience instead": "Servidor privado sin código de enlace; se abre el juego normal",
+  "{{count}} symbolic link(s) in the main Sober folder were not copied": "{{count}} enlace(s) simbólico(s) de la carpeta principal de Sober no se copiaron",
+  "Following a user is not supported with Sober; opening the game instead": "Seguir a un usuario no es compatible con Sober; se abre su juego"
 }
