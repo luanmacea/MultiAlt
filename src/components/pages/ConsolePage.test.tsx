@@ -16,9 +16,9 @@ import type { LaunchLogEntry } from "../../store";
 const ACCOUNT = makeAccount({ UserID: 1001, Username: "alpha" });
 
 const LOGS: LaunchLogEntry[] = [
-  { id: 1, userId: 1001, level: "success", step: "rejoin", message: "Entrou no jogo pelo ciclo do Auto Rejoin", ts: Date.now() },
-  { id: 2, userId: 1001, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s", ts: Date.now() },
-  { id: 3, userId: null, level: "info", step: "rejoin", message: "Auto Rejoin parado", ts: Date.now() },
+  { id: 1, userId: 1001, level: "success", step: "rejoin", message: "Joined the game through the Auto Rejoin cycle", key: "Joined the game through the Auto Rejoin cycle", params: {}, ts: Date.now() },
+  { id: 2, userId: 1001, level: "warn", step: "watcher", message: "Client closed by the Watcher: no connection for 30s", key: "Client closed by the Watcher: no connection for {{seconds}}s", params: { seconds: 30 }, ts: Date.now() },
+  { id: 3, userId: null, level: "info", step: "rejoin", message: "Auto Rejoin stopped", key: "Auto Rejoin stopped", params: {}, ts: Date.now() },
 ];
 
 beforeEach(() => {
@@ -43,8 +43,8 @@ describe("ConsolePage", () => {
     renderWithStore(<ConsolePage active onLeave={vi.fn()} />, { accounts: [ACCOUNT], launchLogs: LOGS });
 
     expect(screen.getByRole("heading", { level: 1, name: "Console" })).toBeInTheDocument();
-    expect(screen.getByText("Entrou no jogo pelo ciclo do Auto Rejoin")).toBeInTheDocument();
-    expect(screen.getByText(/sem conexao por 30s/)).toBeInTheDocument();
+    expect(screen.getByText("Joined the game through the Auto Rejoin cycle")).toBeInTheDocument();
+    expect(screen.getByText(/no connection for 30s/)).toBeInTheDocument();
     const origins = screen.getAllByTestId("log-step").map((el) => el.textContent);
     expect(origins).toEqual(["[rejoin]", "[watcher]", "[rejoin]"]);
     expect(screen.getByText("3 log lines")).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe("ConsolePage", () => {
   it("a session line does not pretend to belong to an account", () => {
     renderWithStore(<ConsolePage active onLeave={vi.fn()} />, { accounts: [ACCOUNT], launchLogs: LOGS });
     // `userId: null` desenha "—": passar 0 imprimiria "0" no lugar do nome.
-    const line = screen.getByText("Auto Rejoin parado").closest("div") as HTMLElement;
+    const line = screen.getByText("Auto Rejoin stopped").closest("div") as HTMLElement;
     expect(line.textContent).toContain("—");
   });
 

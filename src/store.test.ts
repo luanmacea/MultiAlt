@@ -2125,6 +2125,31 @@ describe("backend events", () => {
     expect(result.current.launchLogs).toEqual([]);
   });
 
+  it("keeps the key and params of a launch log line so the Console can translate it", async () => {
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("launch-log")).toBe(true));
+
+    act(() => {
+      emit("launch-log", {
+        userId: 1,
+        level: "success",
+        step: "pid",
+        message: "Client started (PID 7)",
+        key: "Client started (PID {{pid}})",
+        params: { pid: 7 },
+      });
+      // Linha crua (texto de fora) ou de um backend antigo: sem key.
+      emit("launch-log", { userId: 1, level: "warn", step: "version", message: "Roblox said no" });
+    });
+    expect(result.current.launchLogs[0]).toMatchObject({
+      message: "Client started (PID 7)",
+      key: "Client started (PID {{pid}})",
+      params: { pid: 7 },
+    });
+    expect(result.current.launchLogs[1].key).toBeUndefined();
+    expect(result.current.launchLogs[1].message).toBe("Roblox said no");
+  });
+
   it("tracks multi-launch progress and completion", async () => {
     const { result } = await renderStore();
     await waitFor(() => expect(listenHandlers.has("launch-progress")).toBe(true));

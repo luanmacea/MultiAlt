@@ -5,6 +5,8 @@ import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import { useAccountLabel } from "../../hooks/useAccountLabel";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
+import { useListSelection } from "../../hooks/useListSelection";
+import { applyToList } from "../../utils/listSelection";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
 import { ToggleRow } from "../ui/ToggleRow";
@@ -122,6 +124,12 @@ export function RecordingsTab() {
     () => store.accounts.filter((a) => store.launchedByProgram.has(a.UserID)),
     [store.accounts, store.launchedByProgram]
   );
+  // "Try it now": Shift e arrastar por cima das contas, como na lista principal.
+  const playSelection = useListSelection<number>({
+    order: openAccounts.map((a) => a.UserID),
+    isSelected: (id) => playOn.includes(id),
+    apply: (ids, on) => setPlayOn((prev) => applyToList(prev, ids, on)),
+  });
   /**
    * Na lista de "quem toca o quê": quem tem cliente aberto e quem já tem
    * escolha própria (uma gravação ou "nenhuma") em alguma vaga.
@@ -587,7 +595,29 @@ export function RecordingsTab() {
                 </div>
 
                 <div ref={tryRef} className="mt-2 rounded-lg border theme-border bg-[var(--panel-soft)] p-2.5 space-y-2">
-                  <div className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Try it now")}</div>
+                  <div className="flex items-center gap-2 text-[12px] font-semibold text-[var(--panel-fg)]">
+                    {t("Try it now")}
+                    {openAccounts.length > 0 ? (
+                      <span className="ml-auto flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setPlayOn(openAccounts.map((a) => a.UserID))}
+                          disabled={playOn.length === openAccounts.length}
+                          className="px-1.5 py-0.5 rounded-md border theme-border text-[11px] font-normal hover:bg-[var(--panel-soft)] disabled:opacity-50"
+                        >
+                          {t("Select all")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPlayOn([])}
+                          disabled={playOn.length === 0}
+                          className="px-1.5 py-0.5 rounded-md border theme-border text-[11px] font-normal hover:bg-[var(--panel-soft)] disabled:opacity-50"
+                        >
+                          {t("Clear")}
+                        </button>
+                      </span>
+                    ) : null}
+                  </div>
                   {openAccounts.length === 0 ? (
                     <div className="text-[11px] theme-muted leading-4">
                       {t("Open an account first: a recording only reaches a Roblox client this app opened.")}
@@ -600,9 +630,8 @@ export function RecordingsTab() {
                         return (
                           <button
                             key={a.UserID}
-                            onClick={() =>
-                              setPlayOn((ids) => (picked ? ids.filter((id) => id !== a.UserID) : [...ids, a.UserID]))
-                            }
+                            {...playSelection.rowProps(a.UserID)}
+                            onClick={(e) => playSelection.toggle(a.UserID, e)}
                             aria-pressed={picked}
                             aria-label={name}
                             className={`flex items-center gap-1 rounded-md border px-2 py-0.5 text-[12px] ${

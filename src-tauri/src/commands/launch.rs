@@ -9,13 +9,13 @@ const MIN_JOIN_GAP_SECS: u64 = 8;
 const MIN_RESIDUAL_GAP_MS: u64 = 5000;
 
 /// Human-readable launch target for the console log line.
-fn launch_target_description(join_vip: bool, link_code: &str, job_id: &str) -> String {
+fn launch_target_description(join_vip: bool, link_code: &str, job_id: &str) -> LogMsg {
     if join_vip || !link_code.trim().is_empty() {
-        "servidor VIP/privado".to_string()
+        log_msg!("private/VIP server")
     } else if !job_id.trim().is_empty() {
-        format!("servidor {}", job_id.trim())
+        log_msg!("server {{job}}", job = job_id.trim())
     } else {
-        "servidor público".to_string()
+        log_msg!("public server")
     }
 }
 
@@ -1419,14 +1419,14 @@ async fn launch_roblox_windows(
         user_id,
         "info",
         "start",
-        format!("Iniciando launch — place {place_id} ({target_desc})"),
+        log_msg!("Starting launch — place {{placeId}} ({{target}})", placeId = place_id, target = target_desc),
     );
 
     // Conta banida/encerrada é pulada aqui, com a frase certa, em vez de falhar
     // no auth ticket depois do isolamento (ver commands/moderation.rs).
     if let Some(reason) = moderation_launch_block(state.inner(), &app, &settings, user_id).await {
         emit_launch_log(&app, user_id, "warn", "moderated", reason.clone());
-        return Err(reason);
+        return Err(reason.render());
     }
 
     let is_teleport = settings.get_bool("Developer", "IsTeleport");
@@ -1455,15 +1455,7 @@ async fn launch_roblox_windows(
 
     let (resolved_base_path, resolved_version_id) =
         {
-            let (path, id, notice) = windows::resolve_roblox_install_path_with_notice(
-                account_version_override.as_deref(),
-                &settings,
-                &versions,
-            );
-            if let Some(notice) = notice {
-                emit_launch_log(&app, user_id, "warn", "version", notice);
-            }
-            (path, id)
+            resolve_launch_install(&app, user_id, account_version_override.as_deref(), &settings, &versions, true).await
         };
     let isolation_will_wipe_install = isolation_wipes_install(
         &settings.get_string("Isolation", "Mode"),
@@ -1479,13 +1471,13 @@ async fn launch_roblox_windows(
     let isolation_report = match run_pre_launch_isolation(&app, &settings).await {
         Ok(report) => report,
         Err(err) => {
-            emit_launch_log(&app, user_id, "warn", "isolation", format!("Isolation skipped: {err}"));
+            emit_launch_log(&app, user_id, "warn", "isolation", log_msg!("Isolation skipped: {{error}}", error = err));
             None
         }
     };
     if let Some(report) = isolation_report {
         let _ = app.emit("isolation-report", &report);
-        emit_launch_log(&app, user_id, "info", "isolation", "Isolamento pré-launch aplicado");
+        emit_launch_log(&app, user_id, "info", "isolation", "Pre-launch isolation applied");
         if windows::has_pending_fast_flags() {
             tokio::spawn(apply_pending_fast_flags_when_ready(
                 std::time::Duration::from_secs(240),
@@ -1510,7 +1502,7 @@ async fn launch_roblox_windows(
         if let Some(notice) =
             ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event, Some(&app)).await?
         {
-            emit_launch_log(&app, user_id, "warn", "multi-roblox", notice);
+            emit_launch_log(&app, user_id, "warn", "multi-roblox", multi_roblox_notice_log(notice));
         }
     } else {
         let _ = windows::disable_multi_roblox();
@@ -1550,7 +1542,7 @@ async fn launch_roblox_windows(
     }
 
     let browser_tracker_id = get_or_create_browser_tracker_id(&state, user_id)?;
-    emit_launch_log(&app, user_id, "info", "auth", "Solicitando authentication ticket...");
+    emit_launch_log(&app, user_id, "info", "auth", "Requesting authentication ticket...");
     let ticket_result = if allow_session_refresh {
         run_with_session_retry(state.inner(), user_id, |cookie| async move {
             api::auth::get_auth_ticket(&cookie).await
@@ -1561,11 +1553,11 @@ async fn launch_roblox_windows(
     };
     let ticket = match ticket_result {
         Ok(t) => {
-            emit_launch_log(&app, user_id, "success", "auth", "Authentication ticket obtido");
+            emit_launch_log(&app, user_id, "success", "auth", "Authentication ticket obtained");
             t
         }
         Err(e) => {
-            emit_launch_log(&app, user_id, "error", "auth", format!("Falha no auth ticket: {e}"));
+            emit_launch_log(&app, user_id, "error", "auth", log_msg!("Authentication ticket failed: {{error}}", error = e.clone()));
             mark_account_session_dead(state.inner(), &app, user_id, &e);
             notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WebhookReason::AuthTicketFailed), None);
             if is_moderated_error(&e) {
@@ -1589,9 +1581,9 @@ async fn launch_roblox_windows(
         .await?
     };
     if private_join.use_private_join {
-        emit_launch_log(&app, user_id, "info", "target", "Alvo resolvido: servidor privado/VIP");
+        emit_launch_log(&app, user_id, "info", "target", "Target resolved: private/VIP server");
     } else if !actual_job.trim().is_empty() {
-        emit_launch_log(&app, user_id, "info", "target", format!("Alvo resolvido: {}", actual_job.trim()));
+        emit_launch_log(&app, user_id, "info", "target", log_msg!("Target resolved: {{job}}", job = actual_job.trim()));
     }
 
     // O XML é compartilhado: o patch é o último passo antes do spawn, para não
@@ -1643,7 +1635,7 @@ async fn launch_roblox_windows(
         windows::launch_url(&url).await
     };
     if let Err(err) = spawn_result {
-        emit_launch_log(&app, user_id, "error", "spawn", format!("Falha ao abrir o cliente: {err}"));
+        emit_launch_log(&app, user_id, "error", "spawn", log_msg!("Could not open the client: {{error}}", error = err.to_string()));
         notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WebhookReason::ClientDidNotOpen), None);
         tracker.clear_pending_launch(pending_id);
         return Err(err);
@@ -1652,7 +1644,7 @@ async fn launch_roblox_windows(
     let detected_pid =
         wait_for_new_roblox_pid(&pids_before, std::time::Duration::from_secs(pid_wait_secs)).await;
     if detected_pid.is_none() && !isolation_will_wipe_install {
-        emit_launch_log(&app, user_id, "warn", "pid", "PID não detectado no tempo esperado");
+        emit_launch_log(&app, user_id, "warn", "pid", "PID not detected in the expected time");
         tracker.clear_pending_launch(pending_id);
     }
     if detected_pid.is_none() {
@@ -1665,7 +1657,7 @@ async fn launch_roblox_windows(
         );
     }
     if let Some(pid) = detected_pid {
-        emit_launch_log(&app, user_id, "success", "pid", format!("Cliente iniciado (PID {pid})"));
+        emit_launch_log(&app, user_id, "success", "pid", log_msg!("Client started (PID {{pid}})", pid = pid));
         sequence.mark(user_id, LaunchQueueState::Done, None);
         tracker.clear_pending_launch(pending_id);
         // Para onde a reconexão automática volta (reconnect.rs).
@@ -1836,7 +1828,7 @@ async fn launch_roblox_other(
 
         if let Some(reason) = moderation_launch_block(state.inner(), &app, &settings, user_id).await {
             emit_launch_log(&app, user_id, "warn", "moderated", reason.clone());
-            return Err(reason);
+            return Err(reason.render());
         }
 
         let is_teleport = settings.get_bool("Developer", "IsTeleport");
@@ -2027,7 +2019,7 @@ async fn launch_multiple(
         Ok(value) => value,
         Err(err) => {
             if let Some(first) = user_ids.first() {
-                emit_launch_log(&app, *first, "warn", "isolation", format!("Isolation skipped: {err}"));
+                emit_launch_log(&app, *first, "warn", "isolation", log_msg!("Isolation skipped: {{error}}", error = err));
             }
             None
         }
@@ -2144,10 +2136,10 @@ async fn run_launch_queue_windows(
                             prev_uid,
                             "info",
                             "wait",
-                            format!(
-                                "Esperando a conta entrar no jogo antes da próxima (entre {}s e {}s)",
-                                plan.floor.as_secs(),
-                                plan.cap.as_secs()
+                            log_msg!(
+                                "Waiting for the account to join the game before the next one (between {{min}}s and {{max}}s)",
+                                min = plan.floor.as_secs(),
+                                max = plan.cap.as_secs()
                             ),
                         );
                         let joined = wait_for_game_join(
@@ -2158,7 +2150,7 @@ async fn run_launch_queue_windows(
                         )
                         .await;
                         if joined {
-                            emit_launch_log(app, prev_uid, "info", "wait", "Entrou no jogo: próxima conta");
+                            emit_launch_log(app, prev_uid, "info", "wait", "Joined the game: next account");
                         }
                     }
                     None => {
@@ -2168,7 +2160,7 @@ async fn run_launch_queue_windows(
                             prev_uid,
                             "info",
                             "wait",
-                            format!("Aguardando {}s antes da próxima conta (anti-captcha)", wait.as_secs()),
+                            log_msg!("Waiting {{seconds}}s before the next account (anti-captcha)", seconds = wait.as_secs()),
                         );
                         wait_before_next_account(sequence, wait, || tracker.is_launch_cancelled()).await;
                     }
@@ -2229,30 +2221,24 @@ async fn run_launch_queue_windows(
             uid,
             "info",
             "start",
-            format!(
-                "Conta {}/{} — place {acct_place} ({acct_target_desc})",
-                i + 1,
-                total
+            log_msg!(
+                "Account {{index}}/{{total}} — place {{placeId}} ({{target}})",
+                index = i + 1,
+                total = total,
+                placeId = acct_place,
+                target = acct_target_desc
             ),
         );
 
         // Banida/encerrada: pula esta conta e segue a fila (commands/moderation.rs).
         if let Some(reason) = moderation_launch_block(state.inner(), app, &settings, uid).await {
             emit_launch_log(app, uid, "warn", "moderated", reason.clone());
-            sequence.mark(uid, LaunchQueueState::Failed, Some(reason));
+            sequence.mark(uid, LaunchQueueState::Failed, Some(reason.render()));
             continue;
         }
 
         let (acct_base_path, acct_version_id) = {
-            let (path, id, notice) = windows::resolve_roblox_install_path_with_notice(
-                acct_version_override.as_deref(),
-                &settings,
-                &versions,
-            );
-            if let Some(notice) = notice {
-                emit_launch_log(app, uid, "warn", "version", notice);
-            }
-            (path, id)
+            resolve_launch_install(app, uid, acct_version_override.as_deref(), &settings, &versions, true).await
         };
         let acct_isolation_wipes_install = isolation_wipes_install(
             &settings.get_string("Isolation", "Mode"),
@@ -2319,7 +2305,7 @@ async fn run_launch_queue_windows(
                     uid,
                     "info",
                     "target",
-                    format!("Servidor sorteado para esta conta: {job}"),
+                    log_msg!("Server picked for this account: {{job}}", job = job.clone()),
                 );
                 resolved_launch.job_id = job;
             }
@@ -2329,7 +2315,7 @@ async fn run_launch_queue_windows(
             // Falha de Multi Roblox aborta a fila inteira (diferente dos erros
             // por conta): sem o mutex, todo cliente novo derruba o anterior.
             match ensure_multi_roblox_enabled(auto_close_multi_conflicts, reserve_singleton_event, Some(app)).await {
-                Ok(Some(notice)) => emit_launch_log(app, uid, "warn", "multi-roblox", notice),
+                Ok(Some(notice)) => emit_launch_log(app, uid, "warn", "multi-roblox", multi_roblox_notice_log(notice)),
                 Ok(None) => {}
                 Err(err) => {
                     sequence.abort(Some(uid), &err);
@@ -2370,18 +2356,18 @@ async fn run_launch_queue_windows(
                 return Err(err);
             }
         };
-        emit_launch_log(app, uid, "info", "auth", "Solicitando authentication ticket...");
+        emit_launch_log(app, uid, "info", "auth", "Requesting authentication ticket...");
         let ticket = match run_with_session_retry(state.inner(), uid, |cookie| async move {
             api::auth::get_auth_ticket(&cookie).await
         })
         .await
         {
             Ok(t) => {
-                emit_launch_log(app, uid, "success", "auth", "Authentication ticket obtido");
+                emit_launch_log(app, uid, "success", "auth", "Authentication ticket obtained");
                 t
             }
             Err(e) => {
-                emit_launch_log(app, uid, "error", "auth", format!("Falha no auth ticket: {e}"));
+                emit_launch_log(app, uid, "error", "auth", log_msg!("Authentication ticket failed: {{error}}", error = e.clone()));
                 mark_account_session_dead(state.inner(), app, uid, &e);
                 notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WebhookReason::AuthTicketFailed), None);
                 if is_moderated_error(&e) {
@@ -2466,7 +2452,7 @@ async fn run_launch_queue_windows(
         };
 
         if let Err(err) = &launch_result {
-            emit_launch_log(app, uid, "error", "spawn", format!("Falha ao abrir o cliente: {err}"));
+            emit_launch_log(app, uid, "error", "spawn", log_msg!("Could not open the client: {{error}}", error = err.to_string()));
             notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WebhookReason::ClientDidNotOpen), None);
             sequence.mark(uid, LaunchQueueState::Failed, Some(err.clone()));
             tracker.clear_pending_launch(acct_pending_id);
@@ -2480,7 +2466,7 @@ async fn run_launch_queue_windows(
         )
         .await;
         if acct_detected_pid.is_none() && !acct_isolation_wipes_install {
-            emit_launch_log(app, uid, "warn", "pid", "PID não detectado no tempo esperado");
+            emit_launch_log(app, uid, "warn", "pid", "PID not detected in the expected time");
             tracker.clear_pending_launch(acct_pending_id);
         }
         if acct_detected_pid.is_none() {
@@ -2488,7 +2474,7 @@ async fn run_launch_queue_windows(
             sequence.mark(uid, LaunchQueueState::Failed, Some("PID não detectado no tempo esperado".to_string()));
         }
         if let Some(pid) = acct_detected_pid {
-            emit_launch_log(app, uid, "success", "pid", format!("Cliente iniciado (PID {pid})"));
+            emit_launch_log(app, uid, "success", "pid", log_msg!("Client started (PID {{pid}})", pid = pid));
             sequence.mark(uid, LaunchQueueState::Done, None);
             tracker.clear_pending_launch(acct_pending_id);
             // Para onde a reconexão automática volta (reconnect.rs).
@@ -2689,7 +2675,7 @@ async fn run_launch_queue_macos(
 
         if let Some(reason) = moderation_launch_block(state.inner(), app, &settings, uid).await {
             emit_launch_log(app, uid, "warn", "moderated", reason.clone());
-            sequence.mark(uid, LaunchQueueState::Failed, Some(reason));
+            sequence.mark(uid, LaunchQueueState::Failed, Some(reason.render()));
             continue;
         }
 
@@ -4184,38 +4170,38 @@ mod launch_command_tests {
 
     #[test]
     fn launch_target_description_names_a_public_server_when_nothing_is_set() {
-        assert_eq!(launch_target_description(false, "", ""), "servidor público");
+        assert_eq!(launch_target_description(false, "", "").render(), "public server");
         assert_eq!(
-            launch_target_description(false, "   ", "  \t "),
-            "servidor público"
+            launch_target_description(false, "   ", "  \t ").render(),
+            "public server"
         );
     }
 
     #[test]
     fn launch_target_description_names_the_job_id_of_a_specific_server() {
         assert_eq!(
-            launch_target_description(false, "", "  job-123  "),
-            "servidor job-123"
+            launch_target_description(false, "", "  job-123  ").render(),
+            "server job-123"
         );
     }
 
     #[test]
     fn launch_target_description_prefers_vip_over_the_job_id() {
         assert_eq!(
-            launch_target_description(true, "", "job-123"),
-            "servidor VIP/privado"
+            launch_target_description(true, "", "job-123").render(),
+            "private/VIP server"
         );
         assert_eq!(
-            launch_target_description(false, "CODE", "job-123"),
-            "servidor VIP/privado"
+            launch_target_description(false, "CODE", "job-123").render(),
+            "private/VIP server"
         );
     }
 
     #[test]
     fn launch_target_description_keeps_unicode_job_ids_intact() {
         assert_eq!(
-            launch_target_description(false, "", "サーバー"),
-            "servidor サーバー"
+            launch_target_description(false, "", "サーバー").render(),
+            "server サーバー"
         );
     }
 

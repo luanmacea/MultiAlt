@@ -63,6 +63,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/store.test.ts",
       "src/components/ChooseGameScreen.test.tsx",
       "src/components/MultiRobloxConfirm.test.tsx",
+      "src/components/OutdatedVersionConfirm.test.tsx",
       "src/components/session",
       "src/components/pages/SessionPage.test.tsx",
       "src/accountLaunchOverrides.test.ts",
@@ -187,6 +188,12 @@ export const SUITES: Record<string, TestSuite> = {
       "auto_rejoin_naming_tests",
       "watcher_tests",
       "watcher_console_tests",
+      // Língua do Console: toda linha do backend é uma frase em inglês com
+      // chave + parâmetros, traduzida nos quatro idiomas (log_msg.rs).
+      "log_msg_tests",
+      "console_language_tests",
+      "afk_send_error_log_tests",
+      "multi_roblox_notice_log_tests",
       // Quedas lidas do log do cliente (commands/client_health.rs).
       "client_log_classifier_tests",
       "client_log_session_tests",
@@ -217,6 +224,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/session/SessionPanel.test.tsx",
       // A página Console mostra o log do Auto Rejoin e do Watcher.
       "src/components/pages/ConsolePage.test.tsx",
+      // O Console traduz `key` + `params` na hora de desenhar (utils/launchLog.ts).
+      "src/components/console/LaunchConsole.test.tsx",
       "src/utils/autoReconnect.test.ts",
       "src/utils/memoryLimit.test.ts",
       // "While you were away" (Session e Modo AFK): quedas e reconexões anotadas.
@@ -287,6 +296,7 @@ export const SUITES: Record<string, TestSuite> = {
     description: "Catálogo e instalação de versões do Roblox",
     rust: [
       "win_versions_tests",
+      "outdated_version_choice_tests",
       "build_download_retry_tests",
       "versions_catalog_tests",
       "versions_command_tests",
@@ -525,6 +535,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/server-list",
       "src/App.test.tsx",
       "src/hooks",
+      // Seleção em lista (Shift, Ctrl, arrastar) das listas de contas fora da principal.
+      "src/utils/listSelection.test.ts",
       "src/i18n",
       "src/types.test.ts",
       "src/tauriWindowConfig.test.ts",

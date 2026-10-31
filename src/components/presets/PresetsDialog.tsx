@@ -14,6 +14,8 @@ import { accountLabel } from "../../utils/accountName";
 import { Toggle } from "../ui/Toggle";
 import { Select } from "../ui/Select";
 import { GameBadge } from "../ui/GameBadge";
+import { useListSelection } from "../../hooks/useListSelection";
+import { applyToList } from "../../utils/listSelection";
 import { loadFavorites, parsePlaceIdInput } from "../server-list/types";
 import { collectGroupNames, groupLabel } from "../../types";
 import type { LaunchPreset, LaunchPresetView, PresetSchedule } from "../../types";
@@ -466,12 +468,12 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
     setDraft((d) => ({ ...d, schedule: { ...(d.schedule ?? EMPTY_SCHEDULE), ...patch } }));
   }
 
-  function toggleAccount(userId: number) {
-    setDraft((d) => ({
-      ...d,
-      userIds: d.userIds.includes(userId) ? d.userIds.filter((id) => id !== userId) : [...d.userIds, userId],
-    }));
-  }
+  // Shift, Ctrl e arrastar por cima das contas, como na lista principal.
+  const accountSelection = useListSelection<number>({
+    order: store.accounts.map((a) => a.UserID),
+    isSelected: (id) => draft.userIds.includes(id),
+    apply: (ids, on) => setDraft((d) => ({ ...d, userIds: applyToList(d.userIds, ids, on) })),
+  });
 
   function toggleDay(day: number) {
     const days = schedule.days.includes(day) ? schedule.days.filter((d) => d !== day) : [...schedule.days, day];
@@ -658,11 +660,15 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
             <>
               <div className="max-h-[150px] overflow-y-auto rounded-lg border theme-border divide-y divide-[var(--border-color)]">
                 {store.accounts.map((a) => (
-                  <label key={a.UserID} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px] cursor-pointer hover:bg-[var(--panel-soft)]">
+                  <label
+                    key={a.UserID}
+                    {...accountSelection.rowProps(a.UserID)}
+                    className="flex items-center gap-2 px-2.5 py-1.5 text-[12px] cursor-pointer hover:bg-[var(--panel-soft)]"
+                  >
                     <input
                       type="checkbox"
                       checked={draft.userIds.includes(a.UserID)}
-                      onChange={() => toggleAccount(a.UserID)}
+                      onChange={(e) => accountSelection.toggle(a.UserID, e.nativeEvent)}
                     />
                     <span className="truncate text-[var(--panel-fg)]">{accountLabel(a, store)}</span>
                   </label>

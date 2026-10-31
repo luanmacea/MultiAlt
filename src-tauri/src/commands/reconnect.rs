@@ -700,51 +700,60 @@ pub fn reconnect_enabled(account_field: Option<&str>, global_default: bool, nexu
     own || nexus_auto_relaunch
 }
 
-/// Linha do Console (português, como as do monitor de quedas).
-fn reconnect_console_line(notice: &ReconnectNotice) -> (&'static str, String) {
+/// Linha do Console (traduzível, como as do monitor de quedas).
+fn reconnect_console_line(notice: &ReconnectNotice) -> (&'static str, LogMsg) {
     let max = RECONNECT_MAX_ATTEMPTS;
     match notice {
         ReconnectNotice::Scheduled { attempt, in_ms, .. } => (
             "info",
-            format!("Reconexão automática: tentativa {attempt}/{max} em {} s", in_ms / 1_000),
+            log_msg!(
+                "Automatic reconnection: attempt {{attempt}}/{{max}} in {{seconds}} s",
+                attempt = *attempt,
+                max = max,
+                seconds = in_ms / 1_000
+            ),
         ),
         ReconnectNotice::Offline { .. } => (
             "warn",
-            String::from("Sem internet: a reconexão espera ela voltar"),
+            log_msg!("No internet: the reconnection waits for it to come back"),
         ),
         ReconnectNotice::Relaunched { attempt, .. } => (
             "info",
-            format!("Reconectando (tentativa {attempt}/{max}): conferindo se fica no jogo"),
+            log_msg!(
+                "Reconnecting (attempt {{attempt}}/{{max}}): checking that it stays in the game",
+                attempt = *attempt,
+                max = max
+            ),
         ),
-        ReconnectNotice::Reconnected { .. } => ("success", String::from("Reconectou: ficou no jogo")),
+        ReconnectNotice::Reconnected { .. } => ("success", log_msg!("Reconnected: it stayed in the game")),
         ReconnectNotice::BackByItself { .. } => (
             "info",
-            String::from("Voltou ao jogo sozinha: reconexão dispensada"),
+            log_msg!("Back in the game on its own: reconnection not needed"),
         ),
         ReconnectNotice::GaveUp { attempts, .. } => (
             "error",
-            format!("Reconexão desistiu depois de {attempts} tentativas"),
+            log_msg!("Reconnection gave up after {{attempts}} attempts", attempts = *attempts),
         ),
         ReconnectNotice::Stopped { reason, .. } => (
             "warn",
             match reason {
                 ReconnectStopReason::JoinedElsewhere => {
-                    "Sem reconexão: a conta entrou em outro lugar".to_string()
+                    log_msg!("No reconnection: the account joined somewhere else")
                 }
-                ReconnectStopReason::ClosedByUser => "Sem reconexão: o cliente foi fechado".to_string(),
-                ReconnectStopReason::Banned => "Sem reconexão: conta banida".to_string(),
+                ReconnectStopReason::ClosedByUser => log_msg!("No reconnection: the client was closed"),
+                ReconnectStopReason::Banned => log_msg!("No reconnection: the account is banned"),
                 ReconnectStopReason::SessionExpired => {
-                    "Sem reconexão: a sessão expirou, entre na conta de novo".to_string()
+                    log_msg!("No reconnection: the session expired, sign in to the account again")
                 }
                 ReconnectStopReason::NoDestination => {
-                    "Sem reconexão: não se sabe para onde voltar".to_string()
+                    log_msg!("No reconnection: it is not known where to go back to")
                 }
                 ReconnectStopReason::OpenedOutsideApp => {
-                    "Sem reconexão: a conta está aberta fora do app".to_string()
+                    log_msg!("No reconnection: the account is open outside the app")
                 }
             },
         ),
-        ReconnectNotice::Cancelled { .. } => ("info", String::from("Reconexão cancelada")),
+        ReconnectNotice::Cancelled { .. } => ("info", log_msg!("Reconnection cancelled")),
     }
 }
 
@@ -861,7 +870,7 @@ fn get_auto_reconnect_status() -> serde_json::Value {
 fn stop_auto_reconnect(app: tauri::AppHandle, user_id: i64) -> bool {
     let stopped = with_reconnect_book(|book| book.stop(user_id));
     if stopped {
-        emit_launch_log(&app, user_id, "info", "reconnect", "Reconexão parada pelo usuário");
+        emit_launch_log(&app, user_id, "info", "reconnect", "Reconnection stopped by the user");
         publish_reconnect(&app, &[]);
     }
     stopped
@@ -1119,7 +1128,11 @@ async fn run_reconnect_attempt(
         user_id,
         "info",
         "reconnect",
-        format!("Reconexão automática: tentativa {attempt}/{RECONNECT_MAX_ATTEMPTS}"),
+        log_msg!(
+            "Automatic reconnection: attempt {{attempt}}/{{max}}",
+            attempt = attempt,
+            max = RECONNECT_MAX_ATTEMPTS
+        ),
     );
 
     // O cliente velho é da própria conta e do app (conferido acima): fecha só

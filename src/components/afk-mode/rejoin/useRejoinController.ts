@@ -4,6 +4,7 @@ import { useStore } from "../../../store";
 import { useGameIdentity } from "../../../hooks/useGameIdentity";
 import { useAccountInitial, useAccountLabel, useHideAccountAvatar } from "../../../hooks/useAccountLabel";
 import { useConfirm } from "../../../hooks/usePrompt";
+import { applyToList } from "../../../utils/listSelection";
 import { isMultiRobloxCloseProcessError } from "../../../utils/robloxErrors";
 import { useTr } from "../../../i18n/text";
 import { loadFavorites, type FavoriteGame } from "../../server-list/types";
@@ -226,6 +227,11 @@ export function useRejoinController({
     setDraftUserIds((prev) =>
       prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
     );
+  }
+
+  /** Marca (`on`) ou desmarca várias de uma vez: Shift e arrastar por cima das linhas. */
+  function setAccountsOn(userIds: number[], on: boolean) {
+    setDraftUserIds((prev) => applyToList(prev, userIds, on));
   }
 
   /** Marca todas as contas que dá para marcar agora (fora do ciclo, se ele roda). */
@@ -461,6 +467,11 @@ export function useRejoinController({
     );
   }
 
+  /** Marca (`on`) ou desmarca várias linhas do ciclo de uma vez. */
+  function setBulkOn(userIds: number[], on: boolean) {
+    setBulkSelectedUserIds((prev) => applyToList(prev, userIds, on));
+  }
+
   function setBulkSelected(userIds: number[]) {
     setBulkSelectedUserIds(Array.from(new Set(userIds)));
   }
@@ -633,6 +644,7 @@ export function useRejoinController({
     bulkSelectedSet,
     bulkEligibleCounts,
     toggleAccount,
+    setAccountsOn,
     selectAllAccounts,
     clearAccounts,
     chooseServerMode,
@@ -652,6 +664,7 @@ export function useRejoinController({
     runRowFocus,
     runBulkAction,
     toggleBulkSelected,
+    setBulkOn,
     setBulkSelected,
   };
 }

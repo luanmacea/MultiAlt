@@ -446,6 +446,47 @@ impl AfkSendError {
             AfkSendError::Internal(message) => message.clone(),
         }
     }
+
+    /// A mesma frase de `message()` para o Console, traduzível (a de falha
+    /// inesperada é texto de fora e vai como veio).
+    /// `afk_send_error_log_tests` confere que as duas não se separam.
+    fn log_msg(&self) -> LogMsg {
+        match self {
+            AfkSendError::NoWindow => log_msg!("No Roblox window for this account"),
+            AfkSendError::FocusDenied => log_msg!(
+                "Windows did not bring this account's Roblox window to the front, so nothing was sent"
+            ),
+            AfkSendError::KeyRefused => log_msg!("Windows refused the synthetic key"),
+            AfkSendError::ClickRefused => log_msg!("Windows refused the synthetic click"),
+            AfkSendError::NoRecording => log_msg!("This account has no recording to play"),
+            AfkSendError::FocusLost => {
+                log_msg!("Another window came to the front, so the rest of the recording was not played")
+            }
+            AfkSendError::Stopped => log_msg!("Stopped in the middle of the recording"),
+            AfkSendError::Internal(message) => LogMsg::raw(message.clone()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod afk_send_error_log_tests {
+    use super::*;
+
+    #[test]
+    fn the_console_sentence_is_the_message_in_english() {
+        for error in [
+            AfkSendError::NoWindow,
+            AfkSendError::FocusDenied,
+            AfkSendError::KeyRefused,
+            AfkSendError::ClickRefused,
+            AfkSendError::NoRecording,
+            AfkSendError::FocusLost,
+            AfkSendError::Stopped,
+            AfkSendError::Internal("boom".into()),
+        ] {
+            assert_eq!(error.log_msg().render(), error.message(), "{error:?}");
+        }
+    }
 }
 
 /// Estado de uma conta que **está** no AFK mode.
@@ -1448,7 +1489,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
                     &app,
                     "info",
                     "afk",
-                    String::from("Modo AFK esperando: há uma janela em tela cheia na frente"),
+                    "AFK mode is waiting: a full-screen window is in front",
                 );
             }
             emit_afk_status(&app);

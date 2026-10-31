@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -141,6 +141,22 @@ describe("RejoinTab — escolher as contas", () => {
     }
     expect(screen.queryByRole("button", { name: "Select alts" })).not.toBeInTheDocument();
     expect(screen.queryByText("All visible")).not.toBeInTheDocument();
+  });
+
+  it("Shift+clique e arrastar marcam várias contas de uma vez, como na lista principal", () => {
+    renderTab({}, { targetUserIds: [] });
+    fireEvent.click(accountButton("ann"));
+    fireEvent.click(accountButton("cid"), { shiftKey: true });
+    for (const name of ["ann", "bob", "cid"]) {
+      expect(accountButton(name)).toHaveAttribute("aria-pressed", "true");
+    }
+    // Arrastar a partir de uma marcada desmarca o que atravessa.
+    fireEvent.mouseDown(accountButton("cid"), { button: 0 });
+    fireEvent.mouseMove(accountButton("bob"));
+    fireEvent.mouseUp(accountButton("bob"));
+    expect(accountButton("ann")).toHaveAttribute("aria-pressed", "true");
+    expect(accountButton("bob")).toHaveAttribute("aria-pressed", "false");
+    expect(accountButton("cid")).toHaveAttribute("aria-pressed", "false");
   });
 
   it("não tem Targets nem contas main", () => {

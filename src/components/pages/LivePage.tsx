@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Radio, X } from "lucide-react";
 import { useSettings } from "../../hooks/useSettings";
+import { useListSelection } from "../../hooks/useListSelection";
+import { applyToList } from "../../utils/listSelection";
 import { useTr } from "../../i18n/text";
 import { Toggle } from "../ui/Toggle";
 import { Select } from "../ui/Select";
@@ -50,18 +52,47 @@ export function LivePage({ active, onLeave }: { active: boolean; onLeave: () => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, refresh]);
 
+  // O que foi pedido e o backend ainda não devolveu: o arrasto e o Shift mandam
+  // várias trocas seguidas, cada uma parte da anterior e vai em ordem.
+  const [pending, setPending] = useState<number[] | null>(null);
+  const pendingRef = useRef<number[] | null>(null);
+  const writes = useRef(0);
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const shown = pending ?? accounts.filter((a) => a.selected).map((a) => a.userId);
+
+  /** Passa `userIds` para dentro (`on`) ou para fora da janela Live. */
+  function setMany(userIds: number[], on: boolean) {
+    const next = applyToList(pendingRef.current ?? accounts.filter((a) => a.selected).map((a) => a.userId), userIds, on);
+    pendingRef.current = next;
+    setPending(next);
+    writes.current += 1;
+    chain.current = chain.current
+      .then(async () => {
+        // Lista vazia aqui é "nenhuma" (desmarcou a última), não "todas".
+        await invoke("set_live_accounts", { userIds: next, all: false });
+      })
+      .catch(() => {})
+      .then(async () => {
+        writes.current -= 1;
+        if (writes.current > 0) return;
+        await s.load();
+        await refresh();
+        if (writes.current === 0) {
+          pendingRef.current = null;
+          setPending(null);
+        }
+      });
+  }
+
+  const selection = useListSelection<number>({
+    order: accounts.map((a) => a.userId),
+    isSelected: (id) => shown.includes(id),
+    apply: setMany,
+  });
+
   if (!active) return null;
 
   const everyone = !s.get("Live", "Accounts", "").trim();
-
-  async function toggle(userId: number, on: boolean) {
-    const current = accounts.filter((a) => a.selected).map((a) => a.userId);
-    const next = on ? [...new Set([...current, userId])] : current.filter((id) => id !== userId);
-    // Lista vazia aqui é "nenhuma" (desmarcou a última), não "todas".
-    await invoke("set_live_accounts", { userIds: next, all: false });
-    await s.load();
-    await refresh();
-  }
 
   async function selectAll() {
     await invoke("set_live_accounts", { userIds: [], all: true });
@@ -106,11 +137,18 @@ export function LivePage({ active, onLeave }: { active: boolean; onLeave: () => 
               ? t("Every open account is shown, including the ones you open later.")
               : t("Only the accounts ticked below are shown.")}
           </span>
-          {!everyone && (
-            <button type="button" onClick={() => void selectAll()} className="text-sky-400 hover:text-sky-300">
-              {t("Show every open account")}
-            </button>
-          )}
+          <span className="flex items-center gap-3">
+            {!everyone && (
+              <button type="button" onClick={() => void selectAll()} className="text-sky-400 hover:text-sky-300">
+                {t("Show every open account")}
+              </button>
+            )}
+            {accounts.length > 0 && shown.length > 0 && (
+              <button type="button" onClick={() => setMany(shown, false)} className="text-sky-400 hover:text-sky-300">
+                {t("Clear")}
+              </button>
+            )}
+          </span>
         </div>
         {accounts.length === 0 ? (
           <p className="px-1 py-3 text-[13px] text-zinc-500">
@@ -119,12 +157,16 @@ export function LivePage({ active, onLeave }: { active: boolean; onLeave: () => 
         ) : (
           <ul className="divide-y divide-zinc-800/70 rounded-lg border border-zinc-800/70">
             {accounts.map((account) => (
-              <li key={account.userId} className="flex items-center gap-3 px-3 py-2 text-[13px] text-zinc-200">
+              <li
+                key={account.userId}
+                {...selection.rowProps(account.userId)}
+                className="flex items-center gap-3 px-3 py-2 text-[13px] text-zinc-200"
+              >
                 <input
                   type="checkbox"
                   aria-label={account.label || String(account.userId)}
-                  checked={account.selected}
-                  onChange={(e) => void toggle(account.userId, e.target.checked)}
+                  checked={shown.includes(account.userId)}
+                  onChange={(e) => selection.toggle(account.userId, e.nativeEvent)}
                 />
                 <span
                   className={`inline-block h-2 w-2 rounded-full ${account.inGame ? "bg-emerald-400" : "bg-amber-400"}`}

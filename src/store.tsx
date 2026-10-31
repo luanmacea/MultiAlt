@@ -223,7 +223,16 @@ export interface LaunchLogEntry {
   userId: number | null;
   level: LaunchLogLevel;
   step: string;
+  /** A frase em inglês já montada: o que vale quando a linha não traz `key`. */
   message: string;
+  /**
+   * A frase em inglês com `{{parametros}}` (também a chave do catálogo de
+   * idiomas). O Console traduz `t(key, params)` na hora de desenhar, então
+   * trocar o idioma traduz as linhas que já estão na tela. Ver
+   * `utils/launchLog.ts` e docs/features/console.md.
+   */
+  key?: string;
+  params?: Record<string, unknown>;
   ts: number;
 }
 
@@ -3316,7 +3325,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const unsubs: Array<() => void> = [];
 
     const listeners = [
-      listen<{ userId: number | null; level: LaunchLogLevel; step: string; message: string }>(
+      listen<{
+        userId: number | null;
+        level: LaunchLogLevel;
+        step: string;
+        message: string;
+        key?: string;
+        params?: Record<string, unknown>;
+      }>(
         "launch-log",
         (e) => {
           const p = e.payload;
@@ -3327,6 +3343,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               level: p.level ?? "info",
               step: p.step ?? "",
               message: p.message ?? "",
+              // Sem `key` (linha antiga ou texto de fora) a tela mostra o `message`.
+              ...(p.key ? { key: p.key, params: p.params ?? {} } : {}),
               ts: Date.now(),
             };
             // Cap the buffer so a long botting session can't grow unbounded.

@@ -1,6 +1,8 @@
 import { Check, Users } from "lucide-react";
 import { useTr } from "../../../i18n/text";
 import { useAccountLabel } from "../../../hooks/useAccountLabel";
+import { useListSelection } from "../../../hooks/useListSelection";
+import { applyToSet } from "../../../utils/listSelection";
 import { useStore } from "../../../store";
 import type { Account } from "../../../types";
 import { Headshot } from "./shared";
@@ -28,12 +30,13 @@ export function AccountPicker({
   const accountLabel = useAccountLabel();
   const count = accounts.filter((a) => picked.has(a.UserID)).length;
 
-  function toggle(userId: number) {
-    const next = new Set(picked);
-    if (next.has(userId)) next.delete(userId);
-    else next.add(userId);
-    onChange(next);
-  }
+  // Shift, Ctrl e arrastar por cima das contas, como na lista principal.
+  const selection = useListSelection<number>({
+    order: accounts.map((a) => a.UserID),
+    isSelected: (id) => picked.has(id),
+    apply: (ids, on) => onChange(applyToSet(picked, ids, on)),
+    disabled,
+  });
 
   return (
     <>
@@ -75,11 +78,12 @@ export function AccountPicker({
               return (
                 <button
                   key={account.UserID}
+                  {...selection.rowProps(account.UserID)}
                   role="checkbox"
                   aria-checked={on}
                   aria-label={name}
                   disabled={disabled}
-                  onClick={() => toggle(account.UserID)}
+                  onClick={(e) => selection.toggle(account.UserID, e)}
                   className={`w-full flex items-center gap-2 px-1.5 py-1 rounded-md text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                     on ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--panel-soft)]"
                   }`}
