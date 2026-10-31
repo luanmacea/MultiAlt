@@ -37,3 +37,33 @@ export function msiOnlyPlatforms(platforms) {
   }
   return { "windows-x86_64-msi": { ...msi, url: toStableMsiUrl(String(msi.url)) } };
 }
+
+/**
+ * Manifestos do Linux (`<canal>-linux`, `<canal>-linux-nexus-ws`): so chaves
+ * `linux-x86_64-<appimage|deb|rpm>`, cada uma apontando para o arquivo do
+ * proprio formato. O AppImage e obrigatorio (e o que o README do Linux
+ * recomenda); deb e rpm entram quando existem. Nunca mistura chaves de Windows:
+ * os manifestos dos dois sistemas sao arquivos diferentes.
+ */
+const LINUX_EXTENSIONS = { appimage: ".appimage", deb: ".deb", rpm: ".rpm" };
+
+export function linuxOnlyPlatforms(platforms) {
+  const out = {};
+  for (const [kind, extension] of Object.entries(LINUX_EXTENSIONS)) {
+    const entry = platforms?.[`linux-x86_64-${kind}`];
+    if (!entry) continue;
+    if (!String(entry.url || "").toLowerCase().endsWith(extension)) {
+      throw new Error(`linux-x86_64-${kind} must point at a ${extension} file, got ${entry.url}`);
+    }
+    out[`linux-x86_64-${kind}`] = entry;
+  }
+  if (!out["linux-x86_64-appimage"]) {
+    throw new Error("update manifest has no linux-x86_64-appimage entry");
+  }
+  return out;
+}
+
+/** Escolhe as plataformas do manifesto pela familia (`RELEASE_PLATFORM_FAMILY`); sem ela, e o Windows de sempre. */
+export function platformsForFamily(family, platforms) {
+  return String(family || "").toLowerCase() === "linux" ? linuxOnlyPlatforms(platforms) : msiOnlyPlatforms(platforms);
+}
