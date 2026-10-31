@@ -38,9 +38,13 @@ jobs:
           s=$?
           cargo check --manifest-path src-tauri/Cargo.toml --locked --all-features --message-format=short 2> full.txt
           f=$?
+          echo "$s" > standard.code; echo "$f" > full.code
           for edition in standard full; do
-            n=$(grep -c '^error\|: error' $edition.txt)
-            body=$(grep -E ': error|^error' $edition.txt | sort -u | head -80 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
-            if [ "$n" -eq 0 ]; then echo "::notice title=$edition::compiles"; else echo "::error title=$edition ($n errors)::$body"; fi
+            code=$(cat $edition.code)
+            n=$(grep -cE ': error|^error' $edition.txt)
+            errors=$(grep -E ': error|^error' $edition.txt | sort -u | head -80)
+            [ -z "$errors" ] && errors=$(tail -40 $edition.txt)
+            body=$(printf '%s' "$errors" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            if [ "$code" -eq 0 ]; then echo "::notice title=$edition::compiles"; else echo "::error title=$edition (exit $code, $n errors)::$body"; fi
           done
           [ $s -eq 0 ] && [ $f -eq 0 ]
