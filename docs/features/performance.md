@@ -155,10 +155,12 @@ on launch**. Valem na grade automática do launch e no botão **Arrange in grid*
 
 ### Regras de negócio
 
-- **Só clientes que o app abriu.** No botão manual, as janelas de clientes
-  abertos pelo site são arrumadas como sempre: com moldura, e a célula volta ao
-  mínimo do Roblox se uma delas está na grade (ela cresceria e sobreporia as
-  vizinhas — `grid_small_allowed`).
+- **Moldura só nos clientes que o app abriu; célula pequena em todos.** A
+  janela de um cliente aberto pelo site fica com a moldura, mas encolhe com as
+  outras (o `SWP_NOSENDCHANGING` vale para qualquer janela do Roblox). Até
+  30/10/2026 uma janela dela na grade fazia **nenhuma** encolher, nem as do app
+  (relato do Discord: "Windows stopped shrinking"); teste real
+  `real_grid_scenario_a_website_client_shrinks_with_the_rest`.
 - A moldura original de cada janela fica guardada (`hwnd → pid, estilo`) e
   **volta**: quando a opção desliga (olhada de 1 s), quando o botão manual
   arruma sem a opção, e ao fechar o app. Só volta o que a janela tinha.

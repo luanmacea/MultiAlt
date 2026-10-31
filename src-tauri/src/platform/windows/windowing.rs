@@ -1439,17 +1439,6 @@ fn restored_frame_style(current: u32, original: u32) -> u32 {
     current | (original & GRID_FRAME_BITS)
 }
 
-/// Célula menor que o mínimo só se todas as janelas da grade forem do app:
-/// a de um cliente aberto pelo site cresceria até o mínimo e sobreporia as
-/// vizinhas.
-fn grid_small_allowed(
-    allow_small: bool,
-    window_pids: &[u32],
-    own: &std::collections::HashSet<u32>,
-) -> bool {
-    allow_small && window_pids.iter().all(|pid| own.contains(pid))
-}
-
 /// Janelas sem moldura pela grade: `hwnd -> (pid, estilo original)`.
 static BORDERLESS_WINDOWS: LazyLock<Mutex<HashMap<isize, (u32, u32)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -1756,12 +1745,12 @@ pub fn place_in_grid(
     // A grade já foi encolhida para caber mais janelas (`cell_that_fits`): a
     // nova entra no tamanho dela, não no mínimo do Roblox — senão as células
     // não batem e ela cai por cima das outras.
-    let own = launched_client_pids();
-    let grid_pids: Vec<u32> = occupant_wins.iter().map(|w| w.pid).chain([pid]).collect();
     // E vale também para célula maior: com a grade organizada em 1272x695 (a
     // base era uma janela que a pessoa aumentou), a nova num 816x639 caía numa
-    // célula que só existe nesse tamanho, por cima das outras.
-    let all_own = !occupant_wins.is_empty() && grid_small_allowed(true, &grid_pids, &own);
+    // célula que só existe nesse tamanho, por cima das outras. Vale com janela
+    // aberta pelo site na grade: ela também vai sem o mínimo (ver
+    // `arrange_roblox_grid_locked`).
+    let grid_in_use = !occupant_wins.is_empty();
     if request.style.auto_fit {
         let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
         let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
@@ -1785,14 +1774,13 @@ pub fn place_in_grid(
                     None => WindowEnforcement::Skipped,
                 };
             }
-            let small = grid_small_allowed(true, &grid_pids, &own);
             let slots = grid_slots(&monitors, best.0, best.1, request.gap);
             let target = match pick_grid_slot(&slots, best, &occupants, &blockers) {
                 Some(i) => (slots[i].x, slots[i].y, best.0, best.1),
                 None => (current.0, current.1, best.0, best.1),
             };
             remember_grid_cell(hwnd as isize, Some(target), false);
-            return move_to_with(hwnd, current, target, small);
+            return move_to_with(hwnd, current, target, true);
         }
     }
     // Janela que já está no tamanho da grade (uma organização anterior a pegou,
@@ -1801,7 +1789,7 @@ pub fn place_in_grid(
     // (teste real `real_grid_scenario_launch_placement_with_more_windows_than_cells`,
     // 26/10/2026). A célula é a que as outras já têm, então não há o que medir.
     let (small, requested) = match grid_cell_in_use(&occupant_wins) {
-        Some(cell) if all_own => (small || cell == requested || grid_already_shrunk(cell, requested), cell),
+        Some(cell) if grid_in_use => (small || cell == requested || grid_already_shrunk(cell, requested), cell),
         _ => (small, requested),
     };
     let (cell_w, cell_h) =
@@ -1812,9 +1800,8 @@ pub fn place_in_grid(
     let occupants: Vec<(i32, i32, i32, i32)> = occupant_wins.iter().map(rect).collect();
     let blockers: Vec<(i32, i32, i32, i32)> = blocker_wins.iter().map(rect).collect();
     // Grade lotada: em vez de pôr esta por cima de outra, rearruma todas num
-    // tamanho em que caibam (só com todas abertas pelo app).
+    // tamanho em que caibam.
     if grid_is_full(&slots, (cell_w, cell_h), &occupants, &blockers)
-        && grid_small_allowed(true, &grid_pids, &own)
         && cell_that_fits(&monitors, (cell_w, cell_h), request.gap, occupants.len() + 1, &blockers).is_some()
     {
         let _ = arrange_roblox_grid_locked(
@@ -1905,8 +1892,11 @@ fn arrange_roblox_grid_locked(
     style: GridWindowStyle,
     restore_minimized: bool,
 ) -> Result<(usize, usize), String> {
-    // Moldura e célula pequena só nos clientes que o app abriu; o aberto pelo
-    // site é arrumado como sempre foi.
+    // Moldura só nos clientes que o app abriu. A célula pequena vale para
+    // todas as janelas da grade, inclusive a do cliente aberto pelo site:
+    // antes, uma janela dele na grade fazia **nenhuma** encolher (relato do
+    // Discord, 30/10/2026: "Windows stopped shrinking"). O `SWP_NOSENDCHANGING`
+    // passa por baixo do mínimo em qualquer janela do Roblox, seja quem a abriu.
     let own: std::collections::HashSet<u32> = launched_client_pids()
         .into_iter()
         .filter(|pid| !excluded_pids.contains(pid))
@@ -1927,8 +1917,7 @@ fn arrange_roblox_grid_locked(
         grid_windows(list_roblox_windows(), minimized)
             .into_iter()
             .partition(|w| excluded_pids.contains(&w.pid));
-    let window_pids: Vec<u32> = wins.iter().map(|w| w.pid).collect();
-    let mut small = grid_small_allowed(style.small_cells(), &window_pids, &own);
+    let mut small = style.small_cells();
     let blockers: Vec<(i32, i32, i32, i32)> = excluded.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
     if wins.is_empty() {
         return Err("Nenhuma janela de Roblox aberta foi encontrada.".to_string());
@@ -1978,8 +1967,7 @@ fn arrange_roblox_grid_locked(
     };
     let (cell_w, cell_h) = match probe {
         // A célula do "melhor tamanho" já é a final: medir a janela aqui só
-        // traria o mínimo do Roblox de volta (fora os clientes do site, que
-        // `grid_small_allowed` já deixa crescer).
+        // traria o mínimo do Roblox de volta.
         _ if auto_cell.is_some() => (cell_w, cell_h),
         Some(first) => grid_cell_size(
             (cell_w, cell_h),
@@ -1994,10 +1982,9 @@ fn arrange_roblox_grid_locked(
         None => (cell_w, cell_h),
     };
     // Mais janelas do que cabem: encolhe a célula até caberem todas, em vez de
-    // dar a volta e empilhar. Só com todas abertas pelo app — a de um cliente
-    // aberto pelo site cresceria de volta até o mínimo do Roblox.
+    // dar a volta e empilhar.
     let (cell_w, cell_h) = match cell_that_fits(&monitors, (cell_w, cell_h), gap, wins.len(), &blockers) {
-        Some(fit) if fit != (cell_w, cell_h) && grid_small_allowed(true, &window_pids, &own) => {
+        Some(fit) if fit != (cell_w, cell_h) => {
             small = true;
             fit
         }
@@ -2827,15 +2814,6 @@ mod win_grid_style_tests {
         assert!(grid_already_shrunk((600, 450), (816, 639)));
         assert!(!grid_already_shrunk((816, 639), (816, 639)));
         assert!(!grid_already_shrunk((1000, 700), (816, 639)));
-    }
-
-    #[test]
-    fn a_website_client_in_the_grid_keeps_the_cells_at_the_roblox_minimum() {
-        let own: HashSet<u32> = [10, 20].into_iter().collect();
-        assert!(grid_small_allowed(true, &[10, 20], &own));
-        // 77 foi aberto pelo site: cresceria e sobreporia as vizinhas.
-        assert!(!grid_small_allowed(true, &[10, 77], &own));
-        assert!(!grid_small_allowed(false, &[10, 20], &own));
     }
 
     // ── sem moldura ────────────────────────────────────────────────────────
@@ -3681,6 +3659,59 @@ $w = New-Object FakeRobloxWindow
             assert!(overlaps.is_empty(), "arrange_first={arrange_first}: windows on top of one another: {overlaps:?}");
             assert_eq!(windows_outside(monitor), 0, "arrange_first={arrange_first}: a window left the monitor");
         }
+    }
+
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_a_website_client_shrinks_with_the_rest() {
+        // Relato do Discord (30/10/2026): "Windows stopped shrinking". Com uma
+        // janela aberta pelo site na grade, nenhuma encolhia — nem as do app.
+        let monitor = primary_monitor_index();
+        let mut clients = spawn_fake_clients(3);
+        // A última vira "aberta pelo site": sai do rastreamento do app.
+        let site_uid = clients.user_ids.pop().expect("uid");
+        tracker().untrack(site_uid);
+        let style = GridWindowStyle { allow_small: true, ..GridWindowStyle::default() };
+        let result = arrange_roblox_grid_locked(
+            &[monitor],
+            8,
+            Some((400, 300)),
+            &std::collections::HashSet::new(),
+            style,
+            true,
+        );
+        std::thread::sleep(Duration::from_millis(600));
+        let sizes: Vec<(i32, i32)> = list_roblox_windows().iter().map(|w| (w.w, w.h)).collect();
+        eprintln!("arrange with a website client -> {result:?}, sizes: {sizes:?}");
+        assert_eq!(sizes.len(), 3);
+        for (w, h) in sizes {
+            assert!(w < 816 && h < 639, "a window kept the Roblox minimum: {w}x{h}");
+        }
+        assert!(overlapping_pairs().is_empty());
+    }
+
+    #[test]
+    #[ignore]
+    fn real_grid_scenario_live_keeps_a_window_minimized_later_rendering() {
+        // Relato do Discord (30/10/2026): conta minimizada com a Live aberta
+        // congelava. Minimizar depois de a Live montar a grade também tem que
+        // voltar (invisível), inclusive minimizar de novo a mesma janela.
+        let clients = spawn_fake_clients(1);
+        let uid = clients.user_ids[0];
+        let hwnd = find_main_window(clients.children[0].id()).expect("window");
+        let iconic = || unsafe { IsIconic(hwnd) } != 0;
+        for round in 0..2 {
+            unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(iconic(), "round {round}: not minimized");
+            assert!(live_keep_rendering(uid, hwnd as isize), "round {round}");
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(!iconic(), "round {round}: still minimized, the Live would freeze");
+        }
+        // A Live fecha: volta a minimizar, e a transparência sai.
+        live_release_hidden();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(iconic());
     }
 
     /// Pedido do dono (26/10/2026): com as janelas minimizadas, o botão
