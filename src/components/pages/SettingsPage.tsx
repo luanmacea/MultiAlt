@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSettings } from "../../hooks/useSettings";
 import { TabContent } from "../settings/TabContent";
-import { SETTINGS_TABS, type TabId } from "../settings/tabs";
+import { tabsFor, type TabId } from "../settings/tabs";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { PageShell } from "./PageShell";
@@ -12,8 +12,6 @@ interface SettingsPageProps {
   onSettingsChanged?: () => void;
   onRequestEncryptionSetup?: () => void;
 }
-
-const VISIBLE_TABS = SETTINGS_TABS.filter((tab) => !tab.hidden);
 
 /**
  * Página Settings. As abas do antigo modal (que mal cabiam numa linha de
@@ -35,6 +33,8 @@ export function SettingsPage({
   const store = useStore();
   const [activeTab, setActiveTab] = useState<TabId>("launch");
   const sectionRequest = store.settingsSectionRequest;
+  // Seções do build e do SO: no Linux somem as do Windows (e aparece "Linux").
+  const VISIBLE_TABS = tabsFor(store.platformCapabilities);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasActiveRef = useRef(false);
   const onSettingsChangedRef = useRef(onSettingsChanged);

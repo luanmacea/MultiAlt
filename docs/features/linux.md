@@ -153,6 +153,67 @@ testes `sober_tests` passam no Linux, inclusive os de symlink e de permissão
   (bug conhecido do concorrente: com dois abertos o mais novo às vezes fecha
   em 1-3 min).
 
+## Tela no Linux
+
+No Linux a interface **esconde** (não só desabilita) o que depende de Win32 —
+branch `linux-ui`. O backend diz o que existe por `get_platform_capabilities`
+([platform_info.rs](../../src-tauri/src/commands/platform_info.rs)); o frontend
+lê com `platformFeatures(caps)` ([platform.ts](../../src/utils/platform.ts)).
+Regra única: **campo ausente conta como suportado** (`!== false`), então
+Windows, macOS, backend antigo e o harness antes de as capacidades chegarem não
+mudam. Só o Linux manda `false`; o macOS segue mostrando tudo (este porte não
+mexeu nele).
+
+Campos novos (todos `bool`, camelCase no JSON): `supportsLiveView`,
+`supportsAfkInput`, `supportsIsolation`, `supportsMultiRobloxMutex`,
+`supportsVersions`, `supportsOptimization`, `supportsExternalClients`,
+`supportsPython`. Os que já existiam (`supportsWindowControls`,
+`supportsBotting`, `supportsWatcher`, `supportsClientSettings`,
+`supportsLiveAudio`, `supportsMemoryTrim`) também vêm `false`.
+
+| O que some no Linux | Onde | Por quê |
+|---|---|---|
+| página **Live** | NavSidebar | miniaturas do DWM |
+| página **AFK Mode** (e o cartão "Keep accounts in game" da Session, o botão do Auto Rejoin da barra de ações, a seção Settings › Keep in game) | NavSidebar, SessionPage, BottomActionBar, tabs | tecla/clique é SendInput; o Auto Rejoin (`supportsBotting`) ainda não tem backend. A página volta sozinha se `supportsBotting` ou `supportsAfkInput` virar `true` (`afkPage`) |
+| Settings › **Isolation**, **Versions**, **Optimization**, **Watcher** | `SETTINGS_TABS[].requires` ([tabs.tsx](../../src/components/settings/tabs.tsx)) | registro/MAC, catálogo e instalador do Roblox, prioridade/memória/FastFlags, varredura de processo — nem montam |
+| Multi Roblox e "Auto Close Roblox for Multi Roblox" | Settings › Launch | travas (mutex/evento) do Roblox; no Linux cada conta roda no seu espaço de rede |
+| modo **Python** da página Scripts | ScriptsPage | lê pixels da janela do Roblox (Win32) |
+| clientes "abertos fora do app, conta desconhecida" | SessionPanel | adoção pela varredura do log |
+| grade de janelas, volume por cliente, teto de memória | ConsolePage, Optimization, SessionPage | já eram `isWindows`/`supportsLiveAudio`/`supportsMemoryTrim`; seguem escondidos |
+
+Continuam iguais: contas, cookies, servidores, amigos, grupos, avatares, alertas
+do Discord, backups, temas, presets, scripts (JavaScript), Nexus e a lista
+Session/Console. O modo de launch do Linux (Sober) é do backend: em
+`build_platform_capabilities` o Linux declara `supportsSingleLaunch` e
+`supportsMultiLaunch` verdadeiros e ecoa o runner configurado em
+`detectedRunner` — **quem sondar o Sober de verdade troca isso** e preenche
+`runnerPath`. SO desconhecido (`freebsd`...) continua sem launch.
+
+### Settings › Linux
+
+Seção só do Linux ([LinuxTab.tsx](../../src/components/settings/LinuxTab.tsx),
+`requires: "linuxSection"`), logo depois de Launch. Texto de abertura: roda o
+Roblox pelo Sober (Flatpak), com o comando para instalar o Sober e o `passt`, e
+o aviso de que o que é só do Windows está escondido. Campos, todos em `[Linux]`
+do `RAMSettings.ini` ([settings.md](settings.md#linux)):
+
+- **Preferred runner** — `PreferredRunner`: `sober` (padrão) ou `custom`;
+- **Custom launch command** — `CustomLaunchCommand`, só editável com o runner
+  `custom` (o link do jogo entra no fim);
+- **Process names** — `CustomProcessMatch` (lista separada por vírgula);
+- **Log folder** — `CustomLogDir` (vazio = automático).
+
+`EnableExperimentalMultiRbx` e `WindowControlBackend` seguem sem tela (a grade
+de janelas não existe no Linux). As capacidades são relidas ao sair das Settings
+(`reloadSettings`), então trocar o runner vale depois de sair da página.
+
+### Como conferir
+
+`bun run dev:ui` e abra `http://localhost:1420/?scenario=linux&accounts=4`: o
+cenário manda as capacidades do Linux e um user agent de Linux. Testes:
+`src/components/linuxGating.test.tsx`, `src/utils/platform.test.ts` e
+`platform_info_tests` (suíte `diagnostics`).
+
 ## Onde parou (31/10/2026)
 
 Pausado a pedido do dono ("vai demorar mais do que eu esperava"). Nada de
@@ -238,3 +299,20 @@ feito (31/10/2026):
 Stubs que o código de Linux (`platform/linux`, Sober) ainda precisa trocar por
 coisa de verdade: o launch (`launch_multiple` devolve "only supported on Windows
 and macOS"), o Auto Rejoin (`start_botting_mode`) e o rastreamento de processos.
+
+## Instaladores Linux
+
+Decisão do dono (31/10/2026): a versão Linux é um **instalador separado**, com as duas edições do Windows (padrão e completa com Nexus). Detalhes de build, CI e updater em [development.md](../development.md#linux-instaladores-separados-branch-linux-31102026); o resumo:
+
+- **Formatos:** AppImage (qualquer distro), `.deb` e `.rpm`. Nomes: `MultiAlt_<v>_Linux_amd64.AppImage` / `.deb` / `..._x86_64.rpm` (padrão) e `MultiAlt_<v>_Full-Linux_...` (completa, só nos anexos da release).
+- **Dependências do `.deb`:** `libwebkit2gtk-4.1-0` e `libgtk-3-0`; recomenda `flatpak` (o Sober roda por Flatpak), `passt` (o `pasta`, para várias contas ao mesmo tempo) e `libayatana-appindicator3-1` (bandeja). O AppImage não declara nada: quem usa precisa ter `flatpak` (e `passt`) instalados à mão.
+- **Atualização própria:** canais `<release>-linux` (padrão) e `<release>-linux-nexus-ws` (completa), com as chaves `linux-x86_64-appimage|deb|rpm`. Instalação Linux nunca recebe o MSI, e o Windows nunca lê esses manifestos. O app escolhe o canal por `PLATFORM_CHANNEL_SUFFIX` ([updater.rs](../../src-tauri/src/commands/updater.rs)).
+- **Release:** o job `linux` do `release-v4.yml` está **desligado** (`PUBLISH_LINUX: "false"`) até o Linux ser testado numa máquina de verdade. Enquanto isso, o workflow `linux-build.yml` (push na branch `linux` ou execução manual) gera os dois conjuntos como artefatos para baixar e testar, sem assinatura.
+- **Local:** `docker/linux-bundle.Dockerfile` + `packaging/linux/build-bundles.sh` (comando em development.md). Só funciona quando o backend compilar no Linux.
+
+### O que falta verificar (nada disto foi rodado num Linux de verdade)
+
+- Que o `tauri build` gere de fato os três pacotes e as assinaturas (`.AppImage.sig`, `.deb.sig`, `.rpm.sig`) — o fluxo de nomes e do manifesto está coberto por teste, mas o bundler do Tauri só roda onde o backend compila.
+- Que o AppImage abra sem FUSE (`APPIMAGE_EXTRACT_AND_RUN` só vale no CI) e que o `.deb` se instale em Ubuntu/Debian limpos com as dependências acima.
+- A atualização de ponta a ponta (AppImage trocando o próprio arquivo; `.deb`/`.rpm` via `pkexec`).
+- Se `deb.depends` duplicado com o que o Tauri já adiciona sozinho gera aviso do `dpkg-deb` (inofensivo, mas conferir).

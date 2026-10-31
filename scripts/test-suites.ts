@@ -631,8 +631,13 @@ export const SUITES: Record<string, TestSuite> = {
       "generator_http_tests",
       "platform_info_tests",
     ],
-    // Grade de janelas (cartão Window grid da página Console).
-    front: ["src/utils/platform.test.ts", "src/components/console/WindowGridCard.test.tsx"],
+    // Grade de janelas (cartão Window grid da página Console) e o que o Linux
+    // esconde (Live, AFK, Isolation, Versions... + Settings › Linux).
+    front: [
+      "src/utils/platform.test.ts",
+      "src/components/console/WindowGridCard.test.tsx",
+      "src/components/linuxGating.test.tsx",
+    ],
   },
   support: {
     description: "Pacote Suporte: checagem \"o launch não faz nada\" (16), reportar problema com resumo anonimizado (28), trancar por inatividade (27), Quick Login (12) e reserva do singleton do Roblox (3)",
@@ -689,12 +694,13 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   release: {
-    description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",
+    description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI, interruptor do portátil e instaladores Linux (job desligado, canais -linux)",
     rust: [],
     front: [
       ".github/scripts/release-version.test.mjs",
       ".github/scripts/release-kind.test.mjs",
       ".github/scripts/update-manifest-platforms.test.mjs",
+      ".github/scripts/linux-packaging.test.mjs",
       ".github/scripts/release-workflow.test.mjs",
       ".github/scripts/ci-workflow.test.mjs",
       "src/appIdentity.test.ts",
