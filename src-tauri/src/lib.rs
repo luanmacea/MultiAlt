@@ -31,9 +31,10 @@ use data::settings::{
 };
 use data::versions::{get_versions_catalog_path, VersionsCatalogStore};
 use std::collections::{HashMap, HashSet};
-#[cfg(target_os = "windows")]
+// Linux: ver docs/features/linux.md (sem o gate de Windows: os comandos compartilhados usam estes tipos)
+#[allow(unused_imports)]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-#[cfg(target_os = "windows")]
+#[allow(unused_imports)]
 use std::sync::{Arc, LazyLock, Mutex};
 use tauri::menu::{MenuBuilder, MenuEvent, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
