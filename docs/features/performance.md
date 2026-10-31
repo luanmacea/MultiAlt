@@ -161,6 +161,19 @@ on launch**. Valem na grade automática do launch e no botão **Arrange in grid*
   30/10/2026 uma janela dela na grade fazia **nenhuma** encolher, nem as do app
   (relato do Discord: "Windows stopped shrinking"); teste real
   `real_grid_scenario_a_website_client_shrinks_with_the_rest`.
+- **O gap é contado entre as partes visíveis** (31/10/2026, relato do
+  Discord: gap 0 com moldura ainda deixava espaço). O Windows 10/11 põe uma
+  borda invisível de redimensionar em volta da janela com moldura (7 px dos
+  lados e embaixo em 100%), e a grade encostava os retângulos com ela: sobravam
+  14 px entre colunas e 7 entre linhas. Agora a borda é medida numa janela com
+  moldura (`invisible_frame`, pelo `DWMWA_EXTENDED_FRAME_BOUNDS`) e descontada
+  das células (`GridGap`): os retângulos se cruzam só na parte invisível e o
+  que aparece encosta. Janela sem moldura no meio (a tela cheia do Roblox, ou
+  sem borda) fica só na parte visível da célula (`rect_in_cell`) e conta pela
+  célula inteira no "tamanho mais comum" (`cell_of_window`). Sem moldura na
+  grade toda (opção ligada), nada muda. Teste real
+  `real_grid_scenario_a_zero_gap_with_borders_leaves_no_space` (com o desconto
+  desligado, sobram os 14 px do relato).
 - A moldura original de cada janela fica guardada (`hwnd → pid, estilo`) e
   **volta**: quando a opção desliga (olhada de 1 s), quando o botão manual
   arruma sem a opção, e ao fechar o app. Só volta o que a janela tinha.
