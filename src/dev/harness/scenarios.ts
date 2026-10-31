@@ -92,6 +92,44 @@ const harnessRecordings: Record<string, unknown> & Record<HarnessSlotName, Harne
   keys: ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5", "Shift", "Up", "Down", "Left", "Right"],
 };
 
+/**
+ * O que `commands/platform_info.rs` devolve, por SO. Linux é o cenário
+ * `?scenario=linux`: tudo o que é Win32 vem `false` e a UI tem que esconder
+ * (docs/features/linux.md, "Tela no Linux").
+ */
+function harnessCapabilities(os: "windows" | "linux") {
+  const windows = os === "windows";
+  return {
+    os,
+    sessionType: windows ? "desktop" : "wayland",
+    preferredRunner: windows ? "native" : "sober",
+    detectedRunner: windows ? "native" : "sober",
+    runnerPath: null,
+    supportsSingleLaunch: true,
+    supportsMultiLaunch: true,
+    supportsWatcher: windows,
+    supportsWatcherMemory: windows,
+    supportsWindowControls: windows,
+    supportsBotting: windows,
+    supportsUpdater: true,
+    supportsClientSettings: windows,
+    // Mostra no dev:ui as opções que só existem com a feature `live-audio`.
+    supportsLiveAudio: windows,
+    // E o teto de memória (feature `memory-trim`, nas duas edições).
+    supportsMemoryTrim: windows,
+    supportsLiveView: windows,
+    supportsAfkInput: windows,
+    supportsIsolation: windows,
+    supportsMultiRobloxMutex: windows,
+    supportsVersions: windows,
+    supportsOptimization: windows,
+    supportsExternalClients: windows,
+    supportsPython: windows,
+    reasons: windows ? [] : ["Auto Rejoin is not available on Linux yet"],
+    warnings: windows ? [] : ["Linux runs Roblox through Sober"],
+  };
+}
+
 const baseHandler: InvokeHandler = (cmd, args) => {
   switch (cmd) {
     case "needs_password":
@@ -103,16 +141,7 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "get_all_settings":
       return settings;
     case "get_platform_capabilities":
-      return {
-        isWindows: true,
-        isMacos: false,
-        supportsIsolation: true,
-        supportsMultiRoblox: true,
-        // Mostra no dev:ui as opções que só existem com a feature `live-audio`.
-        supportsLiveAudio: true,
-        // E o teto de memória (feature `memory-trim`, nas duas edições).
-        supportsMemoryTrim: true,
-      };
+      return harnessCapabilities("windows");
     case "remembered_unlock_state":
       return { supported: true, active: false, defaultHours: 24 };
     case "get_launch_queue":
@@ -1447,6 +1476,26 @@ const HARNESS_CHALLENGE_ERROR =
 const SCENARIOS: Record<string, () => void> = {
   default() {
     setInvokeHandler(baseHandler);
+  },
+
+  /**
+   * Linux (branch `linux-ui`): as capacidades do Linux e um user agent de
+   * Linux (as seções de Settings que olham o UA param de achar que é Windows).
+   * Serve para conferir que nada exclusivo do Windows aparece e nada quebra.
+   */
+  linux() {
+    try {
+      Object.defineProperty(navigator, "userAgent", {
+        value: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)",
+        configurable: true,
+      });
+    } catch {
+      // Navegador que não deixa trocar o UA: segue com o real.
+    }
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_platform_capabilities") return harnessCapabilities("linux");
+      return baseHandler(cmd, args);
+    });
   },
 
   /**

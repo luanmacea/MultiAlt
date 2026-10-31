@@ -17,6 +17,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useStore } from "../../store";
+import { platformFeatures } from "../../utils/platform";
 import { PageShell } from "./PageShell";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
@@ -1313,7 +1314,9 @@ export function ScriptsPage({ active, onLeave }: ScriptsPageProps) {
   const prompt = usePrompt();
   const confirm = useConfirm();
   const visible = active;
-  const [scriptsMode, setScriptsMode] = useScriptsMode();
+  // O modo Python lê os pixels da janela do Roblox: só onde isso existe (Windows).
+  const pythonAvailable = ENABLE_PYTHON_SCRIPTS && platformFeatures(store.platformCapabilities).python;
+  const [scriptsMode, setScriptsMode] = useScriptsMode(pythonAvailable);
 
   const [scripts, setScripts] = useState<ManagedScript[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -3055,7 +3058,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
     <PageShell
       title={t("Scripts")}
       description={scriptsMode === "python" ? PYTHON_PAGE_INTRO : intro}
-      toolbar={ENABLE_PYTHON_SCRIPTS ? <ScriptsModeSwitch mode={scriptsMode} onChange={setScriptsMode} /> : undefined}
+      toolbar={pythonAvailable ? <ScriptsModeSwitch mode={scriptsMode} onChange={setScriptsMode} /> : undefined}
       onLeave={onLeave}
       dataTour="scripts-page"
       tour="scripts"

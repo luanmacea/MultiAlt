@@ -34,7 +34,7 @@ import {
   type ReconnectChoice,
 } from "../../utils/autoReconnect";
 import { useNexusAutoRelaunch } from "../../hooks/useNexusAutoRelaunch";
-import { isWindowsPlatform } from "../../utils/platform";
+import { isWindowsPlatform, platformFeatures } from "../../utils/platform";
 import { useCurrentSessions } from "../../hooks/useCurrentSessions";
 import { CurrentSessionLine, SessionClock } from "./CurrentSessionLine";
 import { SessionStats, type SessionCounts, type SessionFilter } from "./SessionStats";
@@ -314,7 +314,10 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   // Clientes abertos fora do app que o backend não reconheceu (ver
   // docs/features/external-clients.md). Ficam fora da contagem e do lote de
   // fechar: não têm conta, e o app nunca fecha cliente que não sabe de quem é.
-  const unidentified = store.unidentifiedClients;
+  // Só onde a varredura do log do Roblox existe (Windows): no Linux a lista fica vazia.
+  const unidentified = platformFeatures(store.platformCapabilities).externalClients
+    ? store.unidentifiedClients
+    : [];
 
   // A seleção é derivada: contas que fecharam sozinhas somem do lote.
   const selected = runningIds.filter((id) => checked.has(id));

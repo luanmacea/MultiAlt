@@ -5,6 +5,8 @@ import { Divider } from "../ui/Divider";
 import { SectionLabel } from "../ui/SectionLabel";
 import { WarningBadge } from "../ui/WarningBadge";
 import { isWindowsUserAgent } from "./settingsParts";
+import { useStore } from "../../store";
+import { platformFeatures } from "../../utils/platform";
 
 /** Espelha `MIN_JOIN_GAP_SECS` em `commands/launch.rs`: abaixo disso nada muda. */
 const MIN_JOIN_DELAY_SECONDS = 8;
@@ -17,9 +19,14 @@ const MIN_JOIN_DELAY_SECONDS = 8;
 export function LaunchTab({ s }: { s: UseSettingsReturn }) {
   const serialLaunch = s.getBool("General", "AsyncJoin");
   const isWindows = isWindowsUserAgent();
+  // As travas do Roblox (mutex/evento) só existem no Windows: no Linux o Sober
+  // roda cada conta em seu próprio espaço de rede, sem Multi Roblox para ligar.
+  const multiRoblox = platformFeatures(useStore().platformCapabilities).multiRobloxMutex;
 
   return (
     <div className="space-y-0">
+      {multiRoblox && (
+        <>
       <SectionLabel>Several accounts at once</SectionLabel>
       <Toggle
         checked={s.getBool("General", "EnableMultiRbx")}
@@ -48,6 +55,8 @@ export function LaunchTab({ s }: { s: UseSettingsReturn }) {
       />
 
       <Divider />
+        </>
+      )}
       <SectionLabel>Time between accounts</SectionLabel>
       {/* A chave continua `AsyncJoin`, mas ela SERIALIZA a fila (launch.rs
           espera o sinal `next_account`, com teto de 120 s). O rotulo antigo,
