@@ -64,7 +64,6 @@ fn load_windows_watcher_config(settings: &SettingsStore) -> WindowsWatcherConfig
     }
 }
 
-#[cfg(target_os = "windows")]
 /// O Watcher só mexe nos clientes que o app abriu: a promessa da tela é que
 /// ele ignora os clientes abertos fora do app. Um cliente aberto pelo site e
 /// reconhecido pelo log (`external_clients.rs`) entra no rastreamento para a

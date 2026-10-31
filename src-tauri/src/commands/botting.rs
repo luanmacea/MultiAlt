@@ -205,6 +205,7 @@ fn botting_tracked_version(
     }
 }
 
+#[cfg(target_os = "windows")]
 async fn launch_account_for_cycle(
     app: &tauri::AppHandle,
     user_id: i64,
@@ -525,6 +526,7 @@ fn emit_botting_cycle(
     }
 }
 
+#[cfg(target_os = "windows")]
 async fn run_botting_session(
     app: tauri::AppHandle,
     session_id: u64,
