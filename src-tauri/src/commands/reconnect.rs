@@ -85,6 +85,21 @@ pub struct LaunchedTarget {
     pub private: bool,
 }
 
+/// Por que a reconexão entra pelo jogo (o place, sem Job ID: o Roblox escolhe
+/// o servidor) e não pelo servidor onde a conta estava. Cada um vira uma linha
+/// no Console (`rejoin_by_game_line`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RejoinByGame {
+    /// O jogo mandou a conta para outro place (ou outro servidor do mesmo
+    /// place) logo depois de entrar: entrar direto no destino costuma ser
+    /// recusado ("you don't have permission").
+    Teleported,
+    /// A pessoa desligou `General.ReconnectSameServer`.
+    SettingOff,
+    /// A tentativa anterior àquele servidor não chegou a entrar no jogo.
+    ServerRefused,
+}
+
 /// O destino da reconexão, nos termos do launch normal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReconnectTarget {
@@ -93,16 +108,36 @@ pub struct ReconnectTarget {
     pub launch_data: String,
     pub join_vip: bool,
     pub link_code: String,
+    /// Servidor privado/VIP: o destino nunca perde o Job ID (é a única porta).
+    pub private: bool,
+    /// Entra pelo jogo, sem Job ID, e por quê (para o Console).
+    pub by_game: Option<RejoinByGame>,
+}
+
+/// Parece um Job ID do Roblox (GUID)? Só com isso o servidor que o app pediu
+/// no launch é comparado com o do log; texto livre não se compara.
+fn looks_like_job_id(text: &str) -> bool {
+    text.len() == 36 && text.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
 /// Para onde voltar. Servidor privado: os mesmos dados que o app usou no
-/// launch (nunca um link inventado). Público: o place e o Job ID do último
-/// "Joining game" do log — sem o Job ID quando o servidor fechou (ele não
-/// existe mais). Sem log, o que o app pediu no launch.
+/// launch (nunca um link inventado), sempre. Público: o place e o Job ID do
+/// último "Joining game" do log — com estas exceções, em que entra pelo jogo
+/// (o place, sem Job ID; ver `RejoinByGame`):
+/// - a conta foi teleportada: o place do log difere do que o app abriu (o
+///   destino é o jogo aberto, com o launch data dele), ou o app pediu um
+///   servidor e o log mostra outro do mesmo place. O log não marca servidor
+///   reservado, então o teleporte para dentro do mesmo place, sem servidor
+///   pedido, não se distingue;
+/// - `same_server` desligado (`General.ReconnectSameServer`);
+/// - o servidor fechou (aí não há o que evitar: nada a avisar).
+///
+/// Sem log, o que o app pediu no launch.
 pub fn reconnect_target(
     launched: Option<&LaunchedTarget>,
     seen: Option<&JoinedDestination>,
     kind: DropKind,
+    same_server: bool,
 ) -> Option<ReconnectTarget> {
     let server_gone = kind == DropKind::ServerShutdown;
     if let Some(l) = launched.filter(|l| l.private) {
@@ -112,33 +147,70 @@ pub fn reconnect_target(
             launch_data: l.launch_data.clone(),
             join_vip: l.join_vip,
             link_code: l.link_code.clone(),
+            private: true,
+            by_game: None,
         });
     }
     if let Some(seen) = seen {
+        // Outro place que o do launch: foi teleporte. Volta ao jogo aberto.
+        if let Some(l) = launched.filter(|l| l.place_id > 0 && seen.place_id > 0 && l.place_id != seen.place_id) {
+            return Some(ReconnectTarget {
+                place_id: l.place_id,
+                job_id: String::new(),
+                launch_data: l.launch_data.clone(),
+                join_vip: false,
+                link_code: String::new(),
+                private: false,
+                by_game: Some(RejoinByGame::Teleported),
+            });
+        }
         // O launch data é do jogo que o app abriu: só vale no mesmo place.
         let launch_data = launched
             .filter(|l| l.place_id == seen.place_id)
             .map(|l| l.launch_data.clone())
             .unwrap_or_default();
+        let seen_job = seen.job_id.clone().filter(|_| !server_gone);
+        let hopped = launched.is_some_and(|l| {
+            looks_like_job_id(&l.job_id)
+                && seen_job
+                    .as_deref()
+                    .is_some_and(|job| looks_like_job_id(job) && !job.eq_ignore_ascii_case(&l.job_id))
+        });
+        let by_game = match seen_job {
+            None => None,
+            Some(_) if hopped => Some(RejoinByGame::Teleported),
+            Some(_) if !same_server => Some(RejoinByGame::SettingOff),
+            Some(_) => None,
+        };
         return Some(ReconnectTarget {
             place_id: seen.place_id,
-            job_id: if server_gone {
+            job_id: if by_game.is_some() {
                 String::new()
             } else {
-                seen.job_id.clone().unwrap_or_default()
+                seen_job.unwrap_or_default()
             },
             launch_data,
             join_vip: false,
             link_code: String::new(),
+            private: false,
+            by_game,
         });
     }
     let l = launched?;
+    let asked_for_a_server = !server_gone && !l.job_id.is_empty();
+    let by_game = (asked_for_a_server && !same_server).then_some(RejoinByGame::SettingOff);
     Some(ReconnectTarget {
         place_id: l.place_id,
-        job_id: if server_gone { String::new() } else { l.job_id.clone() },
+        job_id: if server_gone || by_game.is_some() {
+            String::new()
+        } else {
+            l.job_id.clone()
+        },
         launch_data: l.launch_data.clone(),
         join_vip: false,
         link_code: String::new(),
+        private: false,
+        by_game,
     })
 }
 
@@ -298,7 +370,7 @@ impl ReconnectBook {
             let same_client = entry.watched_pid == input.pid;
             match entry.phase.clone() {
                 // O cliente relançado caiu de novo: a tentativa não ficou.
-                ReconnectPhase::Checking { .. } if same_client => {
+                ReconnectPhase::Checking { in_game_since_ms, .. } if same_client => {
                     entry.drop = input.drop.clone();
                     entry.watched_was_open = watched_was_open;
                     if joined_elsewhere {
@@ -308,7 +380,13 @@ impl ReconnectBook {
                             reason: ReconnectStopReason::JoinedElsewhere,
                         });
                     }
-                    return Some(Self::fail_attempt(entry, user_id, None, now_ms));
+                    return Some(Self::fail_attempt(
+                        entry,
+                        user_id,
+                        None,
+                        now_ms,
+                        in_game_since_ms.is_none(),
+                    ));
                 }
                 // Já está reconectando esta queda: só a "entrou em outro lugar"
                 // (que pode chegar depois de outra linha) muda alguma coisa.
@@ -370,14 +448,27 @@ impl ReconnectBook {
     }
 
     /// A tentativa não ficou: agenda a próxima, ou desiste.
+    ///
+    /// `never_joined`: o cliente relançado nunca chegou a entrar no jogo. Se a
+    /// tentativa pedia um servidor, ele pode ter sido recusado (jogos que
+    /// movem a conta para uma instância reservada: "you don't have permission"):
+    /// a tentativa seguinte, e as depois dela, entram pelo jogo. Nunca se
+    /// repete o mesmo servidor recusado. Servidor privado fica como está.
     fn fail_attempt(
         entry: &mut ReconnectEntry,
         user_id: i64,
         error: Option<String>,
         now_ms: i64,
+        never_joined: bool,
     ) -> ReconnectNotice {
         if error.is_some() {
             entry.error = error;
+        }
+        if never_joined {
+            if let Some(target) = entry.target.as_mut().filter(|t| !t.private && !t.job_id.is_empty()) {
+                target.job_id.clear();
+                target.by_game = Some(RejoinByGame::ServerRefused);
+            }
         }
         if entry.attempt >= RECONNECT_MAX_ATTEMPTS {
             entry.phase = ReconnectPhase::GaveUp;
@@ -488,7 +579,7 @@ impl ReconnectBook {
                             });
                         } else {
                             entry.watched_was_open = drop.kind != DropKind::Crashed;
-                            notices.push(Self::fail_attempt(entry, user_id, None, now_ms));
+                            notices.push(Self::fail_attempt(entry, user_id, None, now_ms, since.is_none()));
                         }
                     } else if since.is_some_and(|t| now_ms - t >= RECONNECT_STABLE_MS) {
                         remove.push(user_id);
@@ -502,6 +593,7 @@ impl ReconnectBook {
                                 user_id,
                                 Some(RECONNECT_ERROR_CLIENT_CLOSED.to_string()),
                                 now_ms,
+                                since.is_none(),
                             );
                             notices.push(notice);
                         } else {
@@ -518,6 +610,7 @@ impl ReconnectBook {
                                 user_id,
                                 Some(RECONNECT_ERROR_NOT_IN_GAME.to_string()),
                                 now_ms,
+                                true,
                             );
                             notices.push(notice);
                         } else {
@@ -578,7 +671,8 @@ impl ReconnectBook {
                 self.entries.remove(&user_id);
                 Some(ReconnectNotice::BackByItself { user_id })
             }
-            AttemptOutcome::Failed(error) => Some(Self::fail_attempt(entry, user_id, Some(error), now_ms)),
+            // O launch falhou antes de o cliente abrir: nada diz que o servidor foi recusado.
+            AttemptOutcome::Failed(error) => Some(Self::fail_attempt(entry, user_id, Some(error), now_ms, false)),
             AttemptOutcome::Stop(reason, error) => {
                 entry.error = error;
                 entry.phase = ReconnectPhase::Stopped(reason);
@@ -700,51 +794,77 @@ pub fn reconnect_enabled(account_field: Option<&str>, global_default: bool, nexu
     own || nexus_auto_relaunch
 }
 
-/// Linha do Console (português, como as do monitor de quedas).
-fn reconnect_console_line(notice: &ReconnectNotice) -> (&'static str, String) {
+/// Linha do Console (traduzível, como as do monitor de quedas).
+fn reconnect_console_line(notice: &ReconnectNotice) -> (&'static str, LogMsg) {
     let max = RECONNECT_MAX_ATTEMPTS;
     match notice {
         ReconnectNotice::Scheduled { attempt, in_ms, .. } => (
             "info",
-            format!("Reconexão automática: tentativa {attempt}/{max} em {} s", in_ms / 1_000),
+            log_msg!(
+                "Automatic reconnection: attempt {{attempt}}/{{max}} in {{seconds}} s",
+                attempt = *attempt,
+                max = max,
+                seconds = in_ms / 1_000
+            ),
         ),
         ReconnectNotice::Offline { .. } => (
             "warn",
-            String::from("Sem internet: a reconexão espera ela voltar"),
+            log_msg!("No internet: the reconnection waits for it to come back"),
         ),
         ReconnectNotice::Relaunched { attempt, .. } => (
             "info",
-            format!("Reconectando (tentativa {attempt}/{max}): conferindo se fica no jogo"),
+            log_msg!(
+                "Reconnecting (attempt {{attempt}}/{{max}}): checking that it stays in the game",
+                attempt = *attempt,
+                max = max
+            ),
         ),
-        ReconnectNotice::Reconnected { .. } => ("success", String::from("Reconectou: ficou no jogo")),
+        ReconnectNotice::Reconnected { .. } => ("success", log_msg!("Reconnected: it stayed in the game")),
         ReconnectNotice::BackByItself { .. } => (
             "info",
-            String::from("Voltou ao jogo sozinha: reconexão dispensada"),
+            log_msg!("Back in the game on its own: reconnection not needed"),
         ),
         ReconnectNotice::GaveUp { attempts, .. } => (
             "error",
-            format!("Reconexão desistiu depois de {attempts} tentativas"),
+            log_msg!("Reconnection gave up after {{attempts}} attempts", attempts = *attempts),
         ),
         ReconnectNotice::Stopped { reason, .. } => (
             "warn",
             match reason {
                 ReconnectStopReason::JoinedElsewhere => {
-                    "Sem reconexão: a conta entrou em outro lugar".to_string()
+                    log_msg!("No reconnection: the account joined somewhere else")
                 }
-                ReconnectStopReason::ClosedByUser => "Sem reconexão: o cliente foi fechado".to_string(),
-                ReconnectStopReason::Banned => "Sem reconexão: conta banida".to_string(),
+                ReconnectStopReason::ClosedByUser => log_msg!("No reconnection: the client was closed"),
+                ReconnectStopReason::Banned => log_msg!("No reconnection: the account is banned"),
                 ReconnectStopReason::SessionExpired => {
-                    "Sem reconexão: a sessão expirou, entre na conta de novo".to_string()
+                    log_msg!("No reconnection: the session expired, sign in to the account again")
                 }
                 ReconnectStopReason::NoDestination => {
-                    "Sem reconexão: não se sabe para onde voltar".to_string()
+                    log_msg!("No reconnection: it is not known where to go back to")
                 }
                 ReconnectStopReason::OpenedOutsideApp => {
-                    "Sem reconexão: a conta está aberta fora do app".to_string()
+                    log_msg!("No reconnection: the account is open outside the app")
                 }
             },
         ),
-        ReconnectNotice::Cancelled { .. } => ("info", String::from("Reconexão cancelada")),
+        ReconnectNotice::Cancelled { .. } => ("info", log_msg!("Reconnection cancelled")),
+    }
+}
+
+/// Por que a tentativa entra pelo jogo e não pelo servidor (uma linha por
+/// tentativa em que isso vale).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn rejoin_by_game_line(reason: RejoinByGame) -> LogMsg {
+    match reason {
+        RejoinByGame::Teleported => log_msg!(
+            "The game moved this account to another place or server after joining, and rejoining that exact server is usually refused, so it rejoins the game instead"
+        ),
+        RejoinByGame::SettingOff => log_msg!(
+            "Rejoining the game instead of the exact server, because the Reconnect to the same server setting is off"
+        ),
+        RejoinByGame::ServerRefused => log_msg!(
+            "The last attempt did not get into that server (it may have been refused), so this one rejoins the game instead"
+        ),
     }
 }
 
@@ -861,7 +981,7 @@ fn get_auto_reconnect_status() -> serde_json::Value {
 fn stop_auto_reconnect(app: tauri::AppHandle, user_id: i64) -> bool {
     let stopped = with_reconnect_book(|book| book.stop(user_id));
     if stopped {
-        emit_launch_log(&app, user_id, "info", "reconnect", "Reconexão parada pelo usuário");
+        emit_launch_log(&app, user_id, "info", "reconnect", "Reconnection stopped by the user");
         publish_reconnect(&app, &[]);
     }
     stopped
@@ -888,6 +1008,8 @@ fn managed_by_auto_rejoin(status: &BottingStatusPayload, user_id: i64) -> bool {
 #[cfg(target_os = "windows")]
 struct ReconnectSettings {
     global_default: bool,
+    /// `General.ReconnectSameServer`: volta ao mesmo servidor (padrão) ou ao jogo.
+    same_server: bool,
     /// `AutoReconnect` de cada conta, quando a conta tem o campo.
     fields: HashMap<i64, String>,
     usernames: HashMap<i64, String>,
@@ -898,6 +1020,13 @@ struct ReconnectSettings {
 impl ReconnectSettings {
     fn load(app: &tauri::AppHandle) -> Self {
         let global_default = app.state::<SettingsStore>().get_bool("General", "AutoReconnect");
+        // Só o texto "false" desliga: chave ausente ou ilegível fica no padrão.
+        let same_server = app
+            .state::<SettingsStore>()
+            .get("General", "ReconnectSameServer")
+            .ok()
+            .flatten()
+            .map_or(true, |v| v != "false");
         let accounts = app.state::<AccountStore>().get_all().unwrap_or_default();
         let mut fields = HashMap::new();
         let mut usernames = HashMap::new();
@@ -909,6 +1038,7 @@ impl ReconnectSettings {
         }
         Self {
             global_default,
+            same_server,
             fields,
             usernames,
             nexus_auto_relaunch: nexus_auto_relaunch_usernames(),
@@ -995,6 +1125,7 @@ pub(crate) fn reconnect_after_health_tick(app: &tauri::AppHandle, notices: &[Hea
                     launched_target_of(*user_id).as_ref(),
                     view.and_then(|v| v.destination.as_ref()),
                     drop.kind,
+                    settings.same_server,
                 );
                 let input = ReconnectDrop {
                     user_id: *user_id,
@@ -1119,8 +1250,16 @@ async fn run_reconnect_attempt(
         user_id,
         "info",
         "reconnect",
-        format!("Reconexão automática: tentativa {attempt}/{RECONNECT_MAX_ATTEMPTS}"),
+        log_msg!(
+            "Automatic reconnection: attempt {{attempt}}/{{max}}",
+            attempt = attempt,
+            max = RECONNECT_MAX_ATTEMPTS
+        ),
     );
+    // Entra pelo jogo e não pelo servidor: a pessoa vê por quê.
+    if let Some(reason) = target.by_game {
+        emit_launch_log(app, user_id, "info", "reconnect", rejoin_by_game_line(reason));
+    }
 
     // O cliente velho é da própria conta e do app (conferido acima): fecha só
     // ele, para o novo não brigar com a sessão caída.

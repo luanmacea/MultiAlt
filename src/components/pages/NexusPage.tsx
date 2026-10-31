@@ -10,6 +10,7 @@ import { NumericInput } from "../ui/NumericInput";
 import { GameBadge } from "../ui/GameBadge";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { useAccountLabel } from "../../hooks/useAccountLabel";
+import { useListSelection } from "../../hooks/useListSelection";
 import { tr, useTr } from "../../i18n/text";
 import { ChevronRight } from "lucide-react";
 import { REPO_URL } from "../../repo";
@@ -208,15 +209,16 @@ export function NexusPage({ active, onLeave }: { active: boolean; onLeave: () =>
     }
   }
 
-  async function handleCheckToggle(username: string) {
-    const acc = accounts.find((a) => a.username === username);
-    if (!acc) return;
-    try {
-      await invoke("update_nexus_account", {
-        account: { ...acc, is_checked: !acc.is_checked },
-      });
-      refresh();
-    } catch {}
+  /** Marca (`on`) ou desmarca várias contas de uma vez: Shift e arrastar por cima das linhas. */
+  async function handleCheckMany(usernames: string[], on: boolean) {
+    for (const acc of accounts) {
+      if (usernames.includes(acc.username) && acc.is_checked !== on) {
+        await invoke("update_nexus_account", {
+          account: { ...acc, is_checked: on },
+        }).catch(() => {});
+      }
+    }
+    refresh();
   }
 
   async function handleCheckAll(checked: boolean) {
@@ -382,7 +384,7 @@ export function NexusPage({ active, onLeave }: { active: boolean; onLeave: () =>
               setContextMenu={setContextMenu}
               onAdd={handleAdd}
               onRemove={handleRemove}
-              onCheckToggle={handleCheckToggle}
+              onCheckMany={handleCheckMany}
               onCheckAll={handleCheckAll}
               onSendCommand={handleSendCommand}
               onExecuteScript={handleExecuteScript}
@@ -483,7 +485,7 @@ function ControlPanel({
   setContextMenu,
   onAdd,
   onRemove,
-  onCheckToggle,
+  onCheckMany,
   onCheckAll,
   onSendCommand,
   onExecuteScript,
@@ -524,7 +526,7 @@ function ControlPanel({
   setContextMenu: (v: { x: number; y: number; username: string } | null) => void;
   onAdd: () => void;
   onRemove: (usernames: string[]) => void;
-  onCheckToggle: (username: string) => void;
+  onCheckMany: (usernames: string[], on: boolean) => void;
   onCheckAll: (checked: boolean) => void;
   onSendCommand: () => void;
   onExecuteScript: () => void;
@@ -538,6 +540,12 @@ function ControlPanel({
   const t = useTr();
   /** As contas do Nexus são as do usuário: com "Names hidden" o nome sai mascarado. */
   const accountLabel = useAccountLabel();
+  // Shift, Ctrl e arrastar por cima das caixas, como na lista principal.
+  const checkSelection = useListSelection<string>({
+    order: accounts.map((a) => a.username),
+    isSelected: (username) => accounts.some((a) => a.username === username && a.is_checked),
+    apply: onCheckMany,
+  });
   /** Que jogo é o place digitado para a conta escolhida. */
   const game = useGameIdentity(placeInput, null);
   return (
@@ -558,6 +566,7 @@ function ControlPanel({
           {accounts.map((acc) => (
             <div
               key={acc.username}
+              {...checkSelection.rowProps(acc.username)}
               onClick={() => setSelectedUsername(acc.username)}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -575,7 +584,7 @@ function ControlPanel({
                 checked={acc.is_checked}
                 onChange={(e) => {
                   e.stopPropagation();
-                  onCheckToggle(acc.username);
+                  checkSelection.toggle(acc.username, e.nativeEvent);
                 }}
                 onClick={(e) => e.stopPropagation()}
                 className="accent-sky-500 w-3 h-3 cursor-pointer shrink-0"

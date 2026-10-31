@@ -38,6 +38,45 @@ export interface ModerationStatus {
   punishment: string | null;
 }
 
+/**
+ * Um acordo (Termos de Uso / Política de Privacidade) que o Roblox pede para a
+ * conta aceitar: o aviso "Acordos atualizados". Vem de `check_account_terms`
+ * (ver `commands/agreements.rs`).
+ */
+export interface PendingAgreement {
+  /** Vazio quando o Roblox não deu um id que reconhecemos. */
+  id: string;
+  title: string;
+}
+
+/** A resposta exata do Roblox a uma tentativa de aceite. */
+export interface TermsAttempt {
+  shape: string;
+  status: number;
+  body: string;
+}
+
+export interface TermsAcceptResult {
+  /** Aceite confirmado: 2xx e a conferência seguinte não achou mais nada. */
+  accepted: boolean;
+  /** O que sobrou pendente; `null` quando a conferência depois do aceite falhou. */
+  remaining: PendingAgreement[] | null;
+  attempts: TermsAttempt[];
+}
+
+/** O que se sabe dos acordos de uma conta nesta sessão. Só em memória. */
+export type TermsState =
+  | { kind: "none" }
+  | { kind: "pending"; pending: PendingAgreement[] }
+  | { kind: "error"; message: string };
+
+/** Uma conta do lote de `check_accounts_terms` (e do evento `account-terms`). */
+export interface TermsCheckEntry {
+  userId: number;
+  status: { pending: PendingAgreement[] } | null;
+  error: string | null;
+}
+
 export interface ThemeData {
   accounts_background: string;
   accounts_foreground: string;
@@ -213,6 +252,22 @@ export function parseGroupName(group: string): { sortKey: number; displayName: s
     return { sortKey: parseInt(match[1], 10), displayName: remainder || group };
   }
   return { sortKey: 999999, displayName: group };
+}
+
+/** Grupo para onde o backend move a conta moderada (`MODERATED_GROUP` em launch_shared.rs). */
+export const MODERATED_GROUP = "moderadas";
+
+/**
+ * Rótulo de um grupo na tela. Os grupos que o app cria sozinho (`Default` e o
+ * das moderadas) têm o nome gravado fixo — outras partes do código e o arquivo
+ * de contas dependem dele — e só a exibição é traduzida. Até 31/10/2026 o das
+ * moderadas aparecia como "moderadas" em todo idioma (relato do Discord).
+ */
+export function groupLabel(group: string, t: (key: string) => string): string {
+  const { displayName } = parseGroupName(group || "Default");
+  if (displayName === "Default") return t("Default");
+  if (displayName === MODERATED_GROUP) return t("Moderated");
+  return displayName;
 }
 
 /**

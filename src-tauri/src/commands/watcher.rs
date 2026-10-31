@@ -151,7 +151,7 @@ async fn start_watcher(
                         }),
                     );
                     // O console e o historico geral: evento do Watcher tambem vira linha la.
-                    emit_launch_log(&app_handle, *uid, "warn", "watcher", String::from("Cliente do Roblox fechou (o processo morreu)"));
+                    emit_launch_log(&app_handle, *uid, "warn", "watcher", "The Roblox client closed (the process died)");
                 }
 
                 let instances = only_launched_by_app(tracker.get_all(), |inst| inst.adopted);
@@ -194,7 +194,7 @@ async fn start_watcher(
                             }),
                         );
                         // O console e o historico geral: evento do Watcher tambem vira linha la.
-                        emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: não respondia havia {}s", HUNG_THRESHOLD_MS / 1000));
+                        emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", log_msg!("Client closed by the Watcher: it had not responded for {{seconds}}s", seconds = HUNG_THRESHOLD_MS / 1000));
                         disconnected_since.remove(&inst.user_id);
                         startup_seen.remove(&inst.user_id);
                         last_saved_positions.remove(&inst.user_id);
@@ -217,7 +217,7 @@ async fn start_watcher(
                                     }),
                                 );
                                 // O console e o historico geral: evento do Watcher tambem vira linha la.
-                                emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: memoria em {} MB, abaixo do minimo", mem));
+                                emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", log_msg!("Client closed by the Watcher: memory at {{mb}} MB, below the minimum", mb = mem));
                                 notify_webhook(
                                     &app_handle,
                                     WebhookEventKind::MemoryClosed,
@@ -265,7 +265,7 @@ async fn start_watcher(
                                 }),
                             );
                             // O console e o historico geral: evento do Watcher tambem vira linha la.
-                            emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: titulo \"{}\" nao e o esperado", title));
+                            emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", log_msg!("Client closed by the Watcher: title \"{{title}}\" is not the expected one", title = title.clone()));
                             disconnected_since.remove(&inst.user_id);
                             startup_seen.remove(&inst.user_id);
                             last_saved_positions.remove(&inst.user_id);
@@ -283,7 +283,7 @@ async fn start_watcher(
                                 }),
                             );
                             // O console e o historico geral: evento do Watcher tambem vira linha la.
-                            emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", String::from("Cliente fechado pelo Watcher: Roblox Beta detectado"));
+                            emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", "Client closed by the Watcher: Roblox Beta detected");
                             disconnected_since.remove(&inst.user_id);
                             startup_seen.remove(&inst.user_id);
                             last_saved_positions.remove(&inst.user_id);
@@ -310,7 +310,7 @@ async fn start_watcher(
                                         }),
                                     );
                                     // O console e o historico geral: evento do Watcher tambem vira linha la.
-                                    emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: sem conexao por {}s", cfg.no_connection_timeout_secs));
+                                    emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", log_msg!("Client closed by the Watcher: no connection for {{seconds}}s", seconds = cfg.no_connection_timeout_secs));
                                     disconnected_since.remove(&inst.user_id);
                                     startup_seen.remove(&inst.user_id);
                                     last_saved_positions.remove(&inst.user_id);
@@ -474,7 +474,7 @@ async fn start_watcher(
                             }),
                         );
                         // O console e o historico geral: evento do Watcher tambem vira linha la.
-                        emit_launch_log(&app_handle, *uid, "warn", "watcher", String::from("Cliente do Roblox fechou (o processo morreu)"));
+                        emit_launch_log(&app_handle, *uid, "warn", "watcher", "The Roblox client closed (the process died)");
                     }
 
                     let instances = tracker.get_all();
@@ -555,7 +555,7 @@ async fn start_watcher(
                                     }),
                                 );
                                 // O console e o historico geral: evento do Watcher tambem vira linha la.
-                                emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", String::from("Cliente fechado pelo Watcher: Roblox Beta detectado"));
+                                emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", "Client closed by the Watcher: Roblox Beta detected");
                                 disconnected_since.remove(&inst.user_id);
                                 log_paths.remove(&inst.pid);
                                 log_offsets.remove(&inst.pid);
@@ -577,7 +577,7 @@ async fn start_watcher(
                                         }),
                                     );
                                     // O console e o historico geral: evento do Watcher tambem vira linha la.
-                                    emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: sem conexao por {}s", cfg.no_connection_timeout_secs));
+                                    emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", log_msg!("Client closed by the Watcher: no connection for {{seconds}}s", seconds = cfg.no_connection_timeout_secs));
                                     disconnected_since.remove(&inst.user_id);
                                     log_paths.remove(&inst.pid);
                                     log_offsets.remove(&inst.pid);

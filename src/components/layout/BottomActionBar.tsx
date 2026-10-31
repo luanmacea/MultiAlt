@@ -4,12 +4,12 @@ import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
 import { copyAccountSecret } from "../../utils/copySecret";
-import { collectGroupNames, parseGroupName } from "../../types";
+import { collectGroupNames, groupLabel } from "../../types";
 import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
 import { failureRow, rowsFromFollow, rowsFromFriendLink } from "../../utils/actionReport";
 import type { FollowUserState, FriendLinkState } from "../../types";
-import { ChevronDown, Gamepad2, Settings2, ShieldCheck, UserCheck, Users } from "lucide-react";
+import { ChevronDown, FileCheck, Gamepad2, Settings2, ShieldCheck, UserCheck, Users } from "lucide-react";
 
 /**
  * Faixa aceita para o delay entre pedidos de amizade, em segundos. É a mesma
@@ -250,6 +250,11 @@ export function BottomActionBar() {
   async function handleCheckAccounts() {
     setActionsOpen(false);
     await store.checkAccounts(accounts.map((a) => a.UserID));
+  }
+
+  async function handleCheckTerms() {
+    setActionsOpen(false);
+    await store.checkTermsBatch(accounts.map((a) => a.UserID));
   }
 
   async function handleCopyCookies() {
@@ -536,6 +541,21 @@ export function BottomActionBar() {
               </span>
             </button>
 
+            {/* Acordos atualizados (Termos / Privacidade): só lê; o aceite é na janela. */}
+            <button
+              onClick={handleCheckTerms}
+              disabled={store.termsChecking}
+              className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-start gap-2"
+            >
+              <FileCheck size={13} strokeWidth={1.5} className="mt-0.5 shrink-0" />
+              <span className="min-w-0">
+                {t("Check Terms ({{count}})", { count })}
+                <span className="block text-[11px] theme-muted leading-snug">
+                  {t("Which accounts have updated terms to accept. Read-only.")}
+                </span>
+              </span>
+            </button>
+
             <button
               onClick={handleCopyCookies}
               className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] flex items-center gap-2"
@@ -726,7 +746,7 @@ export function BottomActionBar() {
                       onClick={() => handleMoveToGroup(g)}
                       className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] truncate"
                     >
-                      {parseGroupName(g).displayName}
+                      {groupLabel(g, t)}
                     </button>
                   ))}
                   <div className="theme-border h-px border-t my-1" />

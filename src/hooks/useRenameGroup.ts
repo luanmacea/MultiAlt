@@ -1,7 +1,7 @@
 import { useStore } from "../store";
 import { useConfirm, usePrompt } from "./usePrompt";
 import { useTr } from "../i18n/text";
-import { parseGroupName } from "../types";
+import { groupLabel } from "../types";
 
 /**
  * O grupo `Default` é o implícito (sem grupo no arquivo) e não se renomeia —
@@ -35,8 +35,8 @@ export function useRenameGroup() {
     if (existing.has(name)) {
       const ok = await confirm(
         t('A group named "{{target}}" already exists. Move the accounts of "{{group}}" into it?', {
-          target: name === "Default" ? t("Default") : parseGroupName(name).displayName,
-          group: parseGroupName(groupKey).displayName,
+          target: groupLabel(name, t),
+          group: groupLabel(groupKey, t),
         })
       );
       if (!ok) return false;

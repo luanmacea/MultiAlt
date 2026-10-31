@@ -353,11 +353,24 @@ fn emit_preset_outcome(
     trigger: PresetTrigger,
     outcome: &Result<usize, String>,
 ) {
+    let name = preset.name.clone();
     let (level, message) = match (action, outcome) {
-        (PresetAction::Open, Ok(n)) => ("success", format!("Preset \"{}\": {n} cliente(s) aberto(s)", preset.name)),
-        (PresetAction::Open, Err(e)) => ("error", format!("Preset \"{}\" não abriu: {e}", preset.name)),
-        (PresetAction::Close, Ok(n)) => ("info", format!("Preset \"{}\": {n} cliente(s) fechado(s)", preset.name)),
-        (PresetAction::Close, Err(e)) => ("error", format!("Preset \"{}\" não fechou: {e}", preset.name)),
+        (PresetAction::Open, Ok(n)) => (
+            "success",
+            log_msg!("Preset \"{{name}}\": {{clients}} client(s) opened", name = name, clients = *n),
+        ),
+        (PresetAction::Open, Err(e)) => (
+            "error",
+            log_msg!("Preset \"{{name}}\" did not open: {{error}}", name = name, error = e.clone()),
+        ),
+        (PresetAction::Close, Ok(n)) => (
+            "info",
+            log_msg!("Preset \"{{name}}\": {{clients}} client(s) closed", name = name, clients = *n),
+        ),
+        (PresetAction::Close, Err(e)) => (
+            "error",
+            log_msg!("Preset \"{{name}}\" did not close: {{error}}", name = name, error = e.clone()),
+        ),
     };
     emit_session_log(app, level, "preset", message);
     let _ = app.emit(
