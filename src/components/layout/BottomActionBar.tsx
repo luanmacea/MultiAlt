@@ -4,7 +4,7 @@ import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
 import { copyAccountSecret } from "../../utils/copySecret";
-import { collectGroupNames, parseGroupName } from "../../types";
+import { collectGroupNames, groupLabel } from "../../types";
 import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
 import { failureRow, rowsFromFollow, rowsFromFriendLink } from "../../utils/actionReport";
@@ -726,7 +726,7 @@ export function BottomActionBar() {
                       onClick={() => handleMoveToGroup(g)}
                       className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] truncate"
                     >
-                      {parseGroupName(g).displayName}
+                      {groupLabel(g, t)}
                     </button>
                   ))}
                   <div className="theme-border h-px border-t my-1" />

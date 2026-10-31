@@ -15,7 +15,7 @@ import { Toggle } from "../ui/Toggle";
 import { Select } from "../ui/Select";
 import { GameBadge } from "../ui/GameBadge";
 import { loadFavorites, parsePlaceIdInput } from "../server-list/types";
-import { collectGroupNames, parseGroupName } from "../../types";
+import { collectGroupNames, groupLabel } from "../../types";
 import type { LaunchPreset, LaunchPresetView, PresetSchedule } from "../../types";
 import {
   EMPTY_SCHEDULE,
@@ -229,7 +229,7 @@ function PresetRow({
 
   // Preset de grupo: quem está no grupo agora; contas fixas: as que ainda existem.
   const present = presetAccountIds(preset, store.accounts);
-  const groupName = preset.group ? parseGroupName(preset.group).displayName : null;
+  const groupName = preset.group ? groupLabel(preset.group, t) : null;
   const gameName = identity?.name ?? preset.gameName ?? t("Place {{placeId}}", { placeId: preset.placeId });
   const server = preset.vipName
     ? t("VIP: {{name}}", { name: preset.vipName })
@@ -407,11 +407,11 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
   const groupOptions = useMemo(() => {
     const options = groupNames.map((g) => ({
       value: g,
-      label: `${parseGroupName(g).displayName} (${store.accounts.filter((a) => (a.Group || "Default") === g).length})`,
+      label: `${groupLabel(g, t)} (${store.accounts.filter((a) => (a.Group || "Default") === g).length})`,
     }));
     // Grupo do preset renomeado/esvaziado: continua na lista, marcado.
     if (draft.group && !groupNames.includes(draft.group)) {
-      options.unshift({ value: draft.group, label: `${parseGroupName(draft.group).displayName} (0)` });
+      options.unshift({ value: draft.group, label: `${groupLabel(draft.group, t)} (0)` });
     }
     return options;
   }, [groupNames, store.accounts, draft.group]);

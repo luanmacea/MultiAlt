@@ -2161,7 +2161,9 @@ describe("backend events", () => {
     });
 
     expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Alpha");
-    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("moderadas");
+    // O grupo é gravado como "moderadas", mas o aviso mostra o nome traduzido.
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Moderated");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).not.toContain("moderadas");
   });
 
   /**

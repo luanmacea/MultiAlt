@@ -215,6 +215,22 @@ export function parseGroupName(group: string): { sortKey: number; displayName: s
   return { sortKey: 999999, displayName: group };
 }
 
+/** Grupo para onde o backend move a conta moderada (`MODERATED_GROUP` em launch_shared.rs). */
+export const MODERATED_GROUP = "moderadas";
+
+/**
+ * Rótulo de um grupo na tela. Os grupos que o app cria sozinho (`Default` e o
+ * das moderadas) têm o nome gravado fixo — outras partes do código e o arquivo
+ * de contas dependem dele — e só a exibição é traduzida. Até 31/10/2026 o das
+ * moderadas aparecia como "moderadas" em todo idioma (relato do Discord).
+ */
+export function groupLabel(group: string, t: (key: string) => string): string {
+  const { displayName } = parseGroupName(group || "Default");
+  if (displayName === "Default") return t("Default");
+  if (displayName === MODERATED_GROUP) return t("Moderated");
+  return displayName;
+}
+
 /**
  * Nomes de grupo distintos entre as contas, para oferecer como sugestão
  * (`<datalist>`) num campo que ainda precisa ficar editável para criar grupo
