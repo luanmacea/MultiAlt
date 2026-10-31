@@ -298,6 +298,8 @@ Página **Live** e a janela "MultiAlt Live" (para transmitir as contas).
 | `Generator.MaxAccounts` | `0` | Parar após N contas (0 = sem limite). |
 | `Generator.MaxConsecutiveFailures` | `3` | Para após N falhas seguidas. |
 | `Generator.SignupAutoSubmit` | `true` | O criador de contas (formulário do Roblox) clica em "Cadastrar-se" sozinho; o CAPTCHA continua sendo do usuário. Desligado = o usuário clica. Caixa "Press Create Account by itself" no painel. Ver [account-creation.md](account-creation.md). |
+| `Generator.SignupUsernameNumbered` | `false` | Com prefixo, nomes em ordem (`arvore_1`, `arvore_2`...) em vez dos 5 caracteres sorteados. Caixa "Number the names in order" no painel de criação. Ver [account-creation.md](account-creation.md). |
+| `Generator.SignupUsernameNext` | `1` | Próximo número dos nomes em ordem; o criador avança a cada conta salva. |
 | `Generator.SignupUsernamePrefix` | `""` | Prefixo do nome das contas criadas pelo **formulário do Roblox**: `arvore` gera `arvore_k3p9z`. Vazio = nome de palavras. Não vale para o BloxGen, cujo nome vem do provedor. Ver [account-creation.md](account-creation.md). |
 | `BloxGen.Endpoint` | `https://core.bloxgen.net` | URL da API. |
 | `BloxGen.ApiKey` | `""` | Chave (em texto no INI). |

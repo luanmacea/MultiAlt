@@ -59,6 +59,9 @@ Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas,
 - **Teto de 50 contas por sessão**, para um clique errado não virar uma maratona.
 - Timeout de uma conta **pula** aquela conta; janela fechada **encerra** a sessão.
 
+- **Nomes em ordem** (pedido do Discord, 30/10/2026; `Generator.SignupUsernameNumbered`, caixa "Number the names in order", só com prefixo): as contas saem `arvore_1`, `arvore_2`... em vez dos 5 caracteres sorteados. O próximo número fica em `Generator.SignupUsernameNext` e só avança quando a conta é **salva**, para o lote seguinte continuar dali; número em uso no Roblox é pulado (até 20 seguidos, `pick_free_numbered_username`) e, sem número livre ou que caiba nos 20 caracteres, volta o sorteio.
+- **Senha escolhida para o lote** (pedido do Discord, 30/10/2026; campo "Password for every account (optional)"): vazia, cada conta continua com a sorteada. Ela vai para o `start_signup_session` e fica **só na memória da sessão** — não entra no RAMSettings.ini, que é texto puro. Só substitui a sorteada quando o Roblox a aceita para aquele nome (8+ caracteres, sem o nome de usuário dentro — `with_chosen_password`); o painel recusa começar com menos de 8. A senha **guardada** continua sendo a que estava no campo quando o cadastro deu certo (`password_to_save`): o caminho de gravação não mudou. ⚠️ Falta validar criando contas de verdade com o dono (regra 6 das senhas).
+
 ### Senha salva errada (25/10/2026)
 
 Relato do dono: conta criada pelo criador, "senha incorreta" no "Fazer login de novo" com a senha salva — e a conta existia. Conferido sem ler a senha: o formulário de login recebeu os 14 caracteres salvos (DOM e React iguais), e o formulário de cadastro de hoje tem um campo de senha só, preenchido certo. A causa achada no código:

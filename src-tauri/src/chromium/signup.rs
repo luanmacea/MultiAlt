@@ -162,6 +162,44 @@ pub fn generate_username(rng: &mut SeededRng, prefix: &str) -> String {
     name
 }
 
+/// Nome numerado (`prefixo_1`, `prefixo_2`...), pedido do Discord (30/10/2026):
+/// "let us choose the name or put like 1-100". Só com prefixo (sem ele, o
+/// número sozinho não é nome), e `None` quando o número não cabe nos 20
+/// caracteres do Roblox — quem chama volta ao sorteio.
+pub fn numbered_username(prefix: &str, number: u32) -> Option<String> {
+    let prefix = sanitize_username_prefix(prefix);
+    if prefix.is_empty() {
+        return None;
+    }
+    let name = format!("{prefix}_{number}");
+    (name.len() <= 20).then_some(name)
+}
+
+/// O mínimo que o Roblox aceita numa senha.
+pub const MIN_CUSTOM_PASSWORD: usize = 8;
+
+/// A senha escolhida pela pessoa serve para esta conta: tem o mínimo do
+/// Roblox e não contém o nome de usuário (o Roblox recusa).
+pub fn custom_password_fits(password: &str, username: &str) -> bool {
+    password.chars().count() >= MIN_CUSTOM_PASSWORD
+        && !password.to_lowercase().contains(&username.to_lowercase())
+}
+
+/// A identidade com a senha escolhida pela pessoa no lugar da sorteada, quando
+/// ela serve para este nome (pedido do Discord, 30/10/2026: "custom password
+/// when account creating"). Não serve, fica a sorteada. A senha **guardada**
+/// continua sendo a que estava no campo quando o cadastro deu certo
+/// (`password_to_save`).
+pub fn with_chosen_password(identity: SignupIdentity, chosen: Option<&str>) -> SignupIdentity {
+    match chosen {
+        Some(password) if custom_password_fits(password, &identity.username) => SignupIdentity {
+            password: password.to_string(),
+            ..identity
+        },
+        _ => identity,
+    }
+}
+
 /// Senha de 14 caracteres com pelo menos uma letra e um dígito (o Roblox exige
 /// mais de 8 caracteres e recusa senha que contenha o nome de usuário).
 pub fn generate_password(rng: &mut SeededRng) -> String {
@@ -382,6 +420,36 @@ mod signup_identity_tests {
 
     /// Prefixo digitado com o que o Roblox nao aceita. O underscore do
     /// separador ja gasta o unico permitido, entao ele sai do prefixo.
+    #[test]
+    fn numbered_names_follow_the_prefix_and_fit_the_roblox_limit() {
+        assert_eq!(numbered_username("arvore", 1).as_deref(), Some("arvore_1"));
+        assert_eq!(numbered_username("min_ha", 42).as_deref(), Some("minha_42"));
+        // Sem prefixo não há nome numerado: volta o sorteio.
+        assert_eq!(numbered_username("", 1), None);
+        assert_eq!(numbered_username("__", 1), None);
+        // 14 do prefixo + 1 + 5 dígitos = 20; o sexto dígito não cabe.
+        let longest = "a".repeat(14);
+        assert_eq!(numbered_username(&longest, 99_999).map(|n| n.len()), Some(20));
+        assert_eq!(numbered_username(&longest, 100_000), None);
+    }
+
+    #[test]
+    fn a_chosen_password_replaces_the_generated_one_only_when_roblox_takes_it() {
+        let identity = generate_identity(1, 2026, "arvore");
+        let generated = identity.password.clone();
+        let username = identity.username.clone();
+
+        let chosen = with_chosen_password(identity.clone(), Some("MinhaSenha123"));
+        assert_eq!(chosen.password, "MinhaSenha123");
+        assert_eq!(chosen.username, username);
+
+        // Curta demais, com o nome dentro ou ausente: fica a sorteada.
+        let with_name = format!("x{}9", username.to_uppercase());
+        for bad in [Some("curta1"), Some(with_name.as_str()), None] {
+            assert_eq!(with_chosen_password(identity.clone(), bad).password, generated, "{bad:?}");
+        }
+    }
+
     #[test]
     fn the_prefix_is_cleaned_before_it_reaches_the_name() {
         assert_eq!(sanitize_username_prefix("arvore"), "arvore");

@@ -3029,5 +3029,14 @@
   "User:Pass:Cookie": "Usuário:Senha:Cookie",
   "user:pass:cookie": "usuário:senha:cookie",
   "Copy the username, password and .ROBLOSECURITY cookie of 1 account to the clipboard? Anyone holding them is signed in as that account, with no password and no 2-step verification.": "Copiar o usuário, a senha e o cookie .ROBLOSECURITY de 1 conta para a área de transferência? Quem tiver isso entra como essa conta, sem senha e sem verificação em duas etapas.",
-  "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification.": "Copiar o usuário, a senha e o cookie .ROBLOSECURITY de {{count}} contas para a área de transferência? Quem tiver isso entra como essas contas, sem senha e sem verificação em duas etapas."
+  "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification.": "Copiar o usuário, a senha e o cookie .ROBLOSECURITY de {{count}} contas para a área de transferência? Quem tiver isso entra como essas contas, sem senha e sem verificação em duas etapas.",
+  "The password needs at least {{count}} characters.": "A senha precisa ter pelo menos {{count}} caracteres.",
+  "Password for every account (optional)": "Senha para todas as contas (opcional)",
+  "Hide password": "Ocultar senha",
+  "Show password": "Mostrar senha",
+  "Type a name prefix first.": "Digite um prefixo de nome primeiro.",
+  "Number the names in order": "Numerar os nomes em ordem",
+  "({{example}} instead of random characters)": "({{example}} em vez de caracteres sorteados)",
+  "Next number": "Próximo número",
+  "Empty: a random password for each account. At least 8 characters, without the username. It is kept only in each account.": "Vazio: uma senha sorteada para cada conta. Pelo menos 8 caracteres, sem o nome de usuário. Ela fica só em cada conta."
 }

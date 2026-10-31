@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Copy, Loader2, ShieldCheck, SlidersHorizontal, UserPlus } from "lucide-react";
+import { Copy, Eye, EyeOff, Loader2, ShieldCheck, SlidersHorizontal, UserPlus } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import { chromiumErrorText } from "../../utils/chromiumErrors";
@@ -27,6 +27,10 @@ import type { SignupIdentity, SignupStatus } from "../../types";
  */
 
 const MAX_ACCOUNTS = 50;
+/** O mínimo que o Roblox aceita numa senha (`MIN_CUSTOM_PASSWORD` no backend). */
+export const MIN_CHOSEN_PASSWORD = 8;
+/** Maior número que cabe em `prefixo_N` (20 caracteres com o prefixo de 14). */
+const MAX_NAME_NUMBER = 99_999;
 
 /** Rótulo de cada fase publicada pelo backend. */
 export function phaseLabel(phase: string, t: (s: string) => string): string {
@@ -74,6 +78,21 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
    */
   const [usernamePrefix, setUsernamePrefix] = useState("");
   /**
+   * `Generator.SignupUsernameNumbered` / `SignupUsernameNext`: com prefixo, os
+   * nomes saem em ordem (`arvore_1`, `arvore_2`...) em vez de sorteados (pedido
+   * do Discord, 30/10/2026). O backend grava o próximo número a cada conta.
+   */
+  const [numbered, setNumbered] = useState(false);
+  const [nextNumber, setNextNumber] = useState(1);
+  /**
+   * Senha de todas as contas do lote (vazia = uma sorteada por conta). Fica só
+   * aqui e na memória da sessão: não vai para o RAMSettings.ini, que é texto
+   * puro. A senha guardada de cada conta continua sendo a do campo do Roblox
+   * quando o cadastro deu certo.
+   */
+  const [chosenPassword, setChosenPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  /**
    * `Generator.SignupAutoSubmit`: o app clica em "Cadastrar-se" sozinho (pedido
    * do dono, 14/10/2026). Ligado por padrão; o CAPTCHA continua da pessoa.
    */
@@ -96,8 +115,30 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
         if (!mounted.current) return;
         setUsernamePrefix(all?.Generator?.SignupUsernamePrefix ?? "");
         setAutoSubmit(all?.Generator?.SignupAutoSubmit !== "false");
+        setNumbered(all?.Generator?.SignupUsernameNumbered === "true");
+        setNextNumber(readNextNumber(all?.Generator?.SignupUsernameNext));
       })
       .catch(() => {});
+  }, []);
+
+  // Cada conta salva avança o número no backend: o campo acompanha.
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    let disposed = false;
+    listen("generator-account-added", () => {
+      invoke<Record<string, Record<string, string>>>("get_all_settings")
+        .then((all) => {
+          if (mounted.current) setNextNumber(readNextNumber(all?.Generator?.SignupUsernameNext));
+        })
+        .catch(() => {});
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -137,6 +178,24 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
     }
   }
 
+  async function saveGeneratorSetting(key: string, value: string) {
+    try {
+      await invoke("update_setting", { section: "Generator", key, value });
+    } catch (e) {
+      store.addToast(String(e));
+    }
+  }
+
+  async function changeNumbered(value: boolean) {
+    setNumbered(value);
+    await saveGeneratorSetting("SignupUsernameNumbered", value ? "true" : "false");
+  }
+
+  async function changeNextNumber(value: number) {
+    setNextNumber(value);
+    await saveGeneratorSetting("SignupUsernameNext", String(value));
+  }
+
   async function changeAutoSubmit(value: boolean) {
     setAutoSubmit(value);
     try {
@@ -147,11 +206,18 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
   }
 
   async function handleStart() {
+    if (chosenPassword && chosenPassword.length < MIN_CHOSEN_PASSWORD) {
+      store.addToast(t("The password needs at least {{count}} characters.", { count: MIN_CHOSEN_PASSWORD }));
+      return;
+    }
     setBusy(true);
     try {
       // Grava antes de começar: o nome do primeiro lote já sai no padrão.
       await persistPrefix(usernamePrefix);
-      const started = await invoke<SignupStatus>("start_signup_session", { count });
+      const started = await invoke<SignupStatus>("start_signup_session", {
+        count,
+        password: chosenPassword || null,
+      });
       setStatus(started);
     } catch (e) {
       store.addToast(chromiumErrorText(e, t));
@@ -245,6 +311,33 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
             />
           </label>
 
+          {/* div e não label: o label envolveria também o botão do olho. */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] theme-muted">{t("Password for every account (optional)")}</span>
+            <span className="relative flex items-center">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={chosenPassword}
+                onChange={(e) => setChosenPassword(e.target.value)}
+                disabled={running}
+                autoComplete="new-password"
+                aria-label={t("Password for every account (optional)")}
+                title={t(
+                  "Empty: a random password for each account. At least 8 characters, without the username. It is kept only in each account."
+                )}
+                className="w-[150px] pl-2.5 pr-7 py-1 rounded-md text-[12px] bg-[var(--forms-bg)] border theme-border text-[var(--panel-fg)] placeholder-[var(--panel-muted)] focus:outline-none disabled:opacity-50"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? t("Hide password") : t("Show password")}
+                className="absolute right-1.5 theme-muted"
+              >
+                {showPassword ? <EyeOff size={12} /> : <Eye size={12} />}
+              </button>
+            </span>
+          </div>
+
           {running ? (
             <button
               onClick={() => void handleStop()}
@@ -261,6 +354,39 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
               {busy ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />}
               {t("Start")}
             </button>
+          )}
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--panel-fg)]">
+          <label
+            className="flex items-center gap-2 cursor-pointer select-none"
+            title={usernamePrefix ? undefined : t("Type a name prefix first.")}
+          >
+            <input
+              type="checkbox"
+              checked={numbered && !!usernamePrefix}
+              disabled={running || !usernamePrefix}
+              onChange={(e) => void changeNumbered(e.target.checked)}
+              className="accent-[var(--accent-color)]"
+            />
+            {t("Number the names in order")}
+            <span className="theme-muted">
+              {t("({{example}} instead of random characters)", {
+                example: `${usernamePrefix || "prefix"}_${nextNumber}`,
+              })}
+            </span>
+          </label>
+          {numbered && !!usernamePrefix && (
+            <label className="flex items-center gap-1.5">
+              <span className="text-[11px] theme-muted">{t("Next number")}</span>
+              <NumericInput
+                value={nextNumber}
+                min={1}
+                max={MAX_NAME_NUMBER}
+                disabled={running}
+                onChange={(value) => void changeNextNumber(value)}
+              />
+            </label>
           )}
         </div>
 
@@ -346,4 +472,10 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
       )}
     </div>
   );
+}
+
+/** O próximo número gravado, ou 1 quando falta ou é lixo. */
+function readNextNumber(value: string | undefined): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, MAX_NAME_NUMBER) : 1;
 }

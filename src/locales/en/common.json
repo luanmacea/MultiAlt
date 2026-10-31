@@ -3029,5 +3029,14 @@
   "User:Pass:Cookie": "User:Pass:Cookie",
   "user:pass:cookie": "user:pass:cookie",
   "Copy the username, password and .ROBLOSECURITY cookie of 1 account to the clipboard? Anyone holding them is signed in as that account, with no password and no 2-step verification.": "Copy the username, password and .ROBLOSECURITY cookie of 1 account to the clipboard? Anyone holding them is signed in as that account, with no password and no 2-step verification.",
-  "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification.": "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification."
+  "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification.": "Copy the username, password and .ROBLOSECURITY cookie of {{count}} accounts to the clipboard? Anyone holding them is signed in as those accounts, with no password and no 2-step verification.",
+  "The password needs at least {{count}} characters.": "The password needs at least {{count}} characters.",
+  "Password for every account (optional)": "Password for every account (optional)",
+  "Hide password": "Hide password",
+  "Show password": "Show password",
+  "Type a name prefix first.": "Type a name prefix first.",
+  "Number the names in order": "Number the names in order",
+  "({{example}} instead of random characters)": "({{example}} instead of random characters)",
+  "Next number": "Next number",
+  "Empty: a random password for each account. At least 8 characters, without the username. It is kept only in each account.": "Empty: a random password for each account. At least 8 characters, without the username. It is kept only in each account."
 }
