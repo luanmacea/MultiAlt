@@ -41,6 +41,7 @@ import { QuickLoginDialog } from "./components/dialogs/QuickLoginDialog";
 import { PresetsDialog } from "./components/presets/PresetsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { MultiRobloxConfirm } from "./components/MultiRobloxConfirm";
+import { OutdatedVersionConfirm } from "./components/OutdatedVersionConfirm";
 import { SessionPage } from "./components/pages/SessionPage";
 import { ConsolePage } from "./components/pages/ConsolePage";
 import { AfkPage } from "./components/pages/AfkPage";
@@ -395,6 +396,7 @@ function AppContent() {
       <IsolationProgressOverlay />
 
       <MultiRobloxConfirm />
+      <OutdatedVersionConfirm />
 
       <UpdateDialog />
 
