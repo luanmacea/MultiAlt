@@ -29,8 +29,30 @@ pub fn add_account(
 
 #[tauri::command]
 pub fn remove_account(state: tauri::State<'_, AccountStore>, user_id: i64) -> Result<bool, String> {
-    state.remove(user_id)
+    let removed = state.remove(user_id)?;
+    if removed {
+        forget_linux_profiles(&[user_id]);
+    }
+    Ok(removed)
 }
+
+/// Linux: a conta saiu, então o perfil do Sober dela (cookie e estado) também.
+/// Só apaga dentro de `<dados>/linux-profiles` (ver `platform/sober.rs`) e
+/// deixa em paz quem está com o cliente aberto. Melhor esforço: um perfil que
+/// sobra é recriado do zero se a conta voltar (o Desfazer).
+#[cfg(target_os = "linux")]
+fn forget_linux_profiles(user_ids: &[i64]) {
+    let data_dir = crate::data::settings::get_runtime_data_dir();
+    for &user_id in user_ids {
+        if crate::platform::linux::tracker().get_pid(user_id).is_some() {
+            continue;
+        }
+        let _ = crate::platform::sober::remove_profile(&data_dir, user_id);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn forget_linux_profiles(_user_ids: &[i64]) {}
 
 /// O que a remoção em lote devolve: o id do lote (o toast leva-o para o Undo
 /// desfazer **esse** lote) e quantas contas saíram.
@@ -50,6 +72,7 @@ pub fn remove_accounts(
     user_ids: Vec<i64>,
 ) -> Result<RemoveBatchResult, String> {
     let (batch_id, count) = state.remove_many(&user_ids)?;
+    forget_linux_profiles(&user_ids);
     Ok(RemoveBatchResult { batch_id, count })
 }
 

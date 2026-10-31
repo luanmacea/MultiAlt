@@ -968,5 +968,15 @@
   "Open the old version anyway": "Alte Version trotzdem öffnen",
   "Open outdated versions without asking": "Veraltete Versionen ohne Nachfrage öffnen",
   "Off: before opening a version older than the current Roblox, MultiAlt asks, and Auto Rejoin opens the current one. Roblox has banned accounts for using old versions.": "Aus: Bevor eine Version geöffnet wird, die älter als das aktuelle Roblox ist, fragt MultiAlt nach, und Auto Rejoin öffnet die aktuelle. Roblox hat schon Konten wegen alter Versionen gesperrt.",
-  "Add all": "Alle hinzufügen"
+  "Add all": "Alle hinzufügen",
+  "Flatpak is not installed. Install the flatpak package from your distribution and try again.": "Flatpak ist nicht installiert. Installiere das Paket flatpak deiner Distribution und versuche es erneut.",
+  "Sober is not installed. Run: {{command}}": "Sober ist nicht installiert. Führe aus: {{command}}",
+  "unshare was not found. Install the util-linux package; it opens each account in its own network.": "unshare wurde nicht gefunden. Installiere das Paket util-linux; es öffnet jedes Konto in einem eigenen Netzwerk.",
+  "pasta was not found. Install the passt package; it gives each account its own network so several can run at once.": "pasta wurde nicht gefunden. Installiere das Paket passt; es gibt jedem Konto ein eigenes Netzwerk, damit mehrere gleichzeitig laufen.",
+  "PreferredRunner is custom but CustomLaunchCommand is empty; using Sober": "PreferredRunner ist custom, aber CustomLaunchCommand ist leer; Sober wird verwendet",
+  "CustomLaunchCommand is invalid ({{error}}); using Sober": "CustomLaunchCommand ist ungültig ({{error}}); Sober wird verwendet",
+  "Runner {{runner}} is not supported on Linux yet; using Sober": "Der Runner {{runner}} wird unter Linux noch nicht unterstützt; Sober wird verwendet",
+  "Private server without a link code; opening the experience instead": "Privater Server ohne Link-Code; stattdessen wird das normale Spiel geöffnet",
+  "{{count}} symbolic link(s) in the main Sober folder were not copied": "{{count}} symbolische(r) Link(s) im Haupt-Sober-Ordner wurden nicht kopiert",
+  "Following a user is not supported with Sober; opening the game instead": "Einem Nutzer zu folgen wird mit Sober nicht unterstützt; sein Spiel wird geöffnet"
 }

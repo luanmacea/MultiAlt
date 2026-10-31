@@ -3169,5 +3169,15 @@
   "Open the old version anyway": "Open the old version anyway",
   "Open outdated versions without asking": "Open outdated versions without asking",
   "Off: before opening a version older than the current Roblox, MultiAlt asks, and Auto Rejoin opens the current one. Roblox has banned accounts for using old versions.": "Off: before opening a version older than the current Roblox, MultiAlt asks, and Auto Rejoin opens the current one. Roblox has banned accounts for using old versions.",
-  "Add all": "Add all"
+  "Add all": "Add all",
+  "Flatpak is not installed. Install the flatpak package from your distribution and try again.": "Flatpak is not installed. Install the flatpak package from your distribution and try again.",
+  "Sober is not installed. Run: {{command}}": "Sober is not installed. Run: {{command}}",
+  "unshare was not found. Install the util-linux package; it opens each account in its own network.": "unshare was not found. Install the util-linux package; it opens each account in its own network.",
+  "pasta was not found. Install the passt package; it gives each account its own network so several can run at once.": "pasta was not found. Install the passt package; it gives each account its own network so several can run at once.",
+  "PreferredRunner is custom but CustomLaunchCommand is empty; using Sober": "PreferredRunner is custom but CustomLaunchCommand is empty; using Sober",
+  "CustomLaunchCommand is invalid ({{error}}); using Sober": "CustomLaunchCommand is invalid ({{error}}); using Sober",
+  "Runner {{runner}} is not supported on Linux yet; using Sober": "Runner {{runner}} is not supported on Linux yet; using Sober",
+  "Private server without a link code; opening the experience instead": "Private server without a link code; opening the experience instead",
+  "{{count}} symbolic link(s) in the main Sober folder were not copied": "{{count}} symbolic link(s) in the main Sober folder were not copied",
+  "Following a user is not supported with Sober; opening the game instead": "Following a user is not supported with Sober; opening the game instead"
 }
