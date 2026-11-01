@@ -4,10 +4,19 @@ import { NumberField } from "../ui/NumberField";
 import { Divider } from "../ui/Divider";
 import { SectionLabel } from "../ui/SectionLabel";
 import { WarningBadge } from "../ui/WarningBadge";
+import { Select } from "../ui/Select";
+import { useTr } from "../../i18n/text";
 import { isWindowsUserAgent } from "./settingsParts";
 
 /** Espelha `MIN_JOIN_GAP_SECS` em `commands/launch.rs`: abaixo disso nada muda. */
 const MIN_JOIN_DELAY_SECONDS = 8;
+
+/** Valores de `General.WrongAccountQueue` (`WrongAccountQueue::from_setting`). */
+const WRONG_ACCOUNT_QUEUE_OPTIONS = [
+  { value: "ask", label: "Ask me" },
+  { value: "continue", label: "Keep launching" },
+  { value: "stop", label: "Stop the queue" },
+];
 
 /**
  * Settings › Launch: como as contas abrem. Saiu de General (Multi Roblox,
@@ -15,6 +24,7 @@ const MIN_JOIN_DELAY_SECONDS = 8;
  * em 11/10/2026 — ver docs/features/settings.md.
  */
 export function LaunchTab({ s }: { s: UseSettingsReturn }) {
+  const t = useTr();
   const serialLaunch = s.getBool("General", "AsyncJoin");
   const isWindows = isWindowsUserAgent();
 
@@ -90,6 +100,26 @@ export function LaunchTab({ s }: { s: UseSettingsReturn }) {
           }
           disabled={serialLaunch}
         />
+      )}
+      {/* Conta errada na fila (client_health.rs, `WrongAccountQueue` em
+          launch.rs): pedido do dono em 31/10/2026 — a fila parava sozinha. */}
+      {isWindows && (
+        <div className="flex items-center gap-3 py-2 px-1">
+          <div className="min-w-0">
+            <div className="text-[13px] text-zinc-300">{t("When an account opens as a different Roblox account")}</div>
+            <div className="mt-0.5 text-[12px] text-zinc-500">
+              {t("What happens to the accounts still waiting in the queue. The client that opened stays open.")}
+            </div>
+          </div>
+          <div className="ml-auto min-w-[180px]">
+            <Select
+              ariaLabel="When an account opens as a different Roblox account"
+              value={s.get("General", "WrongAccountQueue", "ask")}
+              options={WRONG_ACCOUNT_QUEUE_OPTIONS}
+              onChange={(value) => s.set("General", "WrongAccountQueue", value)}
+            />
+          </div>
+        </div>
       )}
 
       <Divider />

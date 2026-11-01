@@ -3204,5 +3204,15 @@
   "Accept terms ({{shape}}): Roblox answered {{status}}: {{body}}": "Aceitar termos ({{shape}}): o Roblox respondeu {{status}}: {{body}}",
   "Accept terms: done, nothing is pending anymore.": "Aceitar termos: pronto, nada mais pendente.",
   "Accept terms: {{count}} agreement(s) still pending afterwards.": "Aceitar termos: {{count}} acordo(s) continuam pendentes depois.",
-  "Accept terms: could not confirm afterwards. Check the terms again.": "Aceitar termos: não deu para confirmar depois. Confira os termos de novo."
+  "Accept terms: could not confirm afterwards. Check the terms again.": "Aceitar termos: não deu para confirmar depois. Confira os termos de novo.",
+  "When an account opens as a different Roblox account": "Quando uma conta abrir como outra conta do Roblox",
+  "What happens to the accounts still waiting in the queue. The client that opened stays open.": "O que acontece com as contas que ainda esperam na fila. O cliente que abriu continua aberto.",
+  "Ask me": "Perguntar",
+  "Keep launching": "Continuar abrindo",
+  "Stop the queue": "Parar a fila",
+  "Keep launching the other accounts?": "Continuar abrindo as outras contas?",
+  "That client stays open. The queue is waiting for your answer.": "Esse cliente continua aberto. A fila está esperando sua resposta.",
+  "Don't ask again (change it in Settings › Launch)": "Não perguntar de novo (dá para mudar em Settings › Launch)",
+  "The Roblox log read for this client was another account's; looking for its own": "O log do Roblox lido para este cliente era de outra conta; procurando o dele",
+  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Entrou como outra conta do Roblox (usuário {{userId}}). A fila de launch espera sua resposta"
 }

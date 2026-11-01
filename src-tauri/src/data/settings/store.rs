@@ -50,6 +50,11 @@ impl SettingsStore {
                 "true",
                 Some("Multi-launch: start the next account as soon as the previous one is in the game (never before AccountJoinDelay's 8 s floor, at most 20 s)"),
             ),
+            (
+                "WrongAccountQueue",
+                "ask",
+                Some("Multi-launch: when a client opens as a different Roblox account, ask whether to keep launching (ask), keep launching (continue) or stop the queue (stop)"),
+            ),
             ("DisableAgingAlert", "false", None),
             (
                 "JoinFriendsByFollowing",

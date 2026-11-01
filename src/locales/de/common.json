@@ -1003,5 +1003,7 @@
   "Accept terms ({{shape}}): Roblox answered {{status}}: {{body}}": "Bedingungen akzeptieren ({{shape}}): Roblox antwortete {{status}}: {{body}}",
   "Accept terms: done, nothing is pending anymore.": "Bedingungen akzeptieren: fertig, nichts ist mehr ausstehend.",
   "Accept terms: {{count}} agreement(s) still pending afterwards.": "Bedingungen akzeptieren: {{count}} Vereinbarung(en) sind danach noch offen.",
-  "Accept terms: could not confirm afterwards. Check the terms again.": "Bedingungen akzeptieren: danach nicht bestätigt. Prüfe die Bedingungen erneut."
+  "Accept terms: could not confirm afterwards. Check the terms again.": "Bedingungen akzeptieren: danach nicht bestätigt. Prüfe die Bedingungen erneut.",
+  "The Roblox log read for this client was another account's; looking for its own": "Das für diesen Client gelesene Roblox-Log gehörte zu einem anderen Konto; das eigene wird gesucht",
+  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Als anderes Roblox-Konto beigetreten (Benutzer {{userId}}). Die Startwarteschlange wartet auf deine Antwort"
 }
