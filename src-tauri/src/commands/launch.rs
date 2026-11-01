@@ -256,6 +256,83 @@ fn keep_waiting_for_next_account(
     !remaining.is_zero() && !cancelled && queued > 0
 }
 
+/// O que fazer com quem ainda espera a vez quando um cliente entra como outra
+/// conta do Roblox (`General.WrongAccountQueue`). Pedido do dono (31/10/2026):
+/// a fila parava sozinha e era preciso pedir as contas de novo; o padrão agora
+/// é perguntar, com "não perguntar de novo" que grava a resposta aqui.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WrongAccountQueue {
+    Ask,
+    Continue,
+    Stop,
+}
+
+impl WrongAccountQueue {
+    fn from_setting(value: &str) -> Self {
+        match value.trim() {
+            "continue" => Self::Continue,
+            "stop" => Self::Stop,
+            _ => Self::Ask,
+        }
+    }
+}
+
+/// A pergunta "continuar a fila?" espera a pessoa: a próxima conta não abre.
+static LAUNCH_QUEUE_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn hold_launch_queue() {
+    LAUNCH_QUEUE_HELD.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn release_launch_queue() {
+    LAUNCH_QUEUE_HELD.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Alguma conta (de qualquer lote) ainda espera a vez.
+fn launch_queue_has_queued() -> bool {
+    with_launch_queue(|queue| {
+        queue
+            .entries
+            .iter()
+            .any(|entry| entry.state == LaunchQueueState::Queued)
+    })
+    .0
+}
+
+/// Resposta da pergunta da conta errada (`roblox-client-wrong-account` com
+/// `queueAsked`). `remember` ("não perguntar de novo") grava a resposta em
+/// `General.WrongAccountQueue`, que a pessoa muda depois em Settings › Launch.
+/// Nenhum cliente é fechado em caso nenhum.
+#[tauri::command]
+fn answer_wrong_account_queue(
+    app: tauri::AppHandle,
+    settings: tauri::State<'_, SettingsStore>,
+    keep_launching: bool,
+    remember: bool,
+) {
+    if remember {
+        let value = if keep_launching { "continue" } else { "stop" };
+        let _ = settings.set("General", "WrongAccountQueue", value);
+    }
+    if !keep_launching {
+        launch_queue_cancel_all_queued(&app);
+    }
+    release_launch_queue();
+}
+
+/// Segura a próxima conta enquanto a pergunta da conta errada espera. Sai
+/// quando a pessoa responde, quando não sobra ninguém na fila (Stop, "não")
+/// ou quando tudo é cancelado — nesses dois últimos, a trava sai junto.
+async fn wait_while_launch_queue_held(sequence: &LaunchSequenceGuard, cancelled: impl Fn() -> bool) {
+    while LAUNCH_QUEUE_HELD.load(std::sync::atomic::Ordering::SeqCst) {
+        if cancelled() || sequence.queued_count() == 0 {
+            release_launch_queue();
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
 /// Dorme `wait` em fatias e volta assim que não houver mais conta esperando a vez
 /// nesta sequência (fila parada pelo usuário, ou outro lote assumiu) ou o
 /// cancelamento global chegar.
@@ -2072,6 +2149,8 @@ async fn run_launch_queue_windows(
     let tracker = windows::tracker();
 
     loop {
+        // Uma conta entrou como outra e a pessoa ainda não disse se a fila segue.
+        wait_while_launch_queue_held(sequence, || tracker.is_launch_cancelled()).await;
         if tracker.is_launch_cancelled() {
             // "Close All Roblox": nada do que sobrou vai ser tentado.
             sequence.cancel_remaining();

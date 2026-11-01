@@ -1145,7 +1145,10 @@ pub(crate) fn reconnect_after_health_tick(app: &tauri::AppHandle, notices: &[Hea
                     out.push(n);
                 }
             }
-            HealthNotice::NotResponding { .. } | HealthNotice::WrongAccount { .. } | HealthNotice::Challenge { .. } => {}
+            HealthNotice::NotResponding { .. }
+            | HealthNotice::WrongAccount { .. }
+            | HealthNotice::ForeignLog { .. }
+            | HealthNotice::Challenge { .. } => {}
         }
     }
 
