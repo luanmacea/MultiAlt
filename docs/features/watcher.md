@@ -139,17 +139,40 @@ testes `roblox_log_line_tests` — e o classificador o devolve como `JoinedAs`.
 
 - `userid` ≠ conta lançada (`wrong_account`, testes `client_wrong_account_tests`)
   → `health.wrongAccountUserId` em `get_running_instances`, o evento
-  `roblox-client-wrong-account` (`{userId, loggedUserId, queueStopped}`) **uma
-  vez** por conta vista e uma linha no Console ("Entrou como outra conta do
+  `roblox-client-wrong-account` (`{userId, loggedUserId, queueStopped, queueAsked}`)
+  **uma vez** por conta vista e uma linha no Console ("Entrou como outra conta do
   Roblox (usuário N)").
-- **A fila de launch para** como o Stop da Sessão (`launch_queue_cancel_all_queued`):
-  só quem ainda espera a vez é cancelado; a conta em andamento termina e quem
-  já entrou continua. Não existe "pausa" na fila — retomar é lançar de novo.
+- **O log tem que ser deste launch** (31/10/2026). Todo log do Roblox diz de
+  qual URL de launch ele é: `LogWin32BTId, App, web launch, websiteBTId is <id>`,
+  o browser tracker id que o app põe na URL de cada conta (cada conta tem o seu).
+  Relato do dono: numa fila, o cliente da bazooka_2g1em leu o log da
+  6_chablaupequeno (aberta 7 s antes) — a Sessão disse "entrou como outra conta",
+  a fila parou e a 6_chablaupequeno ficou "fora de um jogo", com as duas jogando
+  certinho (conferido nos logs: `websiteBTId` e `userid` de cada um batiam com a
+  conta dona). Agora, log com `websiteBTId` ≠ o do launch desta conta
+  (`log_from_another_launch`) é largado (`forget_log`), volta para o cliente
+  daquele launch (`handed_back`) e nunca mais é dado a este; o Console registra
+  "O log do Roblox lido para este cliente era de outra conta" (`ForeignLog`).
+  "Entrou como outra conta" só vale com o log do próprio launch. Sem o id (old
+  join, cliente do site) fica como antes. Teste
+  `a_log_from_another_launch_is_handed_back_instead_of_flagging_the_wrong_account`.
+  Como o casamento log → processo errou ainda não foi reproduzido: pelo código
+  (thread do cabeçalho viva + janela de horário) ele não deveria errar.
+- **A fila pergunta** (`General.WrongAccountQueue`, padrão `ask`; pedido do dono
+  em 31/10/2026 — antes ela parava sozinha e era preciso pedir as contas de
+  novo). Com conta esperando a vez, o monitor trava a fila (`hold_launch_queue`;
+  o laço espera em `wait_while_launch_queue_held` antes da próxima conta) e a
+  tela pergunta "Keep launching the other accounts?"
+  ([WrongAccountQueueConfirm.tsx](../../src/components/WrongAccountQueueConfirm.tsx)),
+  com "Don't ask again", que grava a resposta (`answer_wrong_account_queue`).
+  `continue` segue sem perguntar; `stop` faz o que o Stop da Sessão faz
+  (`launch_queue_cancel_all_queued`: só quem espera a vez é cancelado). Esc ou o
+  fundo = parar. Muda em Settings › Launch. Testes `wrong_account_queue_tests`.
 - **Nunca fecha o cliente** — ele pode ser a conta principal de quem usa o app.
   A Sessão mostra um aviso no topo e na linha da conta ("Opened as a different
   Roblox account (user N)"), e o toast diz "<conta> opened as a different Roblox
   account (user N). The launch queue was paused." (a 2ª frase só quando havia
-  fila parada).
+  fila parada; quando pergunta, o modal substitui o toast).
 - **Cliente do site nunca conta:** ele foi reconhecido justamente por essa
   linha, e a identificação manual é decisão da pessoa.
 - Não usa o `challengedByGcs` do log.

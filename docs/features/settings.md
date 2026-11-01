@@ -34,7 +34,7 @@ A página abre em **Launch**. Outra tela abre uma seção com `store.openSetting
 
 | Aba | Visível quando | Seções/chaves |
 |---|---|---|
-| Launch | sempre | **Several accounts at once**: `General.EnableMultiRbx`, `ReserveSingletonEvent` (Windows), `AutoCloseRobloxForMultiRbx` (vinha de Misc); **Time between accounts**: `AsyncJoin`, `AccountJoinDelay`, `WaitForGameJoin` (Windows); **Before each launch**: `CheckModerationBeforeLaunch`, `WarnOnOnlineJoin`, `AutoCloseLastProcess` e `ShuffleJobId` (os dois vinham de Misc) |
+| Launch | sempre | **Several accounts at once**: `General.EnableMultiRbx`, `ReserveSingletonEvent` (Windows), `AutoCloseRobloxForMultiRbx` (vinha de Misc); **Time between accounts**: `AsyncJoin`, `AccountJoinDelay`, `WaitForGameJoin`, `WrongAccountQueue` (Windows); **Before each launch**: `CheckModerationBeforeLaunch`, `WarnOnOnlineJoin`, `AutoCloseLastProcess` e `ShuffleJobId` (os dois vinham de Misc) |
 | Keep in game | sempre | `General.BottingEnabled` (Auto Rejoin) + linha "Auto Rejoin options" com botão **Open AFK Mode**; "Reconnect accounts that drop" **sem interruptor** — mostra se o padrão `General.AutoReconnect` está ligado e tem o botão **Change it on the Session page** (Windows); `General.ReconnectSameServer` ("Reconnect to the same server", Windows, interruptor aqui mesmo, logo abaixo do caminho para o padrão da reconexão); `General.KeepPcAwake`, `Afk.ShakeToStop` (Windows) |
 | Accounts | sempre | **Account list**: `ShowPresence`, `PresenceUpdateRate` (vinha de Misc), `WrapLongNames`, `DisableAgingAlert`, `DisableImages`, `AutoCookieRefresh`; **Login browser**: `Login.PersistentProfile`, `Login.StealthMode`, `Login.ManualBinaryPath` e o cartão do navegador embutido |
 | Privacy & security | sempre | **Hidden names**: `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `ShowAccountNameOnWindow` (Windows); **Account file**: botão "Change Encryption Method" (vinha de Misc), `WarnOnCopyCredential`; **Password screen**: `LockOnInactivity`, `LockAfterMinutes`, "Stay signed in on this computer" (os três vinham de Misc), `RestrictedBackgroundStyle` |
@@ -79,6 +79,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `AutoReconnect` | `false` | Padrão de todas as contas para a [reconexão automática](watcher.md#reconexão-automática): reabre no mesmo jogo o cliente que o app abriu quando ele cai. O campo `AutoReconnect` da conta (chave na lista "In game" da página Session) vence. Também muda no cartão "Keep accounts in game" da página Session. Só Windows. |
 | `ReconnectSameServer` | `true` | Como a [reconexão automática](watcher.md#reconexão-automática) escolhe o destino (31/10/2026). Ligado (padrão): volta ao servidor onde a conta estava, e o app já entra pelo jogo sozinho quando vê um teleporte ou um servidor recusado. Desligado: sempre entra pelo jogo (o place, sem Job ID) e o Roblox escolhe o servidor — para jogos que movem a conta para um servidor reservado logo depois de entrar. Servidor privado/VIP ignora a opção. Muda em Settings › Keep in game. Só Windows. |
 | `WaitForGameJoin` | `true` | "Start the next account once the previous one is in the game". Multi-launch no Windows: passa para a próxima conta quando o log diz que a anterior entrou no jogo (nunca antes de 8 s, no máximo 20 s ou o delay, se maior); sem log achado, vale o `AccountJoinDelay`. Ver [multi-launch.md](multi-launch.md). |
+| `WrongAccountQueue` | `ask` | "When an account opens as a different Roblox account" (Windows): o que a fila faz com quem ainda espera a vez quando um cliente entra como outra conta — `ask` pergunta (com "Don't ask again", que grava a resposta aqui), `continue` segue, `stop` para como o Stop. Nenhum cliente é fechado. Ver [watcher.md](watcher.md#conta-errada-no-cliente). |
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |
 | `HideUsernames` | `false` | Mascara nomes na lista. |
 | `AccountListView` | — (`list`) | Lista de contas em linhas (`list`) ou em grade de cards (`cards`); botão de grade/lista na toolbar. Ver [ui-layout.md](ui-layout.md#lista-de-contas). |
@@ -259,7 +260,7 @@ Página **Discord alerts** (na barra lateral; até 27/10/2026 era a seção Sett
 | `NotifyReconnectFailed` | `true` | A reconexão automática desistiu (ou parou por ban, sessão expirada, sem destino). |
 | `NotifyNotResponding` | `true` | A janela ficou "Não respondendo" por 30 s. |
 | `NotifyReconnected` | `false` | A reconexão automática devolveu a conta ao jogo. |
-| `NotifyWrongAccount` | `true` | O cliente de uma conta entrou logado em outra conta do Roblox (a fila para; o cliente fica aberto). |
+| `NotifyWrongAccount` | `true` | O cliente de uma conta entrou logado em outra conta do Roblox (a fila pergunta, segue ou para, conforme `WrongAccountQueue`; o cliente fica aberto). |
 | `NotifyLaunchFailed` | `false` | O launch de uma conta falhou (auth ticket ou abrir o cliente). |
 | `NotifyModerated` | `true` | O Roblox está bloqueando a conta (ban/análise); só na primeira vez. |
 | `NotifyBatchFinished` | `false` | Um lote de launch de 2+ contas terminou (abertas/falharam/canceladas). |

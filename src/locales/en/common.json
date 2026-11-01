@@ -3204,5 +3204,15 @@
   "Accept terms ({{shape}}): Roblox answered {{status}}: {{body}}": "Accept terms ({{shape}}): Roblox answered {{status}}: {{body}}",
   "Accept terms: done, nothing is pending anymore.": "Accept terms: done, nothing is pending anymore.",
   "Accept terms: {{count}} agreement(s) still pending afterwards.": "Accept terms: {{count}} agreement(s) still pending afterwards.",
-  "Accept terms: could not confirm afterwards. Check the terms again.": "Accept terms: could not confirm afterwards. Check the terms again."
+  "Accept terms: could not confirm afterwards. Check the terms again.": "Accept terms: could not confirm afterwards. Check the terms again.",
+  "When an account opens as a different Roblox account": "When an account opens as a different Roblox account",
+  "What happens to the accounts still waiting in the queue. The client that opened stays open.": "What happens to the accounts still waiting in the queue. The client that opened stays open.",
+  "Ask me": "Ask me",
+  "Keep launching": "Keep launching",
+  "Stop the queue": "Stop the queue",
+  "Keep launching the other accounts?": "Keep launching the other accounts?",
+  "That client stays open. The queue is waiting for your answer.": "That client stays open. The queue is waiting for your answer.",
+  "Don't ask again (change it in Settings › Launch)": "Don't ask again (change it in Settings › Launch)",
+  "The Roblox log read for this client was another account's; looking for its own": "The Roblox log read for this client was another account's; looking for its own",
+  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer"
 }

@@ -3474,10 +3474,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addToast(tr("{{name}} in Roblox — {{status}}", { name, status: status.label }), "warn");
       }),
       // O cliente que o app abriu entrou como outra conta (commands/client_health.rs):
-      // o backend já parou a fila (só quem esperava a vez) e não fechou nada.
-      listen<{ userId: number; loggedUserId: number; queueStopped: boolean }>("roblox-client-wrong-account", (e) => {
-        const { userId, loggedUserId, queueStopped } = e.payload;
+      // o backend perguntou (WrongAccountQueueConfirm mostra), seguiu ou parou a
+      // fila (só quem esperava a vez), e não fechou nada.
+      listen<{ userId: number; loggedUserId: number; queueStopped: boolean; queueAsked?: boolean }>("roblox-client-wrong-account", (e) => {
+        const { userId, loggedUserId, queueStopped, queueAsked } = e.payload;
         void refreshRunningRef.current();
+        if (queueAsked === true) return;
         const acct = accountsRef.current.find((a) => a.UserID === userId);
         const name = accountLabel(acct, nameMaskingRef.current, userId);
         addToast(wrongAccountToast(name, loggedUserId, queueStopped === true, tr), "warn");
