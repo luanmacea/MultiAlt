@@ -222,6 +222,8 @@ export function tourHandler(base: InvokeHandler, userIds: number[]): InvokeHandl
             userLabel: "Teste",
           },
         ];
+      case "versions_check_outdated":
+        return [];
       case "versions_list_remote":
         return {
           current: [

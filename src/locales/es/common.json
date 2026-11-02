@@ -3214,5 +3214,11 @@
   "That client stays open. The queue is waiting for your answer.": "Ese cliente sigue abierto. La cola está esperando tu respuesta.",
   "Don't ask again (change it in Settings › Launch)": "No volver a preguntar (puedes cambiarlo en Settings › Launch)",
   "The Roblox log read for this client was another account's; looking for its own": "El log de Roblox leído para este cliente era de otra cuenta; buscando el suyo",
-  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Entró como otra cuenta de Roblox (usuario {{userId}}). La cola de inicio espera tu respuesta"
+  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Entró como otra cuenta de Roblox (usuario {{userId}}). La cola de inicio espera tu respuesta",
+  "Check for updates": "Buscar actualizaciones",
+  "Couldn't reach Roblox to check. Try again in a moment.": "No se pudo contactar con Roblox para comprobar. Inténtalo de nuevo en un momento.",
+  "No versions installed from here. Launches use the Roblox official install.": "No hay versiones instaladas desde aquí. Los inicios usan la instalación oficial de Roblox.",
+  "Outdated. The current build is {{build}}.": "Desactualizada. La build actual es {{build}}.",
+  "Up to date": "Actualizada",
+  "Install the current build in Manage installed versions and make it the default. Launching an outdated version asks first.": "Instala la build actual en Manage installed versions y ponla por defecto. Abrir una versión desactualizada pregunta antes."
 }

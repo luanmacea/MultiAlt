@@ -779,6 +779,7 @@ pub fn run() {
             isolation_dry_run,
             versions_list_installed,
             versions_list_remote,
+            versions_check_outdated,
             versions_install,
             versions_uninstall,
             versions_set_default,

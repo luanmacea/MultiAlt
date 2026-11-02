@@ -76,6 +76,24 @@ async fn versions_list_remote() -> Result<serde_json::Value, String> {
     }
 }
 
+/// Botão "Check for updates" (Settings › Versions): diz se cada versão
+/// instalada ainda é a build atual do canal dela. Só lê; não instala nem remove.
+#[tauri::command]
+async fn versions_check_outdated(
+    catalog: tauri::State<'_, data::versions::VersionsCatalogStore>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let checks = platform::windows::check_catalog_versions(&catalog).await;
+        serde_json::to_value(checks).map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = catalog;
+        Err("Available on Windows only".into())
+    }
+}
+
 #[tauri::command]
 async fn versions_install(
     app: tauri::AppHandle,
