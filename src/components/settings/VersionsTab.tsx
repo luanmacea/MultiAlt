@@ -132,7 +132,7 @@ export function VersionsTab({ s }: { s: UseSettingsReturn }) {
           <p className="mt-2 text-[12px] text-amber-400">{t("Couldn't reach Roblox to check. Try again in a moment.")}</p>
         )}
         {checks && installed.length === 0 && (
-          <p className="mt-2 text-[12px] text-zinc-500">{t("No versions installed from here. Launches use the Roblox official install.")}</p>
+          <p className="mt-2 text-[12px] text-zinc-500">{t("No versions installed from here, so nothing can be outdated. Launches use the current official Roblox build, which MultiAlt downloads on its own when it is missing.")}</p>
         )}
         {checks && installed.length > 0 && (
           <ul className="mt-2 space-y-1">

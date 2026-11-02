@@ -3217,8 +3217,8 @@
   "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Entró como otra cuenta de Roblox (usuario {{userId}}). La cola de inicio espera tu respuesta",
   "Check for updates": "Buscar actualizaciones",
   "Couldn't reach Roblox to check. Try again in a moment.": "No se pudo contactar con Roblox para comprobar. Inténtalo de nuevo en un momento.",
-  "No versions installed from here. Launches use the Roblox official install.": "No hay versiones instaladas desde aquí. Los inicios usan la instalación oficial de Roblox.",
   "Outdated. The current build is {{build}}.": "Desactualizada. La build actual es {{build}}.",
   "Up to date": "Actualizada",
-  "Install the current build in Manage installed versions and make it the default. Launching an outdated version asks first.": "Instala la build actual en Manage installed versions y ponla por defecto. Abrir una versión desactualizada pregunta antes."
+  "Install the current build in Manage installed versions and make it the default. Launching an outdated version asks first.": "Instala la build actual en Manage installed versions y ponla por defecto. Abrir una versión desactualizada pregunta antes.",
+  "No versions installed from here, so nothing can be outdated. Launches use the current official Roblox build, which MultiAlt downloads on its own when it is missing.": "No hay versiones instaladas desde aquí, así que nada puede estar desactualizado. Los inicios usan la build oficial actual de Roblox, que MultiAlt descarga solo cuando falta."
 }
