@@ -9,7 +9,7 @@ import { Divider } from "../ui/Divider";
 import { SectionLabel } from "../ui/SectionLabel";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
-import { Package } from "lucide-react";
+import { Package, RefreshCw } from "lucide-react";
 
 interface VersionEntry {
   channel: string;
@@ -17,6 +17,12 @@ interface VersionEntry {
   installPath: string;
   displayVersion: string | null;
   userLabel: string | null;
+}
+
+interface VersionCheck {
+  versionId: string;
+  current: string | null;
+  outdated: boolean | null;
 }
 
 function shortHash(hash: string): string {
@@ -27,7 +33,23 @@ export function VersionsTab({ s }: { s: UseSettingsReturn }) {
   const t = useTr();
   const store = useStore();
   const [installed, setInstalled] = useState<VersionEntry[]>([]);
+  const [checks, setChecks] = useState<VersionCheck[] | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkFailed, setCheckFailed] = useState(false);
   const defaultVersion = s.get("Versions", "DefaultVersion", "");
+
+  async function checkForUpdates() {
+    setChecking(true);
+    setCheckFailed(false);
+    try {
+      setChecks(await invoke<VersionCheck[]>("versions_check_outdated"));
+    } catch {
+      setChecks(null);
+      setCheckFailed(true);
+    } finally {
+      setChecking(false);
+    }
+  }
 
   async function refresh() {
     try {
@@ -94,6 +116,53 @@ export function VersionsTab({ s }: { s: UseSettingsReturn }) {
           <Package size={13} strokeWidth={1.5} />
           {t("Manage installed versions")}
         </button>
+      </div>
+      {/* Pedido do dono (02/11/2026): ver se as versões instaladas ficaram para
+          trás do Roblox sem esperar o launch perguntar (`versions_check_outdated`). */}
+      <div className="px-1 pb-2">
+        <button
+          onClick={() => void checkForUpdates()}
+          disabled={checking}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-700/70 bg-zinc-800 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-60"
+        >
+          <RefreshCw size={13} strokeWidth={1.5} className={checking ? "animate-spin" : undefined} />
+          {checking ? t("Checking...") : t("Check for updates")}
+        </button>
+        {checkFailed && (
+          <p className="mt-2 text-[12px] text-amber-400">{t("Couldn't reach Roblox to check. Try again in a moment.")}</p>
+        )}
+        {checks && installed.length === 0 && (
+          <p className="mt-2 text-[12px] text-zinc-500">{t("No versions installed from here. Launches use the Roblox official install.")}</p>
+        )}
+        {checks && installed.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {installed.map((v) => {
+              const id = `${v.channel}:${v.versionHash}`;
+              const check = checks.find((c) => c.versionId === id);
+              const name = v.userLabel ?? `${v.channel} · ${v.displayVersion ?? shortHash(v.versionHash)}`;
+              let status = t("Couldn't check");
+              let tone = "text-zinc-500";
+              if (check?.outdated === true) {
+                status = t("Outdated. The current build is {{build}}.", { build: shortHash(check.current ?? "") });
+                tone = "text-amber-400";
+              } else if (check?.outdated === false) {
+                status = t("Up to date");
+                tone = "text-emerald-400";
+              }
+              return (
+                <li key={id} className="flex items-baseline gap-2 text-[12px]">
+                  <span className="text-zinc-300">{name}</span>
+                  <span className={tone}>{status}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {checks && checks.some((c) => c.outdated === true) && (
+          <p className="mt-2 text-[12px] text-zinc-500">
+            {t("Install the current build in Manage installed versions and make it the default. Launching an outdated version asks first.")}
+          </p>
+        )}
       </div>
 
       <Divider />

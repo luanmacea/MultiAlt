@@ -3214,5 +3214,11 @@
   "That client stays open. The queue is waiting for your answer.": "That client stays open. The queue is waiting for your answer.",
   "Don't ask again (change it in Settings › Launch)": "Don't ask again (change it in Settings › Launch)",
   "The Roblox log read for this client was another account's; looking for its own": "The Roblox log read for this client was another account's; looking for its own",
-  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer"
+  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer",
+  "Check for updates": "Check for updates",
+  "Couldn't reach Roblox to check. Try again in a moment.": "Couldn't reach Roblox to check. Try again in a moment.",
+  "No versions installed from here. Launches use the Roblox official install.": "No versions installed from here. Launches use the Roblox official install.",
+  "Outdated. The current build is {{build}}.": "Outdated. The current build is {{build}}.",
+  "Up to date": "Up to date",
+  "Install the current build in Manage installed versions and make it the default. Launching an outdated version asks first.": "Install the current build in Manage installed versions and make it the default. Launching an outdated version asks first."
 }
