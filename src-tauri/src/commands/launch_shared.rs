@@ -1126,6 +1126,66 @@ fn answer_multi_roblox_confirm(allow: bool) -> bool {
     answer_launch_anyway(allow)
 }
 
+/// Resposta pendente do "Multi Roblox está desligado" (`multi-roblox-off-confirm`).
+/// Uma por vez: uma pergunta nova libera a anterior.
+#[cfg(target_os = "windows")]
+static MULTI_ROBLOX_OFF_ANSWER: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>> =
+    std::sync::Mutex::new(None);
+
+/// A tela já gravou a escolha (liga o Multi Roblox, ou "não perguntar de novo")
+/// nas settings; isto só solta o launch que esperava a resposta.
+#[tauri::command]
+fn answer_multi_roblox_off() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let pending = MULTI_ROBLOX_OFF_ANSWER.lock().unwrap_or_else(|e| e.into_inner()).take();
+        pending.map(|tx| tx.send(()).is_ok()).unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+/// Quando faz sentido perguntar: Multi Roblox desligado, a pessoa não mandou
+/// parar de perguntar e há mais de um cliente em jogo (contas deste launch
+/// mais as que já estão abertas).
+#[cfg(target_os = "windows")]
+fn should_ask_enable_multi_roblox(multi_roblox: bool, ask_setting: Option<&str>, clients_after: usize) -> bool {
+    !multi_roblox && ask_setting.map(str::trim) != Some("false") && clients_after > 1
+}
+
+/// Pedido do dono (04/11/2026): vários usuários perguntam no Discord por que só
+/// uma conta fica no jogo — o Multi Roblox estava desligado. Antes de abrir
+/// mais de uma conta com ele desligado, a tela pergunta se liga. Sem resposta
+/// em 2 min, segue como está: o launch nunca trava por isso (regra nº 1) e
+/// nenhum cliente é fechado.
+#[cfg(target_os = "windows")]
+pub(crate) async fn ask_enable_multi_roblox(app: &tauri::AppHandle, settings: &SettingsStore, accounts: usize) {
+    let tracker = platform::windows::tracker();
+    let _ = tracker.cleanup_dead_processes();
+    let open = tracker.get_all().len();
+    let ask_setting = settings.get("General", "AskEnableMultiRbx").ok().flatten();
+    if !should_ask_enable_multi_roblox(
+        settings.get_bool("General", "EnableMultiRbx"),
+        ask_setting.as_deref(),
+        accounts + open,
+    ) {
+        return;
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let previous = MULTI_ROBLOX_OFF_ANSWER.lock().unwrap_or_else(|e| e.into_inner()).replace(tx);
+    if let Some(previous) = previous {
+        let _ = previous.send(());
+    }
+    if app
+        .emit("multi-roblox-off-confirm", serde_json::json!({ "accounts": accounts, "open": open }))
+        .is_ok()
+    {
+        let _ = tokio::time::timeout(LAUNCH_ANYWAY_WAIT, rx).await;
+    }
+}
+
 /// Resposta do "abrir versão antiga?" (`outdated-version-confirm`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OutdatedVersionChoice {

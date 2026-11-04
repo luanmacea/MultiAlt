@@ -669,6 +669,7 @@ pub fn run() {
             cancel_account_launch,
             answer_multi_roblox_confirm,
             answer_outdated_version_confirm,
+            answer_multi_roblox_off,
             answer_wrong_account_queue,
             stop_launch_queue,
             next_account,

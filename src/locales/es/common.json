@@ -3220,5 +3220,11 @@
   "Outdated. The current build is {{build}}.": "Desactualizada. La build actual es {{build}}.",
   "Up to date": "Actualizada",
   "Install the current build in Manage installed versions and make it the default. Launching an outdated version asks first.": "Instala la build actual en Manage installed versions y ponla por defecto. Abrir una versión desactualizada pregunta antes.",
-  "No versions installed from here, so nothing can be outdated. Launches use the current official Roblox build, which MultiAlt downloads on its own when it is missing.": "No hay versiones instaladas desde aquí, así que nada puede estar desactualizado. Los inicios usan la build oficial actual de Roblox, que MultiAlt descarga solo cuando falta."
+  "No versions installed from here, so nothing can be outdated. Launches use the current official Roblox build, which MultiAlt downloads on its own when it is missing.": "No hay versiones instaladas desde aquí, así que nada puede estar desactualizado. Los inicios usan la build oficial actual de Roblox, que MultiAlt descarga solo cuando falta.",
+  "Multi Roblox is off. Turn it on?": "Multi Roblox está desactivado. ¿Activarlo?",
+  "Without it, Roblox keeps only one account open at a time, so opening more closes the others.": "Sin él, Roblox mantiene solo una cuenta abierta a la vez, así que abrir más cierra las otras.",
+  "Turn on Multi Roblox": "Activar Multi Roblox",
+  "Keep it off": "Dejarlo desactivado",
+  "Ask to turn on Multi Roblox when opening several accounts": "Preguntar si activar Multi Roblox al abrir varias cuentas",
+  "With Multi Roblox off, Roblox keeps only one account open. This asks before the launch whether to turn it on.": "Con Multi Roblox desactivado, Roblox mantiene solo una cuenta abierta. Esto pregunta antes del inicio si activarlo."
 }

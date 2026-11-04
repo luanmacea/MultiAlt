@@ -1421,6 +1421,8 @@ async fn launch_roblox(
     // Sequência nova: um "Close All Roblox" antigo não pode cancelar as contas
     // que entrarem no fim desta.
     tracker.reset_launch_cancelled();
+    // Uma conta com outra já aberta e o Multi Roblox desligado: pergunta se liga.
+    ask_enable_multi_roblox(&app, &settings, 1).await;
     let started = std::time::Instant::now();
     let result = launch_roblox_windows(
         app.clone(),
@@ -2087,6 +2089,9 @@ async fn launch_multiple(
 
     let tracker = windows::tracker();
     tracker.reset_launch_cancelled();
+
+    // Vários clientes com o Multi Roblox desligado: pergunta se liga.
+    ask_enable_multi_roblox(&app, &settings, user_ids.len()).await;
 
     // Isolamento é opcional: se falhar, a fila segue (antes abortava o lote).
     let isolation_report = match run_pre_launch_isolation(&app, &settings).await {
