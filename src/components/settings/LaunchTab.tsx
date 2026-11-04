@@ -48,6 +48,14 @@ export function LaunchTab({ s }: { s: UseSettingsReturn }) {
           description="Reserves the name Roblox uses to allow only one window, so a teleport can't close another account. Needs Multi Roblox. Not tested with every game yet: turn it off if a window stops opening."
         />
       )}
+      {isWindows && (
+        <Toggle
+          checked={s.get("General", "AskEnableMultiRbx", "true") !== "false"}
+          onChange={(v) => s.setBool("General", "AskEnableMultiRbx", v)}
+          label="Ask to turn on Multi Roblox when opening several accounts"
+          description="With Multi Roblox off, Roblox keeps only one account open. This asks before the launch whether to turn it on."
+        />
+      )}
       {/* Opt-in e desligado por padrão (CLAUDE.md): é o único caminho que fecha
           clientes de outras contas. */}
       <Toggle

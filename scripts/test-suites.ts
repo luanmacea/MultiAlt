@@ -65,6 +65,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/MultiRobloxConfirm.test.tsx",
       "src/components/OutdatedVersionConfirm.test.tsx",
       "src/components/WrongAccountQueueConfirm.test.tsx",
+      "src/components/MultiRobloxOffConfirm.test.tsx",
       "src/components/session",
       "src/components/pages/SessionPage.test.tsx",
       "src/accountLaunchOverrides.test.ts",
@@ -210,6 +211,7 @@ export const SUITES: Record<string, TestSuite> = {
       "client_wrong_account_tests",
       // Fila: perguntar / seguir / parar quando entra outra conta (launch.rs).
       "wrong_account_queue_tests",
+      "multi_roblox_off_tests",
       // Região e tempo no ar do servidor de cada cliente (Sessão).
       "client_server_region_tests",
       // Linhas do log compartilhadas com os clientes do site (roblox_log.rs).
