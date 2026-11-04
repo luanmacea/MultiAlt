@@ -65,6 +65,9 @@ pub enum ClientLogEvent {
     ChallengeShown,
     /// A pessoa resolveu a verificação (`"feature":"challengeCompleted"`).
     ChallengeCompleted,
+    /// `LogWin32BTId, App, web launch, websiteBTId is <id>`: o browser tracker
+    /// id da URL de launch, isto é, de qual launch (de qual conta) é este log.
+    LaunchedWith { browser_tracker_id: String },
 }
 
 /// Texto depois de `marker`, se houver.
@@ -150,6 +153,10 @@ fn kick_message(line: &str) -> Option<Option<String>> {
 /// Classifica uma linha do log do cliente. Puro: nada aqui guarda a linha
 /// (ela pode trazer ticket, IP e Job ID).
 pub fn classify_log_line(line: &str) -> Option<ClientLogEvent> {
+    if let Some(rest) = text_after(line, "websiteBTId is ") {
+        let id: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        return (!id.is_empty()).then_some(ClientLogEvent::LaunchedWith { browser_tracker_id: id });
+    }
     if line.contains("\"feature\":\"challengeDisplayed\"") {
         return Some(ClientLogEvent::ChallengeShown);
     }
@@ -290,6 +297,8 @@ pub struct ClientLogSession {
     logged_user_id: Option<i64>,
     /// A verificação "confirme que é humano" está na tela, esperando a pessoa.
     challenge: bool,
+    /// O browser tracker id do launch que abriu este cliente, pelo log.
+    browser_tracker_id: Option<String>,
 }
 
 impl ClientLogSession {
@@ -336,6 +345,9 @@ impl ClientLogSession {
             ClientLogEvent::JoinedAs { user_id } => self.logged_user_id = Some(*user_id),
             ClientLogEvent::ChallengeShown => self.challenge = true,
             ClientLogEvent::ChallengeCompleted => self.challenge = false,
+            ClientLogEvent::LaunchedWith { browser_tracker_id } => {
+                self.browser_tracker_id = Some(browser_tracker_id.clone())
+            }
             ClientLogEvent::TeleportStarted => self.last_teleport_ms = Some(now_ms),
             ClientLogEvent::LeftVoluntarily => self.left = true,
             ClientLogEvent::Disconnected { code, reason } => self.note_drop(ClientDrop {
@@ -422,6 +434,11 @@ impl ClientLogSession {
         self.logged_user_id
     }
 
+    /// De qual launch é este log (`websiteBTId`), se ele já disse.
+    pub fn browser_tracker_id(&self) -> Option<&str> {
+        self.browser_tracker_id.as_deref()
+    }
+
     /// Onde a conta entrou por último, se o log disse.
     pub fn destination(&self) -> Option<&JoinedDestination> {
         self.destination.as_ref()
@@ -467,6 +484,18 @@ pub fn wrong_account(expected_user_id: i64, logged_user_id: Option<i64>, adopted
     logged_user_id.filter(|logged| *logged != expected_user_id)
 }
 
+/// O log lido por um cliente é de **outro** launch? Devolve o browser tracker
+/// id que o log mostrou quando não é o da URL que o app usou para esta conta.
+/// Cada conta tem o seu (`browserTrackerId` salvo), então o log de outra conta
+/// nunca bate. Sem o id dos dois lados (old join, cliente do site) não dá para
+/// dizer: `None`, e o log fica.
+pub fn log_from_another_launch(expected: &str, seen: Option<&str>, adopted: bool) -> Option<String> {
+    if adopted || expected.is_empty() {
+        return None;
+    }
+    seen.filter(|seen| *seen != expected).map(str::to_string)
+}
+
 /// Um cliente que o app acompanha, como o tracker diz.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackedClient {
@@ -477,6 +506,8 @@ pub struct TrackedClient {
     /// O nome que vai no título da janela (já mascarado com os nomes
     /// ocultos). `None`: opção desligada — o título volta a ser "Roblox".
     pub window_label: Option<String>,
+    /// O browser tracker id que foi na URL de launch (vazio: não se sabe).
+    pub browser_tracker_id: String,
 }
 
 // ── Nome da conta no título da janela ──────────────────────────────────────
@@ -591,6 +622,10 @@ struct ClientHealthEntry {
     wrong_account: Option<i64>,
     /// A verificação pendente que já virou aviso (para avisar uma vez só).
     challenge_reported: bool,
+    /// O browser tracker id do launch deste cliente (ver `TrackedClient`).
+    browser_tracker_id: String,
+    /// Logs que este cliente leu e eram de outro launch: nunca mais são dele.
+    foreign_logs: HashSet<std::path::PathBuf>,
 }
 
 impl ClientHealthEntry {
@@ -610,7 +645,24 @@ impl ClientHealthEntry {
             not_responding: false,
             wrong_account: None,
             challenge_reported: false,
+            browser_tracker_id: client.browser_tracker_id.clone(),
+            foreign_logs: HashSet::new(),
         }
+    }
+
+    /// Larga o log (era de outro launch) e volta a procurar o seu. A janela
+    /// (título, travamento) é deste processo e fica como está.
+    fn forget_log(&mut self) {
+        if let Some(path) = self.log.take() {
+            self.foreign_logs.insert(path);
+        }
+        self.offset = 0;
+        self.next_locate_ms = 0;
+        self.session = ClientLogSession::default();
+        self.crashed = None;
+        self.exit_seen = false;
+        self.wrong_account = None;
+        self.challenge_reported = false;
     }
 
     fn current_drop(&self) -> Option<&ClientDrop> {
@@ -806,6 +858,9 @@ pub enum HealthNotice {
     NotResponding { user_id: i64, not_responding: bool },
     /// O cliente aberto para `user_id` entrou como `logged_user_id`.
     WrongAccount { user_id: i64, logged_user_id: i64 },
+    /// O log que este cliente lia era de outro launch: largado, e o certo
+    /// volta a ser procurado.
+    ForeignLog { user_id: i64 },
     /// A verificação "confirme que é humano" apareceu (`pending`) ou saiu da
     /// tela (resolvida, entrou no jogo ou o cliente fechou).
     /// `resolved`: saiu porque a pessoa resolveu (ou a conta entrou no jogo),
@@ -816,6 +871,9 @@ pub enum HealthNotice {
 #[derive(Debug, Default)]
 pub struct ClientHealthMonitor {
     entries: HashMap<i64, ClientHealthEntry>,
+    /// Logs que um cliente largou por serem de outro launch, pelo browser
+    /// tracker id que mostraram: o cliente daquele launch os pega direto.
+    handed_back: HashMap<String, std::path::PathBuf>,
 }
 
 impl ClientHealthMonitor {
@@ -845,9 +903,24 @@ impl ClientHealthMonitor {
                 .entry(client.user_id)
                 .or_insert_with(|| ClientHealthEntry::new(client));
             entry.adopted = client.adopted;
+            entry.browser_tracker_id = client.browser_tracker_id.clone();
         }
 
         let alive = os.alive_pids();
+
+        // Log devolvido por outro cliente: vai direto para o launch dele.
+        if !self.handed_back.is_empty() {
+            for entry in self.entries.values_mut() {
+                if entry.log.is_some() || entry.browser_tracker_id.is_empty() {
+                    continue;
+                }
+                if let Some(path) = self.handed_back.remove(&entry.browser_tracker_id) {
+                    entry.log = Some(path);
+                }
+            }
+            let live: HashSet<&str> = self.entries.values().map(|e| e.browser_tracker_id.as_str()).collect();
+            self.handed_back.retain(|id, _| live.contains(id.as_str()));
+        }
 
         let taken: HashSet<std::path::PathBuf> =
             self.entries.values().filter_map(|e| e.log.clone()).collect();
@@ -863,7 +936,7 @@ impl ClientHealthMonitor {
                 if !need.contains(&entry.pid) {
                     continue;
                 }
-                match found.get(&entry.pid) {
+                match found.get(&entry.pid).filter(|path| !entry.foreign_logs.contains(*path)) {
                     Some(path) => entry.log = Some(path.clone()),
                     None => entry.next_locate_ms = now_ms + CLIENT_LOG_RETRY_MS,
                 }
@@ -903,6 +976,22 @@ impl ClientHealthMonitor {
                 }
             }
             entry.session.settle(now_ms);
+
+            // O log é de outro launch (o casamento log → processo errou): ele
+            // volta para quem é dele, e este cliente procura o seu de novo.
+            // Nunca vira "entrou como outra conta".
+            if let Some(other) = log_from_another_launch(
+                &entry.browser_tracker_id,
+                entry.session.browser_tracker_id(),
+                entry.adopted,
+            ) {
+                if let Some(path) = entry.log.clone() {
+                    self.handed_back.insert(other, path);
+                }
+                entry.forget_log();
+                notices.push(HealthNotice::ForeignLog { user_id: client.user_id });
+                continue;
+            }
 
             // Entrou como outra conta: avisa uma vez (por conta vista no log).
             let wrong = wrong_account(client.user_id, entry.session.logged_user_id(), entry.adopted);
@@ -1063,8 +1152,13 @@ pub(crate) fn client_health_of(user_id: i64, pid: u32) -> Option<ClientHealthVie
 }
 
 /// Linha do Console para o cliente que entrou como outra conta.
-fn wrong_account_console_line(logged_user_id: i64, queue_stopped: bool) -> LogMsg {
-    if queue_stopped {
+fn wrong_account_console_line(logged_user_id: i64, queue_stopped: bool, queue_asked: bool) -> LogMsg {
+    if queue_asked {
+        log_msg!(
+            "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer",
+            userId = logged_user_id
+        )
+    } else if queue_stopped {
         log_msg!(
             "Joined as another Roblox account (user {{userId}}). The launch queue was paused",
             userId = logged_user_id
@@ -1183,6 +1277,7 @@ fn run_client_health_tick(app: &tauri::AppHandle) -> Vec<HealthNotice> {
             pid: p.pid,
             adopted: p.adopted,
             window_label: labels.remove(&p.user_id),
+            browser_tracker_id: p.browser_tracker_id.clone(),
         })
         .collect();
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -1317,16 +1412,29 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
             user_id,
             logged_user_id,
         } => {
-            // Para o resto da fila (como o Stop da Sessão): quem ainda espera a
-            // vez é cancelado, ninguém é fechado — nem este cliente, que pode
-            // ser a conta principal da pessoa.
-            let queue_stopped = launch_queue_cancel_all_queued(app) > 0;
+            // Quem ainda espera a vez: pergunta (padrão), segue ou para, como a
+            // pessoa escolheu em `General.WrongAccountQueue`. Ninguém é fechado
+            // — nem este cliente, que pode ser a conta principal da pessoa.
+            let choice = launch_queue_has_queued().then(|| {
+                WrongAccountQueue::from_setting(
+                    &app.state::<SettingsStore>().get_string("General", "WrongAccountQueue"),
+                )
+            });
+            let (queue_stopped, queue_asked) = match choice {
+                Some(WrongAccountQueue::Stop) => (launch_queue_cancel_all_queued(app) > 0, false),
+                Some(WrongAccountQueue::Ask) => {
+                    hold_launch_queue();
+                    (false, true)
+                }
+                Some(WrongAccountQueue::Continue) | None => (false, false),
+            };
             let _ = app.emit(
                 "roblox-client-wrong-account",
                 serde_json::json!({
                     "userId": user_id,
                     "loggedUserId": logged_user_id,
                     "queueStopped": queue_stopped,
+                    "queueAsked": queue_asked,
                 }),
             );
             emit_launch_log(
@@ -1334,7 +1442,18 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 *user_id,
                 "warn",
                 "client",
-                wrong_account_console_line(*logged_user_id, queue_stopped),
+                wrong_account_console_line(*logged_user_id, queue_stopped, queue_asked),
+            );
+        }
+        HealthNotice::ForeignLog { user_id } => {
+            // Fica no Console: é o rastro de que o casamento log → processo
+            // errou (relato de 31/10/2026), sem alarme para a pessoa.
+            emit_launch_log(
+                app,
+                *user_id,
+                "info",
+                "client",
+                log_msg!("The Roblox log read for this client was another account's; looking for its own"),
             );
         }
         HealthNotice::Challenge { user_id, pending, resolved } => {

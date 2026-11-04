@@ -307,6 +307,24 @@ pub async fn client_dir(source: ClientSource, resolved_base_path: &str) -> Strin
     }
 }
 
+/// O old join (`--app -t -j`) abre o exe direto e pula a checagem de update
+/// que o Roblox faz no launch pelo protocolo: só pode usar a pasta da build
+/// **atual** do canal do registro (31/10/2026, bans por "disallowed version of
+/// Roblox"). Sem resposta da consulta de versão, mantém (não dá para afirmar
+/// que é velha) — a regra nº 1 vale.
+pub async fn old_join_folder_is_current(client_dir: &str) -> bool {
+    match build_version_for_channel(&current_player_channel()).await {
+        Some(current) => folder_is_build(client_dir, &current),
+        None => true,
+    }
+}
+
+fn folder_is_build(client_dir: &str, build: &str) -> bool {
+    std::path::Path::new(client_dir.trim_end_matches(['\\', '/']))
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(build))
+}
+
 /// `%LOCALAPPDATA%\Roblox\Versions\<build>\RobloxPlayerBeta.exe` da build
 /// daquele canal, se estiver instalada.
 async fn player_exe_for_channel(channel: &str) -> Option<PathBuf> {

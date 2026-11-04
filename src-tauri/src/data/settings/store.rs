@@ -50,6 +50,16 @@ impl SettingsStore {
                 "true",
                 Some("Multi-launch: start the next account as soon as the previous one is in the game (never before AccountJoinDelay's 8 s floor, at most 20 s)"),
             ),
+            (
+                "WrongAccountQueue",
+                "ask",
+                Some("Multi-launch: when a client opens as a different Roblox account, ask whether to keep launching (ask), keep launching (continue) or stop the queue (stop)"),
+            ),
+            (
+                "AskEnableMultiRbx",
+                "true",
+                Some("Launch: when more than one account would be open and Multi Roblox is off, ask whether to turn it on (Roblox only keeps one window open without it)"),
+            ),
             ("DisableAgingAlert", "false", None),
             (
                 "JoinFriendsByFollowing",
@@ -137,6 +147,11 @@ impl SettingsStore {
                 "AutoReconnect",
                 "false",
                 Some("Default for every account: reopen a client this app opened in the same game when it drops (each account's AutoReconnect field wins)"),
+            ),
+            (
+                "ReconnectSameServer",
+                "true",
+                Some("Auto-reconnect rejoins the exact server the account was in; off = rejoin the game and let Roblox pick the server (for games that move you to a reserved server)"),
             ),
             ("BottingUseSharedClientProfile", "true", None),
             ("BottingAutoShareLaunchFields", "true", None),
