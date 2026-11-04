@@ -1,0 +1,89 @@
+# Build de TESTE do MultiAlt para macOS (04/11/2026): um .dmg universal (Apple
+# Silicon e Intel) de cada edição (padrão e completa), para baixar da aba
+# Actions e mandar para quem vai testar num Mac. Não publica nada, não cria
+# release e não usa segredo.
+#
+# Sem conta de desenvolvedor da Apple o app sai com assinatura ad-hoc
+# (`signingIdentity: "-"`) e sem notarização: o Mac diz que o app "está
+# danificado" até rodar `xattr -cr /Applications/MultiAlt.app` (roteiro em
+# docs/features/macos.md). Updater desligado: não há canal de macOS ainda.
+name: macOS build
+
+on:
+  push:
+    branches:
+      - macos
+  workflow_dispatch:
+
+concurrency:
+  group: macos-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dmg:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: "macos-release"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build macOS standard edition
+        env:
+          VITE_ENABLE_NEXUS: "false"
+          VITE_ENABLE_WEBSERVER: "false"
+          VITE_ENABLE_AVATAR_BATCH: "true"
+          VITE_ENABLE_PYTHON_SCRIPTS: "false"
+        run: bun tauri build --target universal-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}' -- --no-default-features --features standard
+
+      - name: Stage standard dmg
+        run: |
+          mkdir -p out/standard
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/standard/MultiAlt_test-${{ github.run_number }}_macOS.dmg"
+          rm -rf src-tauri/target/universal-apple-darwin/release/bundle
+
+      - name: Build macOS full edition (every feature)
+        env:
+          VITE_ENABLE_NEXUS: "true"
+          VITE_ENABLE_WEBSERVER: "true"
+          VITE_ENABLE_AVATAR_BATCH: "true"
+          VITE_ENABLE_PYTHON_SCRIPTS: "false"
+        run: bun tauri build --target universal-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}' -- --features full
+
+      - name: Stage full dmg
+        run: |
+          mkdir -p out/full
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/full/MultiAlt_test-${{ github.run_number }}_Full-macOS.dmg"
+
+      - name: Upload standard dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: multialt-macos-standard
+          path: out/standard/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload full dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: multialt-macos-full
+          path: out/full/*
+          if-no-files-found: error
+          retention-days: 14
