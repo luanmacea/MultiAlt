@@ -256,6 +256,83 @@ fn keep_waiting_for_next_account(
     !remaining.is_zero() && !cancelled && queued > 0
 }
 
+/// O que fazer com quem ainda espera a vez quando um cliente entra como outra
+/// conta do Roblox (`General.WrongAccountQueue`). Pedido do dono (31/10/2026):
+/// a fila parava sozinha e era preciso pedir as contas de novo; o padrão agora
+/// é perguntar, com "não perguntar de novo" que grava a resposta aqui.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WrongAccountQueue {
+    Ask,
+    Continue,
+    Stop,
+}
+
+impl WrongAccountQueue {
+    fn from_setting(value: &str) -> Self {
+        match value.trim() {
+            "continue" => Self::Continue,
+            "stop" => Self::Stop,
+            _ => Self::Ask,
+        }
+    }
+}
+
+/// A pergunta "continuar a fila?" espera a pessoa: a próxima conta não abre.
+static LAUNCH_QUEUE_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn hold_launch_queue() {
+    LAUNCH_QUEUE_HELD.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn release_launch_queue() {
+    LAUNCH_QUEUE_HELD.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Alguma conta (de qualquer lote) ainda espera a vez.
+fn launch_queue_has_queued() -> bool {
+    with_launch_queue(|queue| {
+        queue
+            .entries
+            .iter()
+            .any(|entry| entry.state == LaunchQueueState::Queued)
+    })
+    .0
+}
+
+/// Resposta da pergunta da conta errada (`roblox-client-wrong-account` com
+/// `queueAsked`). `remember` ("não perguntar de novo") grava a resposta em
+/// `General.WrongAccountQueue`, que a pessoa muda depois em Settings › Launch.
+/// Nenhum cliente é fechado em caso nenhum.
+#[tauri::command]
+fn answer_wrong_account_queue(
+    app: tauri::AppHandle,
+    settings: tauri::State<'_, SettingsStore>,
+    keep_launching: bool,
+    remember: bool,
+) {
+    if remember {
+        let value = if keep_launching { "continue" } else { "stop" };
+        let _ = settings.set("General", "WrongAccountQueue", value);
+    }
+    if !keep_launching {
+        launch_queue_cancel_all_queued(&app);
+    }
+    release_launch_queue();
+}
+
+/// Segura a próxima conta enquanto a pergunta da conta errada espera. Sai
+/// quando a pessoa responde, quando não sobra ninguém na fila (Stop, "não")
+/// ou quando tudo é cancelado — nesses dois últimos, a trava sai junto.
+async fn wait_while_launch_queue_held(sequence: &LaunchSequenceGuard, cancelled: impl Fn() -> bool) {
+    while LAUNCH_QUEUE_HELD.load(std::sync::atomic::Ordering::SeqCst) {
+        if cancelled() || sequence.queued_count() == 0 {
+            release_launch_queue();
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
 /// Dorme `wait` em fatias e volta assim que não houver mais conta esperando a vez
 /// nesta sequência (fila parada pelo usuário, ou outro lote assumiu) ou o
 /// cancelamento global chegar.
@@ -1344,6 +1421,8 @@ async fn launch_roblox(
     // Sequência nova: um "Close All Roblox" antigo não pode cancelar as contas
     // que entrarem no fim desta.
     tracker.reset_launch_cancelled();
+    // Uma conta com outra já aberta e o Multi Roblox desligado: pergunta se liga.
+    ask_enable_multi_roblox(&app, &settings, 1).await;
     let started = std::time::Instant::now();
     let result = launch_roblox_windows(
         app.clone(),
@@ -1513,11 +1592,8 @@ async fn launch_roblox_windows(
     // fast flags) e o spawn do old join usam esta mesma — antes o patch ia
     // para `resolved_base_path` e o old join sem versão do catálogo abria a
     // build do canal do registro.
-    let client_dir = windows::client_dir(
-        windows::client_source(use_old_join, resolved_version_id.is_some()),
-        &resolved_base_path,
-    )
-    .await;
+    let (use_old_join, client_dir) =
+        resolve_client_dir(&app, user_id, use_old_join, resolved_version_id.as_deref(), &resolved_base_path).await;
 
     let tracker = windows::tracker();
     if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -2046,6 +2122,9 @@ async fn launch_multiple(
     let tracker = windows::tracker();
     tracker.reset_launch_cancelled();
 
+    // Vários clientes com o Multi Roblox desligado: pergunta se liga.
+    ask_enable_multi_roblox(&app, &settings, user_ids.len()).await;
+
     // Isolamento é opcional: se falhar, a fila segue (antes abortava o lote).
     let isolation_report = match run_pre_launch_isolation(&app, &settings).await {
         Ok(value) => value,
@@ -2107,6 +2186,8 @@ async fn run_launch_queue_windows(
     let tracker = windows::tracker();
 
     loop {
+        // Uma conta entrou como outra e a pessoa ainda não disse se a fila segue.
+        wait_while_launch_queue_held(sequence, || tracker.is_launch_cancelled()).await;
         if tracker.is_launch_cancelled() {
             // "Close All Roblox": nada do que sobrou vai ser tentado.
             sequence.cancel_remaining();
@@ -2361,11 +2442,8 @@ async fn run_launch_queue_windows(
         windows::refresh_production_version().await;
         // Mesma pasta para o patch e para o spawn do old join (ver o launch de
         // uma conta, acima).
-        let acct_client_dir = windows::client_dir(
-            windows::client_source(acct_use_old_join, acct_version_id.is_some()),
-            &acct_base_path,
-        )
-        .await;
+        let (acct_use_old_join, acct_client_dir) =
+            resolve_client_dir(app, uid, acct_use_old_join, acct_version_id.as_deref(), &acct_base_path).await;
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
             let closed = tracker.kill_for_user_graceful_async(uid, 4500).await;
@@ -3189,6 +3267,48 @@ fn cmd_apply_fps_unlock(max_fps: u32) -> Result<(), String> {
 // Máquina de estados da fila de launch observável. Tudo aqui roda sobre
 // `LaunchQueue` (lógica pura) — os wrappers `launch_queue_*` só acrescentam o
 // `AppHandle` e a emissão do evento, que não dá para instanciar em teste.
+#[cfg(test)]
+mod wrong_account_queue_tests {
+    use super::*;
+
+    /// Pedido do dono (31/10/2026): a fila não para mais sozinha; o padrão é
+    /// perguntar, e a resposta com "não perguntar de novo" vira a escolha.
+    #[test]
+    fn the_setting_defaults_to_asking() {
+        assert_eq!(WrongAccountQueue::from_setting(""), WrongAccountQueue::Ask);
+        assert_eq!(WrongAccountQueue::from_setting("ask"), WrongAccountQueue::Ask);
+        assert_eq!(WrongAccountQueue::from_setting("bogus"), WrongAccountQueue::Ask);
+        assert_eq!(WrongAccountQueue::from_setting("continue"), WrongAccountQueue::Continue);
+        assert_eq!(WrongAccountQueue::from_setting(" stop "), WrongAccountQueue::Stop);
+    }
+
+    #[test]
+    fn the_answer_command_is_registered_and_never_closes_a_client() {
+        let lib = include_str!("../lib.rs");
+        assert!(lib.contains("answer_wrong_account_queue,"));
+        let source = include_str!("launch.rs");
+        let start = source.find("fn answer_wrong_account_queue(").expect("command");
+        let end = start + source[start..].find("\n}\n").unwrap();
+        let body = &source[start..end];
+        assert!(body.contains("release_launch_queue()"));
+        for forbidden in ["kill", "terminate", "close_client", "cancel_launch("] {
+            assert!(!body.contains(forbidden), "{forbidden}");
+        }
+    }
+
+    /// A trava é olhada no topo de cada volta do laço da fila, antes da
+    /// próxima conta.
+    #[test]
+    fn the_queue_loop_waits_while_the_question_is_open() {
+        let source = include_str!("launch.rs");
+        let start = source.find("async fn run_launch_queue_windows(").expect("loop");
+        let body = &source[start..];
+        let held = body.find("wait_while_launch_queue_held(sequence").expect("hold check");
+        let next = body.find("sequence.next_or_finish()").expect("next account");
+        assert!(held < next);
+    }
+}
+
 #[cfg(test)]
 mod launch_queue_tests {
     use super::*;

@@ -73,6 +73,7 @@ include!("commands/session_history.rs");
 include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
+include!("commands/agreements.rs");
 include!("commands/reconnect.rs");
 include!("commands/closed_clients.rs");
 include!("commands/keep_awake.rs");
@@ -636,6 +637,9 @@ pub fn run() {
             copy_account_secret,
             check_account_moderation,
             check_accounts,
+            check_account_terms,
+            check_accounts_terms,
+            accept_account_terms,
             get_robux,
             get_user_info,
             lookup_user,
@@ -741,6 +745,8 @@ pub fn run() {
             cancel_account_launch,
             answer_multi_roblox_confirm,
             answer_outdated_version_confirm,
+            answer_multi_roblox_off,
+            answer_wrong_account_queue,
             stop_launch_queue,
             next_account,
             start_botting_mode,
@@ -777,6 +783,7 @@ pub fn run() {
             isolation_dry_run,
             versions_list_installed,
             versions_list_remote,
+            versions_check_outdated,
             versions_install,
             versions_uninstall,
             versions_set_default,

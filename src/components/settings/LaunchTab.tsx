@@ -4,6 +4,8 @@ import { NumberField } from "../ui/NumberField";
 import { Divider } from "../ui/Divider";
 import { SectionLabel } from "../ui/SectionLabel";
 import { WarningBadge } from "../ui/WarningBadge";
+import { Select } from "../ui/Select";
+import { useTr } from "../../i18n/text";
 import { isWindowsUserAgent } from "./settingsParts";
 import { useStore } from "../../store";
 import { platformFeatures } from "../../utils/platform";
@@ -11,12 +13,20 @@ import { platformFeatures } from "../../utils/platform";
 /** Espelha `MIN_JOIN_GAP_SECS` em `commands/launch.rs`: abaixo disso nada muda. */
 const MIN_JOIN_DELAY_SECONDS = 8;
 
+/** Valores de `General.WrongAccountQueue` (`WrongAccountQueue::from_setting`). */
+const WRONG_ACCOUNT_QUEUE_OPTIONS = [
+  { value: "ask", label: "Ask me" },
+  { value: "continue", label: "Keep launching" },
+  { value: "stop", label: "Stop the queue" },
+];
+
 /**
  * Settings › Launch: como as contas abrem. Saiu de General (Multi Roblox,
  * espaçamento, checagens) e de Misc (Shuffle Job ID e os dois "Auto Close")
  * em 11/10/2026 — ver docs/features/settings.md.
  */
 export function LaunchTab({ s }: { s: UseSettingsReturn }) {
+  const t = useTr();
   const serialLaunch = s.getBool("General", "AsyncJoin");
   const isWindows = isWindowsUserAgent();
   // As travas do Roblox (mutex/evento) só existem no Windows: no Linux o Sober
@@ -43,6 +53,14 @@ export function LaunchTab({ s }: { s: UseSettingsReturn }) {
           disabled={!s.getBool("General", "EnableMultiRbx")}
           label={<>Experimental: keep clients open across teleports<WarningBadge>use at own risk</WarningBadge></>}
           description="Reserves the name Roblox uses to allow only one window, so a teleport can't close another account. Needs Multi Roblox. Not tested with every game yet: turn it off if a window stops opening."
+        />
+      )}
+      {isWindows && (
+        <Toggle
+          checked={s.get("General", "AskEnableMultiRbx", "true") !== "false"}
+          onChange={(v) => s.setBool("General", "AskEnableMultiRbx", v)}
+          label="Ask to turn on Multi Roblox when opening several accounts"
+          description="With Multi Roblox off, Roblox keeps only one account open. This asks before the launch whether to turn it on."
         />
       )}
       {/* Opt-in e desligado por padrão (CLAUDE.md): é o único caminho que fecha
@@ -99,6 +117,26 @@ export function LaunchTab({ s }: { s: UseSettingsReturn }) {
           }
           disabled={serialLaunch}
         />
+      )}
+      {/* Conta errada na fila (client_health.rs, `WrongAccountQueue` em
+          launch.rs): pedido do dono em 31/10/2026 — a fila parava sozinha. */}
+      {isWindows && (
+        <div className="flex items-center gap-3 py-2 px-1">
+          <div className="min-w-0">
+            <div className="text-[13px] text-zinc-300">{t("When an account opens as a different Roblox account")}</div>
+            <div className="mt-0.5 text-[12px] text-zinc-500">
+              {t("What happens to the accounts still waiting in the queue. The client that opened stays open.")}
+            </div>
+          </div>
+          <div className="ml-auto min-w-[180px]">
+            <Select
+              ariaLabel="When an account opens as a different Roblox account"
+              value={s.get("General", "WrongAccountQueue", "ask")}
+              options={WRONG_ACCOUNT_QUEUE_OPTIONS}
+              onChange={(value) => s.set("General", "WrongAccountQueue", value)}
+            />
+          </div>
+        </div>
       )}
 
       <Divider />

@@ -25,6 +25,8 @@ Relato do Discord: todas as contas de uma pessoa banidas por "using a disallowed
 - O ciclo do Auto Rejoin não pergunta (ninguém na frente): abre a atual, com o motivo no log.
 - `Versions.AllowOutdated` (Settings › Versions › "Open outdated versions without asking", desligado) abre a velha sem perguntar.
 - Consulta de versão sem resposta: abre a escolhida (não dá para afirmar que é velha). Nunca recusa o launch (regra nº 1).
+- **Old join sem versão do catálogo** (`Developer.UseOldJoin`, desligado por padrão): ele abre o exe direto e pula a checagem de update que o Roblox faz no launch pelo protocolo. Se a pasta não é a build atual do canal (o download da atual falhou e sobrou uma velha), o launch vai pelo protocolo, que atualiza o cliente, com aviso no Console (`resolve_client_dir` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs), `old_join_folder_is_current` em [launch.rs](../../src-tauri/src/platform/windows/launch.rs); teste `old_join_current_build_tests`). Pelo protocolo uma build um pouco velha não entra no jogo: o próprio Roblox a atualiza antes.
+- **Botão "Check for updates"** (Settings › Versions, 02/11/2026): `versions_check_outdated` compara cada versão instalada com a build atual do canal (`check_catalog_versions`, uma consulta por canal, ignora `AllowOutdated`) e a tela marca "Up to date" / "Outdated" / "Couldn't check". Só lê: não instala nem remove nada. Teste [VersionsTab.test.tsx](../../src/components/settings/VersionsTab.test.tsx).
 - Testes: `an_outdated_catalog_version_gives_way_to_the_current_build`, `outdated_version_choice_tests`, [OutdatedVersionConfirm.test.tsx](../../src/components/OutdatedVersionConfirm.test.tsx).
 
 ## Fluxo

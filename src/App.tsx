@@ -30,6 +30,7 @@ import { AccountFieldsDialog } from "./components/dialogs/AccountFieldsDialog";
 import { AccountUtilsDialog } from "./components/dialogs/AccountUtilsDialog";
 import { BulkCredentialsDialog } from "./components/dialogs/BulkCredentialsDialog";
 import { AccountCheckResultsDialog } from "./components/dialogs/AccountCheckResultsDialog";
+import { TermsCheckDialog } from "./components/dialogs/TermsCheckDialog";
 import { ActionResultsDialog } from "./components/dialogs/ActionResultsDialog";
 import { MissingAssetsDialog } from "./components/dialogs/MissingAssetsDialog";
 import { UpdateDialog } from "./components/dialogs/UpdateDialog";
@@ -42,6 +43,8 @@ import { PresetsDialog } from "./components/presets/PresetsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { MultiRobloxConfirm } from "./components/MultiRobloxConfirm";
 import { OutdatedVersionConfirm } from "./components/OutdatedVersionConfirm";
+import { WrongAccountQueueConfirm } from "./components/WrongAccountQueueConfirm";
+import { MultiRobloxOffConfirm } from "./components/MultiRobloxOffConfirm";
 import { SessionPage } from "./components/pages/SessionPage";
 import { ConsolePage } from "./components/pages/ConsolePage";
 import { AfkPage } from "./components/pages/AfkPage";
@@ -82,6 +85,7 @@ function AppContent() {
     store.accountUtilsOpen ||
     store.bulkCredentialsOpen ||
     !!store.accountCheckReport ||
+    !!store.termsDialogIds ||
     !!store.actionReport ||
     !!store.missingAssets ||
     !!store.afkModeDialog ||
@@ -365,6 +369,8 @@ function AppContent() {
         onClose={() => store.setAccountCheckReport(null)}
       />
 
+      <TermsCheckDialog open={!!store.termsDialogIds} onClose={() => store.setTermsDialogIds(null)} />
+
       <ActionResultsDialog open={!!store.actionReport} onClose={() => store.setActionReport(null)} />
 
       <MissingAssetsDialog />
@@ -397,6 +403,8 @@ function AppContent() {
 
       <MultiRobloxConfirm />
       <OutdatedVersionConfirm />
+      <WrongAccountQueueConfirm />
+      <MultiRobloxOffConfirm />
 
       <UpdateDialog />
 

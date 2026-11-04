@@ -259,6 +259,16 @@ describe("BottomActionBar — actions", () => {
     expect(store.checkAccounts).toHaveBeenCalledWith([1, 2]);
   });
 
+  /** Acordos atualizados: o lote lê os termos da seleção (só leitura). */
+  it("checks the terms of the selected accounts", async () => {
+    const store = renderBar();
+    await openActions();
+    const button = screen.getByRole("button", { name: /Check Terms \(2\)/ });
+    expect(button).toHaveTextContent(/Read-only/);
+    await userEvent.click(button);
+    expect(store.checkTermsBatch).toHaveBeenCalledWith([1, 2]);
+  });
+
   it("shows the progress of a running check on the Actions button", () => {
     renderBar([A, B], { accountCheckProgress: { done: 3, total: 20 } });
     expect(screen.getByRole("button", { name: /^Checking 3\/20/ })).toBeInTheDocument();

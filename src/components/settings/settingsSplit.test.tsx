@@ -59,6 +59,7 @@ const INVENTORY: Entry[] = [
   // Keep in game
   { label: "Auto Rejoin", tab: "keep-in-game", save: ["General", "BottingEnabled", "true"] },
   { label: "Reconnect accounts that drop", tab: "keep-in-game" },
+  { label: "Reconnect to the same server", tab: "keep-in-game", save: ["General", "ReconnectSameServer", "false"] },
   {
     label: "Keep the PC awake while accounts are kept in game",
     tab: "keep-in-game",

@@ -864,6 +864,44 @@ pub async fn outdated_catalog_version(
     })
 }
 
+/// Resultado da checagem manual de uma versão instalada (botão "Check for
+/// updates" em Settings › Versions). `current` é a build atual do canal;
+/// `outdated` é `None` quando a consulta não respondeu.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogVersionCheck {
+    pub version_id: String,
+    pub current: Option<String>,
+    pub outdated: Option<bool>,
+}
+
+/// Compara cada versão instalada com a build atual do canal dela (a mesma
+/// consulta do launch, `build_version_for_channel`), uma consulta por canal.
+/// Ignora `Versions.AllowOutdated`: o botão mostra o estado de verdade.
+pub async fn check_catalog_versions(
+    catalog: &crate::data::versions::VersionsCatalogStore,
+) -> Vec<CatalogVersionCheck> {
+    let mut builds: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
+    let mut out = Vec::new();
+    for entry in catalog.list() {
+        let channel = if channel_is_production(&entry.channel) {
+            PRODUCTION_CHANNEL.to_string()
+        } else {
+            entry.channel.clone()
+        };
+        if !builds.contains_key(&channel) {
+            let build = build_version_for_channel(&channel).await;
+            builds.insert(channel.clone(), build);
+        }
+        let current = builds.get(&channel).cloned().flatten().filter(|c| !c.trim().is_empty());
+        let outdated = current
+            .as_deref()
+            .map(|c| outdated_catalog_build(&entry.version_hash, Some(c), false).is_some());
+        out.push(CatalogVersionCheck { version_id: entry.version_id(), current, outdated });
+    }
+    out
+}
+
 /// A build atual quando `installed` ficou para trás dela; `None` quando a
 /// instalada é a atual, quando não se sabe a atual ou quando a pessoa liberou
 /// versões velhas.

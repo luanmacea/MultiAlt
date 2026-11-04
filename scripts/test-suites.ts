@@ -64,6 +64,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/ChooseGameScreen.test.tsx",
       "src/components/MultiRobloxConfirm.test.tsx",
       "src/components/OutdatedVersionConfirm.test.tsx",
+      "src/components/WrongAccountQueueConfirm.test.tsx",
+      "src/components/MultiRobloxOffConfirm.test.tsx",
       "src/components/session",
       "src/components/pages/SessionPage.test.tsx",
       "src/accountLaunchOverrides.test.ts",
@@ -147,6 +149,9 @@ export const SUITES: Record<string, TestSuite> = {
       "moderation_command_tests",
       "session_check_http_tests",
       "account_check_tests",
+      // Acordos atualizados (Termos / Privacidade): conferir e aceitar.
+      "agreements_http_tests",
+      "terms_command_tests",
       "remember_unlock_tests",
       "crypto_tests",
       "vault_key_tests",
@@ -175,6 +180,9 @@ export const SUITES: Record<string, TestSuite> = {
       "src/utils/accountCheck.test.ts",
       // Janela de resultados do Check Accounts em lote: quais contas, filtro, selecionar banidas.
       "src/components/dialogs/AccountCheckResultsDialog.test.tsx",
+      // Termos pendentes: texto do estado, resposta exata do Roblox, janela do lote.
+      "src/utils/terms.test.ts",
+      "src/components/dialogs/TermsCheckDialog.test.tsx",
       // Resultado conta a conta das outras ações do menu Ações, e o "Fazer login de novo".
       "src/components/dialogs/ActionResultsDialog.test.tsx",
       "src/components/layout/StatusBar.test.tsx",
@@ -201,6 +209,9 @@ export const SUITES: Record<string, TestSuite> = {
       "client_window_title_tests",
       // Cliente que entrou como outra conta (userid do log ≠ conta lançada).
       "client_wrong_account_tests",
+      // Fila: perguntar / seguir / parar quando entra outra conta (launch.rs).
+      "wrong_account_queue_tests",
+      "multi_roblox_off_tests",
       // Região e tempo no ar do servidor de cada cliente (Sessão).
       "client_server_region_tests",
       // Linhas do log compartilhadas com os clientes do site (roblox_log.rs).
@@ -297,6 +308,7 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "win_versions_tests",
       "outdated_version_choice_tests",
+      "old_join_current_build_tests",
       "build_download_retry_tests",
       "versions_catalog_tests",
       "versions_command_tests",
@@ -542,6 +554,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/tauriWindowConfig.test.ts",
       "src/uiScale.test.ts",
       "src/components/settings/AppTab.test.tsx",
+      "src/components/settings/VersionsTab.test.tsx",
       // Janela grande: páginas sem teto de largura em lista/cartão.
       "src/components/pages/wideLayout.test.ts",
       "src/repoOwnership.test.ts",

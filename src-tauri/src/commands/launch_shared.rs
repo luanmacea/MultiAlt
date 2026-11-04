@@ -1126,6 +1126,66 @@ fn answer_multi_roblox_confirm(allow: bool) -> bool {
     answer_launch_anyway(allow)
 }
 
+/// Resposta pendente do "Multi Roblox está desligado" (`multi-roblox-off-confirm`).
+/// Uma por vez: uma pergunta nova libera a anterior.
+#[cfg(target_os = "windows")]
+static MULTI_ROBLOX_OFF_ANSWER: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>> =
+    std::sync::Mutex::new(None);
+
+/// A tela já gravou a escolha (liga o Multi Roblox, ou "não perguntar de novo")
+/// nas settings; isto só solta o launch que esperava a resposta.
+#[tauri::command]
+fn answer_multi_roblox_off() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let pending = MULTI_ROBLOX_OFF_ANSWER.lock().unwrap_or_else(|e| e.into_inner()).take();
+        pending.map(|tx| tx.send(()).is_ok()).unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+/// Quando faz sentido perguntar: Multi Roblox desligado, a pessoa não mandou
+/// parar de perguntar e há mais de um cliente em jogo (contas deste launch
+/// mais as que já estão abertas).
+#[cfg(target_os = "windows")]
+fn should_ask_enable_multi_roblox(multi_roblox: bool, ask_setting: Option<&str>, clients_after: usize) -> bool {
+    !multi_roblox && ask_setting.map(str::trim) != Some("false") && clients_after > 1
+}
+
+/// Pedido do dono (04/11/2026): vários usuários perguntam no Discord por que só
+/// uma conta fica no jogo — o Multi Roblox estava desligado. Antes de abrir
+/// mais de uma conta com ele desligado, a tela pergunta se liga. Sem resposta
+/// em 2 min, segue como está: o launch nunca trava por isso (regra nº 1) e
+/// nenhum cliente é fechado.
+#[cfg(target_os = "windows")]
+pub(crate) async fn ask_enable_multi_roblox(app: &tauri::AppHandle, settings: &SettingsStore, accounts: usize) {
+    let tracker = platform::windows::tracker();
+    let _ = tracker.cleanup_dead_processes();
+    let open = tracker.get_all().len();
+    let ask_setting = settings.get("General", "AskEnableMultiRbx").ok().flatten();
+    if !should_ask_enable_multi_roblox(
+        settings.get_bool("General", "EnableMultiRbx"),
+        ask_setting.as_deref(),
+        accounts + open,
+    ) {
+        return;
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let previous = MULTI_ROBLOX_OFF_ANSWER.lock().unwrap_or_else(|e| e.into_inner()).replace(tx);
+    if let Some(previous) = previous {
+        let _ = previous.send(());
+    }
+    if app
+        .emit("multi-roblox-off-confirm", serde_json::json!({ "accounts": accounts, "open": open }))
+        .is_ok()
+    {
+        let _ = tokio::time::timeout(LAUNCH_ANYWAY_WAIT, rx).await;
+    }
+}
+
 /// Resposta do "abrir versão antiga?" (`outdated-version-confirm`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OutdatedVersionChoice {
@@ -1218,6 +1278,41 @@ async fn ask_outdated_version(
         }
     }
     choice
+}
+
+/// Pasta de onde o cliente abre (`windows::client_dir`) e se o launch vai
+/// mesmo pelo old join. Old join sem versão do catálogo (`Developer.UseOldJoin`)
+/// abre o exe direto, sem a checagem de update do Roblox: se a pasta não é a
+/// build atual (o download da atual falhou e sobrou uma velha), vai pelo
+/// protocolo, que atualiza o cliente, em vez de entrar com versão velha
+/// (31/10/2026). Versão do catálogo escolhida passa pelo aviso de versão velha.
+#[cfg(target_os = "windows")]
+pub(crate) async fn resolve_client_dir(
+    app: &tauri::AppHandle,
+    user_id: i64,
+    use_old_join: bool,
+    version_id: Option<&str>,
+    base_path: &str,
+) -> (bool, String) {
+    let source = platform::windows::client_source(use_old_join, version_id.is_some());
+    let dir = platform::windows::client_dir(source, base_path).await;
+    if source != platform::windows::ClientSource::RegistryChannel
+        || platform::windows::old_join_folder_is_current(&dir).await
+    {
+        return (use_old_join, dir);
+    }
+    emit_launch_log(
+        app,
+        user_id,
+        "warn",
+        "version",
+        log_msg!(
+            "The Roblox build in {{folder}} is not the current one, so this account opens through the normal Roblox launch, which updates it, instead of the old join.",
+            folder = dir.as_str()
+        ),
+    );
+    let dir = platform::windows::client_dir(platform::windows::ClientSource::Production, base_path).await;
+    (false, dir)
 }
 
 /// A pasta do Roblox para o launch (`resolve_roblox_install_path_with_notice`),
@@ -3613,5 +3708,31 @@ mod outdated_version_choice_tests {
         assert_eq!(OutdatedVersionChoice::parse("current"), OutdatedVersionChoice::UseCurrent);
         assert_eq!(OutdatedVersionChoice::parse(""), OutdatedVersionChoice::UseCurrent);
         assert_eq!(OutdatedVersionChoice::parse("yes"), OutdatedVersionChoice::UseCurrent);
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod multi_roblox_off_tests {
+    use super::*;
+
+    /// Pedido do dono (04/11/2026): quem abre várias contas com o Multi Roblox
+    /// desligado recebe a pergunta, em vez de perguntar no Discord.
+    #[test]
+    fn asks_only_for_several_clients_with_multi_roblox_off() {
+        assert!(should_ask_enable_multi_roblox(false, None, 5), "five accounts, option never touched");
+        assert!(should_ask_enable_multi_roblox(false, Some("true"), 2));
+        assert!(should_ask_enable_multi_roblox(false, None, 2), "one launch beside one already open");
+        assert!(!should_ask_enable_multi_roblox(false, None, 1), "a single client never asks");
+        assert!(!should_ask_enable_multi_roblox(true, None, 5), "already on");
+        assert!(!should_ask_enable_multi_roblox(false, Some("false"), 5), "asked not to ask again");
+    }
+
+    #[test]
+    fn the_answer_releases_the_launch_that_was_waiting() {
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        *MULTI_ROBLOX_OFF_ANSWER.lock().unwrap() = Some(tx);
+        assert!(answer_multi_roblox_off());
+        assert!(rx.try_recv().is_ok());
+        assert!(!answer_multi_roblox_off(), "nothing pending any more");
     }
 }

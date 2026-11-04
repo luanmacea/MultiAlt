@@ -312,6 +312,24 @@ pub async fn client_dir(source: ClientSource, resolved_base_path: &str) -> Strin
     }
 }
 
+/// O old join (`--app -t -j`) abre o exe direto e pula a checagem de update
+/// que o Roblox faz no launch pelo protocolo: só pode usar a pasta da build
+/// **atual** do canal do registro (31/10/2026, bans por "disallowed version of
+/// Roblox"). Sem resposta da consulta de versão, mantém (não dá para afirmar
+/// que é velha) — a regra nº 1 vale.
+pub async fn old_join_folder_is_current(client_dir: &str) -> bool {
+    match build_version_for_channel(&current_player_channel()).await {
+        Some(current) => folder_is_build(client_dir, &current),
+        None => true,
+    }
+}
+
+fn folder_is_build(client_dir: &str, build: &str) -> bool {
+    std::path::Path::new(client_dir.trim_end_matches(['\\', '/']))
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(build))
+}
+
 /// `%LOCALAPPDATA%\Roblox\Versions\<build>\RobloxPlayerBeta.exe` da build
 /// daquele canal, se estiver instalada.
 async fn player_exe_for_channel(channel: &str) -> Option<PathBuf> {
@@ -1479,6 +1497,23 @@ mod client_dir_tests {
         remember_resolved_build("zcanaldeteste", "version-docanaldeteste");
         let remembered = LAST_RESOLVED_BUILD.lock().unwrap().clone();
         assert_ne!(remembered.as_deref(), Some("version-docanaldeteste"));
+    }
+}
+
+#[cfg(test)]
+mod old_join_current_build_tests {
+    use super::*;
+
+    // O old join abre o exe direto, sem a checagem de update do Roblox: uma
+    // pasta que não é a build atual entraria no jogo com versão velha
+    // ("disallowed version of Roblox", 31/10/2026).
+    #[test]
+    fn the_old_join_only_trusts_the_folder_of_the_current_build() {
+        let base = r"C:\Users\x\AppData\Local\Roblox\Versions";
+        assert!(folder_is_build(&format!(r"{base}\version-abc"), "version-abc"));
+        assert!(folder_is_build(&format!(r"{base}\VERSION-ABC\"), "version-abc"));
+        assert!(!folder_is_build(&format!(r"{base}\version-old"), "version-abc"));
+        assert!(!folder_is_build("", "version-abc"), "no folder: not the current build");
     }
 }
 
