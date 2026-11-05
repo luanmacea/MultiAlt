@@ -585,18 +585,10 @@ mod updater_tests {
         assert_eq!(resolve_manifest_channel_for("stable", "standard", ""), "stable");
     }
 
-    /// Cada sistema le so os seus manifestos: o macOS nunca cai nos do Windows
-    /// (que nao tem entrada `darwin-*`) nem nos do Linux.
+    /// O macOS tem canal proprio por edicao, como o Linux.
     #[test]
-    fn each_os_reads_its_own_manifest_channel() {
-        let expected = if cfg!(target_os = "linux") {
-            "-linux"
-        } else if cfg!(target_os = "macos") {
-            "-macos"
-        } else {
-            ""
-        };
-        assert_eq!(PLATFORM_CHANNEL_SUFFIX, expected);
+    fn macos_channels_carry_the_macos_suffix() {
+        assert_eq!(resolve_manifest_channel_for("stable", "standard", "-macos"), "stable-macos");
         assert_eq!(resolve_manifest_channel_for("stable", "nexus-ws", "-macos"), "stable-macos-nexus-ws");
     }
 
@@ -625,7 +617,14 @@ mod updater_tests {
 
     #[test]
     fn the_platform_suffix_follows_the_target_os() {
-        assert_eq!(PLATFORM_CHANNEL_SUFFIX, if cfg!(target_os = "linux") { "-linux" } else { "" });
+        let expected = if cfg!(target_os = "linux") {
+            "-linux"
+        } else if cfg!(target_os = "macos") {
+            "-macos"
+        } else {
+            ""
+        };
+        assert_eq!(PLATFORM_CHANNEL_SUFFIX, expected);
     }
 
     #[test]
