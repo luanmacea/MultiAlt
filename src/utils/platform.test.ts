@@ -138,6 +138,37 @@ describe("platformFeatures", () => {
     });
   });
 
+  it("on macOS hides the Win32 pages but keeps Multi Roblox, client settings and the watcher", () => {
+    // Exactly what `commands/platform_info.rs` reports for macOS (branch `macos`).
+    const f = platformFeatures({
+      ...caps("macos"),
+      supportsWatcherMemory: false,
+      supportsWindowControls: false,
+      supportsBotting: false,
+      supportsLiveView: false,
+      supportsAfkInput: false,
+      supportsIsolation: false,
+      supportsVersions: false,
+      supportsOptimization: false,
+      supportsExternalClients: false,
+      supportsPython: false,
+    });
+    expect(f).toEqual({
+      liveView: false,
+      afkInput: false,
+      afkPage: false,
+      isolation: false,
+      multiRobloxMutex: true,
+      versions: false,
+      optimization: false,
+      clientSettings: true,
+      externalClients: false,
+      python: false,
+      watcher: true,
+      linuxSection: false,
+    });
+  });
+
   it("keeps the AFK page when Auto Rejoin works even without AFK input", () => {
     const f = platformFeatures({ ...linuxCaps(), supportsBotting: true });
     expect(f.afkInput).toBe(false);

@@ -97,22 +97,23 @@ const harnessRecordings: Record<string, unknown> & Record<HarnessSlotName, Harne
  * `?scenario=linux`: tudo o que é Win32 vem `false` e a UI tem que esconder
  * (docs/features/linux.md, "Tela no Linux").
  */
-function harnessCapabilities(os: "windows" | "linux") {
+function harnessCapabilities(os: "windows" | "linux" | "macos") {
   const windows = os === "windows";
+  const mac = os === "macos";
   return {
     os,
-    sessionType: windows ? "desktop" : "wayland",
-    preferredRunner: windows ? "native" : "sober",
-    detectedRunner: windows ? "native" : "sober",
+    sessionType: windows || mac ? "desktop" : "wayland",
+    preferredRunner: windows || mac ? "native" : "sober",
+    detectedRunner: windows || mac ? "native" : "sober",
     runnerPath: null,
     supportsSingleLaunch: true,
     supportsMultiLaunch: true,
-    supportsWatcher: windows,
+    supportsWatcher: windows || mac,
     supportsWatcherMemory: windows,
     supportsWindowControls: windows,
     supportsBotting: windows,
     supportsUpdater: true,
-    supportsClientSettings: windows,
+    supportsClientSettings: windows || mac,
     // Mostra no dev:ui as opções que só existem com a feature `live-audio`.
     supportsLiveAudio: windows,
     // E o teto de memória (feature `memory-trim`, nas duas edições).
@@ -120,13 +121,14 @@ function harnessCapabilities(os: "windows" | "linux") {
     supportsLiveView: windows,
     supportsAfkInput: windows,
     supportsIsolation: windows,
-    supportsMultiRobloxMutex: windows,
+    // macOS: o toggle do Multi Roblox existe (semáforo + `open -n`).
+    supportsMultiRobloxMutex: windows || mac,
     supportsVersions: windows,
     supportsOptimization: windows,
     supportsExternalClients: windows,
     supportsPython: windows,
-    reasons: windows ? [] : ["Auto Rejoin is not available on Linux yet"],
-    warnings: windows ? [] : ["Linux runs Roblox through Sober"],
+    reasons: windows ? [] : mac ? ["Auto Rejoin is only supported on Windows"] : ["Auto Rejoin is not available on Linux yet"],
+    warnings: windows ? [] : mac ? ["macOS support is partial"] : ["Linux runs Roblox through Sober"],
   };
 }
 
@@ -1494,6 +1496,26 @@ const SCENARIOS: Record<string, () => void> = {
     }
     setInvokeHandler((cmd, args) => {
       if (cmd === "get_platform_capabilities") return harnessCapabilities("linux");
+      return baseHandler(cmd, args);
+    });
+  },
+
+  /**
+   * macOS (branch `macos`): as capacidades do macOS (platform_info.rs) e um
+   * user agent de Mac. Confere que o que é só do Windows some e que o Multi
+   * Roblox continua em Settings › Launch (docs/features/macos.md).
+   */
+  macos() {
+    try {
+      Object.defineProperty(navigator, "userAgent", {
+        value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+        configurable: true,
+      });
+    } catch {
+      // Navegador que não deixa trocar o UA: segue com o real.
+    }
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_platform_capabilities") return harnessCapabilities("macos");
       return baseHandler(cmd, args);
     });
   },

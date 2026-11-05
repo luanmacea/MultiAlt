@@ -127,18 +127,21 @@ fn build_platform_capabilities(
             supports_client_settings: true,
             supports_live_audio: false,
             supports_memory_trim: false,
-            // A UI do macOS não muda neste porte: segue mostrando tudo.
-            supports_live_view: true,
-            supports_afk_input: true,
-            supports_isolation: true,
+            // Branch `macos` (04/11/2026): o que é Win32 some da tela, como no
+            // Linux. Fica o que tem código de macOS: Multi Roblox (semáforo
+            // `/RobloxPlayerUniq` + `open -n`), patch de settings do cliente e
+            // o watcher. Ver docs/features/macos.md.
+            supports_live_view: false,
+            supports_afk_input: false,
+            supports_isolation: false,
             supports_multi_roblox_mutex: true,
-            supports_versions: true,
-            supports_optimization: true,
-            supports_external_clients: true,
-            supports_python: true,
+            supports_versions: false,
+            supports_optimization: false,
+            supports_external_clients: false,
+            supports_python: false,
             reasons: vec!["Auto Rejoin is only supported on Windows".to_string()],
             warnings: vec![
-                "macOS support is partial: no per-client memory watch, no window grid and no pre-launch isolation".to_string(),
+                "macOS support is partial: no window grid, Live view, AFK keys, isolation, Roblox versions or process tuning".to_string(),
             ],
         },
         // Linux: o Roblox roda pelo Sober (Flatpak), que o app abre com
@@ -493,18 +496,32 @@ mod platform_info_tests {
     }
 
     #[test]
-    fn windows_and_macos_keep_showing_every_page() {
-        for os in ["windows", "macos"] {
-            let caps = build_platform_capabilities(os, "desktop", "sober");
-            assert!(caps.supports_live_view, "{os}");
-            assert!(caps.supports_afk_input, "{os}");
-            assert!(caps.supports_isolation, "{os}");
-            assert!(caps.supports_multi_roblox_mutex, "{os}");
-            assert!(caps.supports_versions, "{os}");
-            assert!(caps.supports_optimization, "{os}");
-            assert!(caps.supports_external_clients, "{os}");
-            assert!(caps.supports_python, "{os}");
-        }
+    fn windows_keeps_showing_every_page() {
+        let caps = build_platform_capabilities("windows", "desktop", "sober");
+        assert!(caps.supports_live_view);
+        assert!(caps.supports_afk_input);
+        assert!(caps.supports_isolation);
+        assert!(caps.supports_multi_roblox_mutex);
+        assert!(caps.supports_versions);
+        assert!(caps.supports_optimization);
+        assert!(caps.supports_external_clients);
+        assert!(caps.supports_python);
+    }
+
+    #[test]
+    fn macos_hides_the_win32_pages_but_keeps_multi_roblox_and_client_settings() {
+        let caps = build_platform_capabilities("macos", "desktop", "sober");
+        assert!(!caps.supports_live_view);
+        assert!(!caps.supports_afk_input);
+        assert!(!caps.supports_isolation);
+        assert!(!caps.supports_versions);
+        assert!(!caps.supports_optimization);
+        assert!(!caps.supports_external_clients);
+        assert!(!caps.supports_python);
+        // Têm código de macOS: o toggle do Multi Roblox liga o `open -n`.
+        assert!(caps.supports_multi_roblox_mutex);
+        assert!(caps.supports_client_settings);
+        assert!(caps.supports_watcher);
     }
 
     #[test]

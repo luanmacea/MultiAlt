@@ -631,6 +631,11 @@ export const SUITES: Record<string, TestSuite> = {
     rust: ["sober_tests"],
     front: [],
   },
+  macos: {
+    description: "macOS (branch macos): como o open abre o link do Roblox (instância nova com o Multi Roblox)",
+    rust: ["mac_open_tests"],
+    front: [],
+  },
   diagnostics: {
     description: "Diagnóstico de mutex, janelas, otimização de processo e capacidades da plataforma",
     rust: [

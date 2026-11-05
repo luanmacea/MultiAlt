@@ -91,9 +91,7 @@ pub fn import_theme_font_asset(path: String) -> Result<ThemeFontAssetImportResul
 
 /// Miolo de [`resolve_theme_font_asset`], veja [`import_theme_font_asset_in`].
 fn resolve_theme_font_asset_in(fonts_dir: &Path, file: String) -> Result<String, String> {
-    let name = Path::new(file.trim())
-        .file_name()
-        .and_then(|n| n.to_str())
+    let name = font_file_base_name(&file)
         .ok_or_else(|| "Invalid font file name".to_string())?
         .to_string();
     if name.contains('/') || name.contains('\\') {
@@ -165,9 +163,7 @@ fn import_theme_font_bytes_in(
     file_name: String,
     file_data: Vec<u8>,
 ) -> Result<ThemeFontAssetImportResult, String> {
-    let name = Path::new(file_name.trim())
-        .file_name()
-        .and_then(|n| n.to_str())
+    let name = font_file_base_name(&file_name)
         .ok_or_else(|| "Invalid font file name".to_string())?
         .to_string();
     let name_path = Path::new(&name);

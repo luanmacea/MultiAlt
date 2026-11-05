@@ -407,7 +407,7 @@ mod vault_key_tests {
 
     #[test]
     fn the_key_file_sits_next_to_the_vault_so_portable_mode_carries_both() {
-        let vault = PathBuf::from("D:\\pendrive\\RAM\\AccountData.json");
+        let vault = PathBuf::from("pendrive").join("RAM").join("AccountData.json");
         let key = key_file_path_for(&vault);
         assert_eq!(key.parent(), vault.parent(), "a chave segue o vault");
         assert_eq!(
@@ -643,6 +643,9 @@ mod vault_key_tests {
     /// contas, e um vermelho falso se limpa na gravação seguinte, enquanto um
     /// âmbar falso ("tento de novo") pode esconder uma falha permanente para
     /// sempre — que foi exatamente o bug medido.
+    // Códigos de erro do Windows (32/33): no macOS/Linux eles significam outra
+    // coisa (EPIPE/EDOM), e o classificador só os olha no Windows.
+    #[cfg(target_os = "windows")]
     #[test]
     fn the_transient_classifier_matches_the_codes_windows_actually_reports() {
         use std::io::{Error, ErrorKind};

@@ -9,6 +9,8 @@ WORKDIR /src
 
 # Uso (cada worktree com o seu volume de target, para não disputar a trava):
 #   docker build -t multialt-linux-check -f docker/linux-check.Dockerfile docker
-#   docker run --rm -v "<worktree>:/src" -v <volume>:/target -v mx-cargo:/usr/local/cargo/registry \
+#   (sempre com --cpus=4 --memory=4g e testes com -- --test-threads=4: sem isso o
+#   cargo test usa os 28 núcleos e trava o PC do dono — 04/11/2026)
+#   MSYS_NO_PATHCONV=1 docker run --rm --cpus=4 --memory=4g -v "<worktree>:/src" -v <volume>:/target -v mx-cargo:/usr/local/cargo/registry \
 #     -e CARGO_TARGET_DIR=/target -e CARGO_TERM_COLOR=never multialt-linux-check \
 #     bash -c "cd /src/src-tauri && cargo check -j 4 --no-default-features --features standard --message-format=short"

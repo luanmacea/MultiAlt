@@ -71,23 +71,29 @@ pub fn build_launch_url(
 pub fn launch_url(url: &str) -> Result<(), String> {
     pre_launch_multi_step();
 
-    if Command::new("open").arg(url).spawn().is_ok() {
-        return Ok(());
+    // `open <link>` sozinho entrega o link ao Roblox já aberto; com o Multi
+    // Roblox, `open -n -a <app>` abre outra instância (ver platform/mac_open.rs).
+    let app = get_roblox_path().ok();
+    let plan = crate::platform::mac_open::open_plan(
+        url,
+        MULTI_ROBLOX_ENABLED.load(Ordering::Relaxed),
+        app.as_deref(),
+    );
+    if let Some(warning) = plan.warning {
+        eprintln!("[launch] {}", warning);
     }
-
-    if MULTI_ROBLOX_ENABLED.load(Ordering::Relaxed) {
-        if let Ok(app_path) = get_roblox_path() {
-            Command::new("open")
-                .args(["-n", "-a"])
-                .arg(app_path)
-                .arg(url)
-                .spawn()
-                .map_err(|e| format!("Failed to launch via open -n -a fallback: {}", e))?;
-            return Ok(());
-        }
+    match Command::new("open").args(&plan.args).status() {
+        Ok(status) if status.success() => Ok(()),
+        // `-n -a` falhou (app movido, permissão): tenta o link puro antes de
+        // desistir — regra nº 1, abrir do jeito que der.
+        _ if plan.args.len() > 1 => match Command::new("open").arg(url).status() {
+            Ok(status) if status.success() => Ok(()),
+            Ok(status) => Err(format!("open exited with {} for the Roblox link", status)),
+            Err(e) => Err(format!("Failed to run open: {}", e)),
+        },
+        Ok(status) => Err(format!("open exited with {} for the Roblox link", status)),
+        Err(e) => Err(format!("Failed to run open: {}", e)),
     }
-
-    Err("Failed to launch Roblox URL".into())
 }
 
 pub fn launch_old_join(

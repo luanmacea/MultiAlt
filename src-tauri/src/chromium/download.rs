@@ -643,8 +643,13 @@ fn make_executable(binary: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| format!("Could not set browser executable permissions: {}", e))?;
+        // Caminho que não existe não é erro (como no Windows): quem confere se o
+        // binário está lá é o chamador. Achado no CI do macOS, 04/11/2026.
+        match std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("Could not set browser executable permissions: {}", e)),
+        }
     }
     #[cfg(not(unix))]
     {
@@ -1243,7 +1248,8 @@ mod chromium_download_tests {
         write_zip(
             &archive,
             &[(
-                &format!("chrome-{}/chrome.exe", platform_key()),
+                // O binário de cada SO (chrome.exe, o .app do Mac, chrome).
+                &binary_path(Path::new("")).to_string_lossy().replace('\\', "/"),
                 b"MZ".as_slice(),
             )],
         );
@@ -1353,7 +1359,7 @@ mod chromium_download_tests {
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         let server = MockServer::start().await;
-        let body = catalog("win64", "https://cdn/win64.zip", "131.0.6778.85");
+        let body = catalog(platform_key(), "https://cdn/win64.zip", "131.0.6778.85");
         Mock::given(method("GET"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&body))
             .mount(&server)

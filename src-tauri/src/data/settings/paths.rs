@@ -214,8 +214,26 @@ pub struct ThemeFontAssetImportResult {
     pub suggested_family: String,
 }
 
+/// Último pedaço de um nome de arquivo de fonte, cortando em `/` **e** `\` em
+/// qualquer SO. No Windows o `Path` já corta nos dois; no macOS/Linux a
+/// contrabarra é um caractere comum, e um nome vindo do Windows (`C:\x\F.ttf`)
+/// virava o nome inteiro (branch `macos`, 04/11/2026). `None` para vazio, `.`
+/// e `..`.
+fn font_file_base_name(raw: &str) -> Option<&str> {
+    let name = raw.trim().rsplit(['/', '\\']).next().unwrap_or("").trim();
+    if name.is_empty() || name == "." || name == ".." {
+        None
+    } else {
+        Some(name)
+    }
+}
+
 fn sanitize_font_family_from_path(path: &Path) -> String {
-    let stem = path
+    // Corta nos dois separadores sem aparar antes do stem: `"   .ttf"` tem que
+    // dar stem `"   "` (vazio depois de aparar), não o dotfile `.ttf`.
+    let raw = path.to_string_lossy();
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or("");
+    let stem = Path::new(base)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Custom Font")
@@ -457,6 +475,17 @@ mod settings_paths_tests {
             "Family.Bold"
         );
         assert_eq!(sanitize_font_family_from_path(Path::new("NoExtension")), "NoExtension");
+    }
+
+    #[test]
+    fn a_font_file_name_is_cut_at_either_separator_on_every_os() {
+        assert_eq!(font_file_base_name("C:\\fonts\\My Font.ttf"), Some("My Font.ttf"));
+        assert_eq!(font_file_base_name("/usr/share/fonts/Inter.otf"), Some("Inter.otf"));
+        assert_eq!(font_file_base_name("..\\..\\secrets.ttf"), Some("secrets.ttf"));
+        assert_eq!(font_file_base_name("  plain.woff2 "), Some("plain.woff2"));
+        for bad in ["", "   ", ".", "..", "fonts/", "fonts\\..", "a/.."] {
+            assert_eq!(font_file_base_name(bad), None, "{bad:?}");
+        }
     }
 
     #[test]
