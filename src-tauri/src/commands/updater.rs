@@ -99,8 +99,16 @@ fn update_is_offered(
 /// (`<canal>-linux`, `<canal>-linux-nexus-ws`), publicados pelo job `linux` do
 /// release-v4.yml: uma instalacao Linux nunca le o manifesto do Windows (e o
 /// inverso), entao nenhum dos dois recebe o instalador do outro. O Windows
-/// continua sem sufixo — nao renomear os canais dele.
-pub(crate) const PLATFORM_CHANNEL_SUFFIX: &str = if cfg!(target_os = "linux") { "-linux" } else { "" };
+/// continua sem sufixo — nao renomear os canais dele. O macOS (branch `macos`,
+/// 04/11/2026) tambem tem os seus (`<canal>-macos`): sem isso leria o manifesto
+/// do Windows, que nao tem entrada `darwin-*`. Ainda nao ha job que os publique.
+pub(crate) const PLATFORM_CHANNEL_SUFFIX: &str = if cfg!(target_os = "linux") {
+    "-linux"
+} else if cfg!(target_os = "macos") {
+    "-macos"
+} else {
+    ""
+};
 
 fn resolve_manifest_channel_for(release_channel: &str, feature_channel: &str, platform_suffix: &str) -> String {
     let base = format!("{}{}", release_channel, platform_suffix);

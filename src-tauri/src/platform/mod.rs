@@ -8,6 +8,11 @@ pub mod macos;
 // testes rodarem no Windows. Quem usa de verdade é `linux/`.
 pub mod sober;
 
+// Parte pura do `open` do macOS (instância nova com o Multi Roblox): sem cfg,
+// para os testes rodarem no Windows. Quem usa é `macos/launch.rs`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub mod mac_open;
+
 #[cfg(target_os = "linux")]
 pub mod linux;
 

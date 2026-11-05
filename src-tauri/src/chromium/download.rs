@@ -643,8 +643,13 @@ fn make_executable(binary: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| format!("Could not set browser executable permissions: {}", e))?;
+        // Caminho que não existe não é erro (como no Windows): quem confere se o
+        // binário está lá é o chamador. Achado no CI do macOS, 04/11/2026.
+        match std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("Could not set browser executable permissions: {}", e)),
+        }
     }
     #[cfg(not(unix))]
     {

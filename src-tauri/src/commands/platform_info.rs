@@ -127,18 +127,21 @@ fn build_platform_capabilities(
             supports_client_settings: true,
             supports_live_audio: false,
             supports_memory_trim: false,
-            // A UI do macOS não muda neste porte: segue mostrando tudo.
-            supports_live_view: true,
-            supports_afk_input: true,
-            supports_isolation: true,
+            // Branch `macos` (04/11/2026): o que é Win32 some da tela, como no
+            // Linux. Fica o que tem código de macOS: Multi Roblox (semáforo
+            // `/RobloxPlayerUniq` + `open -n`), patch de settings do cliente e
+            // o watcher. Ver docs/features/macos.md.
+            supports_live_view: false,
+            supports_afk_input: false,
+            supports_isolation: false,
             supports_multi_roblox_mutex: true,
-            supports_versions: true,
-            supports_optimization: true,
-            supports_external_clients: true,
-            supports_python: true,
+            supports_versions: false,
+            supports_optimization: false,
+            supports_external_clients: false,
+            supports_python: false,
             reasons: vec!["Auto Rejoin is only supported on Windows".to_string()],
             warnings: vec![
-                "macOS support is partial: no per-client memory watch, no window grid and no pre-launch isolation".to_string(),
+                "macOS support is partial: no window grid, Live view, AFK keys, isolation, Roblox versions or process tuning".to_string(),
             ],
         },
         // Linux: o Roblox roda pelo Sober (Flatpak), que o app abre com

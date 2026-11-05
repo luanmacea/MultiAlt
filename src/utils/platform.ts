@@ -45,8 +45,9 @@ export interface PlatformFeatures {
 /**
  * O que a UI mostra neste SO. Regra única: **campo ausente conta como
  * suportado** (`!== false`), então Windows, macOS, backend antigo e o harness
- * antes de as capacidades chegarem seguem vendo tudo; só o Linux manda `false`
- * (ver `build_platform_capabilities` em commands/platform_info.rs).
+ * antes de as capacidades chegarem seguem vendo tudo; Linux e macOS mandam
+ * `false` no que é Win32 (ver `build_platform_capabilities` em
+ * commands/platform_info.rs).
  * O que vem `false` é **escondido**, não desabilitado.
  */
 export function platformFeatures(capabilities: PlatformCapabilities | null): PlatformFeatures {
