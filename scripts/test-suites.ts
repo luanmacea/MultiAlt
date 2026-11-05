@@ -43,6 +43,8 @@ export const SUITES: Record<string, TestSuite> = {
       "channel_build_pairing_tests",
       "channel_repair_tests",
       "production_build_fallback_tests",
+      "bootstrapper_build_tests",
+      "bootstrapper_source_tests",
       "build_download_retry_tests",
       "client_dir_tests",
       "browser_tracker_tests",
@@ -554,6 +556,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/tauriWindowConfig.test.ts",
       "src/uiScale.test.ts",
       "src/components/settings/AppTab.test.tsx",
+      "src/components/settings/LaunchTab.test.tsx",
       "src/components/settings/VersionsTab.test.tsx",
       // Janela grande: páginas sem teto de largura em lista/cartão.
       "src/components/pages/wideLayout.test.ts",

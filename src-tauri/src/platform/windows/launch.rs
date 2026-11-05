@@ -672,6 +672,12 @@ async fn ensure_production_player_exe() -> Option<PathBuf> {
 /// por launch.
 async fn resolve_production_player_exe() -> Option<PathBuf> {
     let resolved = build_version_for_channel(PRODUCTION_CHANNEL).await;
+    // Bootstrapper escolhido (Voidstrap, Froststrap...) com a build atual: abre
+    // a dele, com os mods e FastFlags dele. Sem ela, segue o caminho de sempre
+    // (regra nº 1) e o Console da conta avisa (`resolve_client_dir`).
+    if let Some(exe) = resolved.as_deref().and_then(bootstrapper_player_exe) {
+        return Some(exe);
+    }
     let installed = roblox_versions_dir()
         .map(|dir| installed_builds_newest_first(&dir))
         .unwrap_or_default();
@@ -740,11 +746,101 @@ pub async fn refresh_production_version() {
     let _ = build_version_for_channel(PRODUCTION_CHANNEL).await;
 }
 
-/// Build folder resolved by the last lookup, if it is installed.
+/// Build folder resolved by the last lookup, if it is installed. Com um
+/// bootstrapper escolhido que tem essa build, é a pasta dele — a mesma que o
+/// `launch_url` abre.
 fn cached_production_player_dir() -> Option<String> {
     let version = LAST_RESOLVED_BUILD.lock().ok()?.clone()?;
+    if let Some(exe) = bootstrapper_player_exe(&version) {
+        return exe.parent().map(|p| p.to_string_lossy().into_owned());
+    }
     let dir = roblox_versions_dir()?.join(version);
     build_folder_ready(&dir).then(|| dir.to_string_lossy().into_owned())
+}
+
+/// Bootstrapper escolhido em `General.RobloxBuildSource` (nome para o Console e
+/// a pasta `Versions` dele). `None` = a build do próprio app. Quem lê a setting
+/// é o lado de `commands/` (`apply_roblox_build_source`), antes de cada launch.
+static BOOTSTRAPPER_SOURCE: LazyLock<Mutex<Option<(String, PathBuf)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// Troca o bootstrapper escolhido. Mudou: esquece a build de produção já
+/// resolvida (`PRODUCTION_EXE_MEMO`), senão o launch seguinte abriria a pasta
+/// da escolha anterior.
+pub fn set_bootstrapper_source(source: Option<(String, PathBuf)>) {
+    let changed = BOOTSTRAPPER_SOURCE
+        .lock()
+        .map(|mut guard| {
+            let changed = *guard != source;
+            *guard = source;
+            changed
+        })
+        .unwrap_or(false);
+    if changed {
+        if let Ok(mut memo) = PRODUCTION_EXE_MEMO.lock() {
+            *memo = None;
+        }
+    }
+}
+
+fn bootstrapper_source() -> Option<(String, PathBuf)> {
+    BOOTSTRAPPER_SOURCE.lock().ok()?.clone()
+}
+
+/// Exe da build `version` dentro da pasta do bootstrapper, se ela estiver
+/// completa. Só a build **igual** à de produção atual serve: uma velha faz o
+/// cliente chamar o instalador do Roblox, que fecha todos os clientes.
+fn pick_bootstrapper_build(
+    dir: &std::path::Path,
+    version: &str,
+    ready: impl Fn(&std::path::Path) -> bool,
+) -> Option<PathBuf> {
+    if !is_valid_version_hash(version) {
+        return None;
+    }
+    bootstrapper_build_candidates(dir, version)
+        .into_iter()
+        .find(|folder| ready(folder))
+        .map(|folder| folder.join("RobloxPlayerBeta.exe"))
+}
+
+fn bootstrapper_player_exe(version: &str) -> Option<PathBuf> {
+    let (_, dir) = bootstrapper_source()?;
+    pick_bootstrapper_build(&dir, version, build_folder_ready)
+}
+
+/// O que o launch fez com o bootstrapper escolhido, para o Console da conta.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BootstrapperUse {
+    /// Nenhum escolhido: build do próprio app.
+    NotChosen,
+    /// Abriu a build da pasta dele.
+    InUse(String),
+    /// A pasta dele não tem a build atual: abriu a do app.
+    Missing(String),
+}
+
+/// Compara a pasta de onde o cliente vai abrir com a do bootstrapper escolhido.
+pub fn bootstrapper_use(client_dir: &str) -> BootstrapperUse {
+    let Some((name, dir)) = bootstrapper_source() else {
+        return BootstrapperUse::NotChosen;
+    };
+    bootstrapper_use_for(&name, &dir, client_dir)
+}
+
+fn bootstrapper_use_for(name: &str, dir: &std::path::Path, client_dir: &str) -> BootstrapperUse {
+    let client = std::path::Path::new(client_dir.trim_end_matches(['\\', '/']));
+    let inside = client.parent().is_some_and(|parent| {
+        let parent = parent.to_string_lossy().to_ascii_lowercase();
+        [dir.to_path_buf(), dir.join("Versions")]
+            .iter()
+            .any(|candidate| candidate.to_string_lossy().trim_end_matches(['\\', '/']).to_ascii_lowercase() == parent)
+    });
+    if inside {
+        BootstrapperUse::InUse(name.to_string())
+    } else {
+        BootstrapperUse::Missing(name.to_string())
+    }
 }
 
 /// O que a consulta de build de um canal decidiu.
@@ -1972,5 +2068,76 @@ mod production_build_fallback_tests {
         let source = include_str!("launch.rs");
         let production = source.split("mod launch_url_tests").next().unwrap();
         assert_eq!(production.matches("\"start\"").count(), 1);
+    }
+}
+
+/// Bootstrapper escolhido em `General.RobloxBuildSource` (pedido do Discord,
+/// 05/11/2026): o launch abre a build **atual** da pasta dele, e só ela.
+#[cfg(test)]
+mod bootstrapper_build_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    const CURRENT: &str = "version-0123456789abcdef";
+
+    #[test]
+    fn the_current_build_in_the_bootstrapper_folder_is_opened() {
+        let dir = PathBuf::from("V").join("Voidstrap").join("Versions");
+        let ready = dir.join(CURRENT);
+        let exe = pick_bootstrapper_build(&dir, CURRENT, |folder| folder == ready.as_path());
+        assert_eq!(exe, Some(ready.join("RobloxPlayerBeta.exe")));
+    }
+
+    #[test]
+    fn a_bootstrapper_root_folder_is_searched_under_versions() {
+        let root = PathBuf::from("V").join("Froststrap");
+        let ready = root.join("Versions").join(CURRENT);
+        let exe = pick_bootstrapper_build(&root, CURRENT, |folder| folder == ready.as_path());
+        assert_eq!(exe, Some(ready.join("RobloxPlayerBeta.exe")));
+    }
+
+    #[test]
+    fn without_the_current_build_the_bootstrapper_is_skipped() {
+        let dir = PathBuf::from("V").join("Voidstrap").join("Versions");
+        // Só uma build velha (ou nenhuma) pronta: nada do bootstrapper abre.
+        let old = dir.join("version-ffffffffffffffff");
+        assert_eq!(pick_bootstrapper_build(&dir, CURRENT, |folder| folder == old.as_path()), None);
+        assert_eq!(pick_bootstrapper_build(&dir, CURRENT, |_| false), None);
+    }
+
+    #[test]
+    fn a_version_that_is_not_a_build_hash_never_becomes_a_path() {
+        let dir = PathBuf::from("V");
+        assert_eq!(pick_bootstrapper_build(&dir, "..", |_| true), None);
+        assert_eq!(pick_bootstrapper_build(&dir, "version-../x", |_| true), None);
+    }
+
+    #[test]
+    fn the_console_says_whether_the_bootstrapper_build_was_used() {
+        let dir = Path::new(r"C:\Users\a\AppData\Local\Voidstrap\Versions");
+        assert_eq!(
+            bootstrapper_use_for("Voidstrap", dir, &format!(r"C:\Users\a\AppData\Local\voidstrap\Versions\{CURRENT}\")),
+            BootstrapperUse::InUse("Voidstrap".into())
+        );
+        assert_eq!(
+            bootstrapper_use_for("Voidstrap", dir, &format!(r"C:\Users\a\AppData\Local\Roblox\Versions\{CURRENT}")),
+            BootstrapperUse::Missing("Voidstrap".into())
+        );
+        // Raiz do bootstrapper escolhida como pasta personalizada.
+        let root = Path::new(r"D:\Strap");
+        assert_eq!(
+            bootstrapper_use_for("Custom folder", root, &format!(r"D:\Strap\Versions\{CURRENT}")),
+            BootstrapperUse::InUse("Custom folder".into())
+        );
+    }
+
+    #[test]
+    fn changing_the_bootstrapper_forgets_the_resolved_build() {
+        if let Ok(mut memo) = PRODUCTION_EXE_MEMO.lock() {
+            *memo = Some((std::time::Instant::now(), Some(PathBuf::from("x"))));
+        }
+        set_bootstrapper_source(Some(("Voidstrap".into(), PathBuf::from("bootstrapper-test-dir"))));
+        assert!(PRODUCTION_EXE_MEMO.lock().unwrap().is_none());
+        set_bootstrapper_source(None);
     }
 }

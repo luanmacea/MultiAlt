@@ -236,6 +236,35 @@ Auditoria do caminho do launch, pedido do dono (regra nº 1: abrir e jogar):
 - **Auto Rejoin com Multi Roblox desligado**: o Start liga o Multi Roblox em vez de recusar.
 - Continuam parando (protegem algo): conta banida, sessão inválida, link de servidor privado que não resolve, versão aberta diferente (`AllowLaunchOnOpenVersion`).
 
+## Build de um bootstrapper (05/11/2026)
+
+Pedido do Discord: abrir as contas com o Roblox do **Voidstrap**, **Froststrap**,
+Bloxstrap ou Fishstrap (mods e FastFlags deles). Settings › Launch › "Roblox
+build" grava `General.RobloxBuildSource` (e `RobloxBuildSourcePath` para outro
+bootstrapper).
+
+- **O exe do bootstrapper nunca roda.** Ao se atualizar ele fecha todos os
+  clientes (regra: nada no launch fecha cliente de outra conta). O app abre o
+  `RobloxPlayerBeta.exe` da pasta `Versions\<build>` dele, com a mesma URL do
+  protocolo — herda os mods e o `ClientAppSettings.json` que o bootstrapper
+  gravou (o patch do app faz merge e preserva as chaves dele).
+- **Só a build atual.** Vale a pasta cujo nome é a build de produção resolvida
+  agora (`resolve_production_player_exe` → `bootstrapper_player_exe`). Velha
+  faria o cliente chamar o instalador do Roblox, que fecha tudo. Sem ela (o
+  bootstrapper ainda não atualizou, ou o isolamento Full apagou as `Versions`
+  dele), abre a build normal do app e o Console da conta avisa "Open
+  {{name}} once to update it" (regra nº 1). Com ela, o Console diz "Opening
+  Roblox from {{name}}".
+- Vale para o launch pelo protocolo (avulso, fila, Auto Rejoin, web server).
+  Old join e versão do catálogo por conta ignoram o bootstrapper.
+- Quem lê a setting: `apply_roblox_build_source` ([launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)),
+  no começo de `resolve_client_dir` e nos dois handlers do web server; a
+  escolha fica em `BOOTSTRAPPER_SOURCE` ([launch.rs](../../src-tauri/src/platform/windows/launch.rs))
+  e trocar de bootstrapper esquece a build já resolvida (`PRODUCTION_EXE_MEMO`).
+- Pastas: `bootstrapper_versions_dir` e `KNOWN_BOOTSTRAPPERS` em
+  [core.rs](../../src-tauri/src/platform/windows/core.rs). Testes
+  `bootstrapper_source_tests`, `bootstrapper_build_tests`, `LaunchTab.test.tsx`.
+
 ## Build sem a `RobloxPlayerBeta.dll` (30/10/2026)
 
 Relato do Discord: caixa "RobloxPlayerBeta.dll was not found" ao abrir. O

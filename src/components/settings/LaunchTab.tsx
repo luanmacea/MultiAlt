@@ -5,6 +5,7 @@ import { Divider } from "../ui/Divider";
 import { SectionLabel } from "../ui/SectionLabel";
 import { WarningBadge } from "../ui/WarningBadge";
 import { Select } from "../ui/Select";
+import { TextField } from "../ui/TextField";
 import { useTr } from "../../i18n/text";
 import { isWindowsUserAgent } from "./settingsParts";
 
@@ -18,6 +19,16 @@ const WRONG_ACCOUNT_QUEUE_OPTIONS = [
   { value: "stop", label: "Stop the queue" },
 ];
 
+/** Valores de `General.RobloxBuildSource` (`bootstrapper_versions_dir`). */
+const BUILD_SOURCE_OPTIONS = [
+  { value: "", label: "Official (downloaded by the app)" },
+  { value: "Bloxstrap", label: "Bloxstrap" },
+  { value: "Fishstrap", label: "Fishstrap" },
+  { value: "Voidstrap", label: "Voidstrap" },
+  { value: "Froststrap", label: "Froststrap" },
+  { value: "custom", label: "Another bootstrapper (pick its folder)" },
+];
+
 /**
  * Settings › Launch: como as contas abrem. Saiu de General (Multi Roblox,
  * espaçamento, checagens) e de Misc (Shuffle Job ID e os dois "Auto Close")
@@ -27,6 +38,10 @@ export function LaunchTab({ s }: { s: UseSettingsReturn }) {
   const t = useTr();
   const serialLaunch = s.getBool("General", "AsyncJoin");
   const isWindows = isWindowsUserAgent();
+  const savedSource = s.get("General", "RobloxBuildSource", "");
+  // Nome digitado à mão no INI que a tela não conhece conta como oficial (é o
+  // que o backend faz).
+  const buildSource = BUILD_SOURCE_OPTIONS.some((o) => o.value === savedSource) ? savedSource : "";
 
   return (
     <div className="space-y-0">
@@ -156,6 +171,43 @@ export function LaunchTab({ s }: { s: UseSettingsReturn }) {
         label="Shuffle Job ID"
         description="Picks a random server when you have not chosen one. A typed Job ID or following a player wins over it."
       />
+
+      {/* `General.RobloxBuildSource` (platform/windows/core.rs,
+          `bootstrapper_versions_dir`): pedido do Discord, 05/11/2026. O exe do
+          bootstrapper nunca roda (ele fecha os clientes ao se atualizar): o
+          app abre o RobloxPlayerBeta.exe da pasta Versions dele. */}
+      {isWindows && (
+        <>
+          <Divider />
+          <SectionLabel>Roblox build</SectionLabel>
+          <div className="flex items-center gap-3 py-2 px-1">
+            <div className="min-w-0">
+              <div className="text-[13px] text-zinc-300">{t("Roblox build")}</div>
+              <div className="mt-0.5 text-[12px] text-zinc-500">
+                {t(
+                  "Open accounts with the Roblox installed by a bootstrapper, with its mods and FastFlags. The bootstrapper itself never runs. If it doesn't have the current Roblox version yet, the regular build opens and the Console says so."
+                )}
+              </div>
+            </div>
+            <div className="ml-auto min-w-[200px]">
+              <Select
+                ariaLabel="Roblox build"
+                value={buildSource}
+                options={BUILD_SOURCE_OPTIONS}
+                onChange={(value) => s.set("General", "RobloxBuildSource", value)}
+              />
+            </div>
+          </div>
+          {buildSource === "custom" && (
+            <TextField
+              value={s.get("General", "RobloxBuildSourcePath", "")}
+              onChange={(v) => s.set("General", "RobloxBuildSourcePath", v)}
+              label="Bootstrapper folder"
+              placeholder={"C:\\Users\\you\\AppData\\Local\\Voidstrap"}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }

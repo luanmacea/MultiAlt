@@ -3226,5 +3226,12 @@
   "Turn on Multi Roblox": "Turn on Multi Roblox",
   "Keep it off": "Keep it off",
   "Ask to turn on Multi Roblox when opening several accounts": "Ask to turn on Multi Roblox when opening several accounts",
-  "With Multi Roblox off, Roblox keeps only one account open. This asks before the launch whether to turn it on.": "With Multi Roblox off, Roblox keeps only one account open. This asks before the launch whether to turn it on."
+  "With Multi Roblox off, Roblox keeps only one account open. This asks before the launch whether to turn it on.": "With Multi Roblox off, Roblox keeps only one account open. This asks before the launch whether to turn it on.",
+  "Roblox build": "Roblox build",
+  "Official (downloaded by the app)": "Official (downloaded by the app)",
+  "Another bootstrapper (pick its folder)": "Another bootstrapper (pick its folder)",
+  "Bootstrapper folder": "Bootstrapper folder",
+  "Open accounts with the Roblox installed by a bootstrapper, with its mods and FastFlags. The bootstrapper itself never runs. If it doesn't have the current Roblox version yet, the regular build opens and the Console says so.": "Open accounts with the Roblox installed by a bootstrapper, with its mods and FastFlags. The bootstrapper itself never runs. If it doesn't have the current Roblox version yet, the regular build opens and the Console says so.",
+  "Opening Roblox from {{name}}": "Opening Roblox from {{name}}",
+  "{{name}} has no build of the current Roblox version, so this account opens with the regular Roblox build. Open {{name}} once to update it.": "{{name}} has no build of the current Roblox version, so this account opens with the regular Roblox build. Open {{name}} once to update it."
 }

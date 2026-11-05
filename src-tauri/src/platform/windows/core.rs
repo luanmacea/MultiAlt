@@ -686,10 +686,47 @@ fn scan_versions_dir(dir: &std::path::Path) -> Option<(SystemTime, String)> {
 /// pasta em vez de `%LOCALAPPDATA%\Roblox`.
 fn candidate_versions_dirs(local_app_data: &str) -> Vec<PathBuf> {
     let local = PathBuf::from(local_app_data);
-    ["Roblox", "Bloxstrap", "Fishstrap", "Voidstrap"]
-        .iter()
+    std::iter::once("Roblox")
+        .chain(KNOWN_BOOTSTRAPPERS)
         .map(|root| local.join(root).join("Versions"))
         .collect()
+}
+
+/// Bootstrappers de terceiros que guardam as builds do Roblox em
+/// `%LOCALAPPDATA%\<nome>\Versions\version-<hash>` (mesmo formato do oficial).
+/// Froststrap entrou em 05/11/2026 (pedido do Discord).
+pub const KNOWN_BOOTSTRAPPERS: [&str; 4] = ["Bloxstrap", "Fishstrap", "Voidstrap", "Froststrap"];
+
+/// `General.RobloxBuildSource`: de onde vem a build que o launch abre.
+/// Vazio/`official` = a do próprio app (`%LOCALAPPDATA%\Roblox\Versions`); um
+/// nome de [`KNOWN_BOOTSTRAPPERS`] (sem diferenciar maiúsculas) = a pasta
+/// `Versions` dele; `custom` = `custom_path` (a pasta `Versions` ou a raiz do
+/// bootstrapper — quem procura a build olha as duas). Nome desconhecido ou
+/// `custom` sem caminho = `None` (cai na build normal; regra nº 1).
+///
+/// O exe do bootstrapper **nunca** é executado (ao se atualizar ele fecha todos
+/// os clientes): o app abre o `RobloxPlayerBeta.exe` da pasta dele, que já tem
+/// os mods e o `ClientAppSettings.json` que o bootstrapper gravou.
+pub fn bootstrapper_versions_dir(
+    source: &str,
+    custom_path: &str,
+    local_app_data: Option<&std::path::Path>,
+) -> Option<(String, PathBuf)> {
+    let source = source.trim();
+    if source.eq_ignore_ascii_case("custom") {
+        let path = custom_path.trim().trim_matches('"').trim();
+        return (!path.is_empty()).then(|| ("Custom folder".to_string(), PathBuf::from(path)));
+    }
+    let name = KNOWN_BOOTSTRAPPERS
+        .iter()
+        .find(|known| known.eq_ignore_ascii_case(source))?;
+    Some((name.to_string(), local_app_data?.join(name).join("Versions")))
+}
+
+/// Onde a build `version` pode estar dentro da pasta escolhida: direto nela (é a
+/// `Versions`) ou em `Versions\` (é a raiz do bootstrapper).
+pub fn bootstrapper_build_candidates(dir: &std::path::Path, version: &str) -> [PathBuf; 2] {
+    [dir.join(version), dir.join("Versions").join(version)]
 }
 
 fn get_client_settings_file() -> Result<PathBuf, String> {
@@ -872,6 +909,7 @@ mod roblox_install_candidates_tests {
                 r"C:\Users\alguem\AppData\Local\Bloxstrap\Versions",
                 r"C:\Users\alguem\AppData\Local\Fishstrap\Versions",
                 r"C:\Users\alguem\AppData\Local\Voidstrap\Versions",
+                r"C:\Users\alguem\AppData\Local\Froststrap\Versions",
             ]
         );
     }
@@ -879,7 +917,7 @@ mod roblox_install_candidates_tests {
     #[test]
     fn candidate_versions_dirs_joins_versions_under_each_launcher_root() {
         let dirs = candidate_versions_dirs(r"D:\Local");
-        assert_eq!(dirs.len(), 4);
+        assert_eq!(dirs.len(), 5);
         for dir in &dirs {
             assert!(dir.ends_with("Versions"));
             assert!(dir.starts_with(r"D:\Local"));
@@ -891,9 +929,64 @@ mod roblox_install_candidates_tests {
         // Nunca deveria acontecer (LOCALAPPDATA vazio), mas a função é pura e
         // não deve entrar em pânico nem mudar a ordem.
         let dirs = candidate_versions_dirs("");
-        assert_eq!(dirs.len(), 4);
+        assert_eq!(dirs.len(), 5);
         assert_eq!(dirs[0], PathBuf::from("Roblox").join("Versions"));
         assert_eq!(dirs[3], PathBuf::from("Voidstrap").join("Versions"));
+        assert_eq!(dirs[4], PathBuf::from("Froststrap").join("Versions"));
+    }
+}
+
+#[cfg(test)]
+mod bootstrapper_source_tests {
+    use super::*;
+
+    fn local() -> PathBuf {
+        PathBuf::from(r"C:\Users\alguem\AppData\Local")
+    }
+
+    #[test]
+    fn the_official_source_uses_no_bootstrapper_folder() {
+        for source in ["", "  ", "official", "Official"] {
+            assert_eq!(bootstrapper_versions_dir(source, "", Some(&local())), None, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn a_known_bootstrapper_maps_to_its_versions_folder_in_any_case() {
+        for (source, name) in [
+            ("Voidstrap", "Voidstrap"),
+            ("froststrap", "Froststrap"),
+            (" BLOXSTRAP ", "Bloxstrap"),
+            ("Fishstrap", "Fishstrap"),
+        ] {
+            let (label, dir) = bootstrapper_versions_dir(source, "", Some(&local())).expect(source);
+            assert_eq!(label, name);
+            assert_eq!(dir, local().join(name).join("Versions"));
+        }
+    }
+
+    #[test]
+    fn a_custom_folder_is_taken_as_typed_and_needs_a_path() {
+        let (label, dir) =
+            bootstrapper_versions_dir("custom", r#" "D:\Strap\Versions" "#, Some(&local())).unwrap();
+        assert_eq!(label, "Custom folder");
+        assert_eq!(dir, PathBuf::from(r"D:\Strap\Versions"));
+        assert_eq!(bootstrapper_versions_dir("Custom", "   ", Some(&local())), None);
+    }
+
+    #[test]
+    fn an_unknown_name_or_a_missing_localappdata_falls_back_to_the_official_build() {
+        assert_eq!(bootstrapper_versions_dir("Robloxstrap", "", Some(&local())), None);
+        assert_eq!(bootstrapper_versions_dir("Voidstrap", "", None), None);
+    }
+
+    #[test]
+    fn the_build_is_looked_up_in_the_folder_itself_and_under_versions() {
+        let dir = PathBuf::from(r"D:\Voidstrap");
+        assert_eq!(
+            bootstrapper_build_candidates(&dir, "version-abc"),
+            [dir.join("version-abc"), dir.join("Versions").join("version-abc")]
+        );
     }
 }
 

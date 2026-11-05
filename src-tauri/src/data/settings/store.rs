@@ -60,6 +60,16 @@ impl SettingsStore {
                 "true",
                 Some("Launch: when more than one account would be open and Multi Roblox is off, ask whether to turn it on (Roblox only keeps one window open without it)"),
             ),
+            (
+                "RobloxBuildSource",
+                "",
+                Some("Launch: where the Roblox build comes from. Empty = the app's own; Bloxstrap, Fishstrap, Voidstrap or Froststrap = that bootstrapper's Versions folder (its mods and FastFlags); custom = RobloxBuildSourcePath. Only the current Roblox build is used; otherwise the regular one opens"),
+            ),
+            (
+                "RobloxBuildSourcePath",
+                "",
+                Some("Launch: the bootstrapper folder (its root or its Versions folder) when RobloxBuildSource is custom"),
+            ),
             ("DisableAgingAlert", "false", None),
             (
                 "JoinFriendsByFollowing",
@@ -1017,6 +1027,8 @@ mod settings_store_tests {
     const EMPTY_STRING_DEFAULTS: &[(&str, &str)] = &[
         ("Login", "ManualBinaryPath"),
         ("General", "CustomClientSettings"),
+        ("General", "RobloxBuildSource"),
+        ("General", "RobloxBuildSourcePath"),
         ("General", "BottingPlayerCustomClientSettings"),
         ("General", "BottingBotCustomClientSettings"),
         ("General", "BottingDraftPlaceId"),

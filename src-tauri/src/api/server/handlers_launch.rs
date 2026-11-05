@@ -39,6 +39,7 @@ async fn handle_launch_account(
     {
         use crate::platform::windows;
 
+        crate::apply_roblox_build_source(state.settings);
         windows::refresh_production_version().await;
         let is_teleport = state.settings.get_bool("Developer", "IsTeleport");
         let use_old_join = state.settings.get_bool("Developer", "UseOldJoin");
@@ -233,6 +234,7 @@ async fn handle_follow_user(
     {
         use crate::platform::windows;
 
+        crate::apply_roblox_build_source(state.settings);
         windows::refresh_production_version().await;
         let is_teleport = state.settings.get_bool("Developer", "IsTeleport");
         let use_old_join = state.settings.get_bool("Developer", "UseOldJoin");

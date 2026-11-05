@@ -1294,11 +1294,15 @@ pub(crate) async fn resolve_client_dir(
     version_id: Option<&str>,
     base_path: &str,
 ) -> (bool, String) {
+    apply_roblox_build_source(&app.state::<SettingsStore>());
     let source = platform::windows::client_source(use_old_join, version_id.is_some());
     let dir = platform::windows::client_dir(source, base_path).await;
     if source != platform::windows::ClientSource::RegistryChannel
         || platform::windows::old_join_folder_is_current(&dir).await
     {
+        if source == platform::windows::ClientSource::Production {
+            log_bootstrapper_use(app, user_id, &dir);
+        }
         return (use_old_join, dir);
     }
     emit_launch_log(
@@ -1312,7 +1316,49 @@ pub(crate) async fn resolve_client_dir(
         ),
     );
     let dir = platform::windows::client_dir(platform::windows::ClientSource::Production, base_path).await;
+    log_bootstrapper_use(app, user_id, &dir);
     (false, dir)
+}
+
+/// Lê `General.RobloxBuildSource`/`RobloxBuildSourcePath` e diz ao launch de
+/// qual pasta abrir a build de produção (pedido do Discord, 05/11/2026:
+/// Voidstrap, Froststrap...). Chamado antes de resolver a pasta do cliente,
+/// em todo launch (avulso, fila, Auto Rejoin, web server).
+#[cfg(target_os = "windows")]
+pub(crate) fn apply_roblox_build_source(settings: &SettingsStore) {
+    let read = |key: &str| settings.get("General", key).ok().flatten().unwrap_or_default();
+    let local = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from);
+    platform::windows::set_bootstrapper_source(platform::windows::bootstrapper_versions_dir(
+        &read("RobloxBuildSource"),
+        &read("RobloxBuildSourcePath"),
+        local.as_deref(),
+    ));
+}
+
+/// Console da conta: abriu pela pasta do bootstrapper escolhido, ou ela não tem
+/// a build atual e abriu a normal (nunca recusa — regra nº 1).
+#[cfg(target_os = "windows")]
+fn log_bootstrapper_use(app: &tauri::AppHandle, user_id: i64, client_dir: &str) {
+    match platform::windows::bootstrapper_use(client_dir) {
+        platform::windows::BootstrapperUse::NotChosen => {}
+        platform::windows::BootstrapperUse::InUse(name) => emit_launch_log(
+            app,
+            user_id,
+            "info",
+            "version",
+            log_msg!("Opening Roblox from {{name}}", name = name.as_str()),
+        ),
+        platform::windows::BootstrapperUse::Missing(name) => emit_launch_log(
+            app,
+            user_id,
+            "warn",
+            "version",
+            log_msg!(
+                "{{name}} has no build of the current Roblox version, so this account opens with the regular Roblox build. Open {{name}} once to update it.",
+                name = name.as_str()
+            ),
+        ),
+    }
 }
 
 /// A pasta do Roblox para o launch (`resolve_roblox_install_path_with_notice`),
