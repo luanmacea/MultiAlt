@@ -29,6 +29,11 @@ pub const RECONNECT_STABLE_MS: i64 = 120_000;
 pub const RECONNECT_JOIN_TIMEOUT_MS: i64 = 120_000;
 /// Sem internet: confere de novo depois disto, sem gastar tentativa.
 pub const RECONNECT_OFFLINE_RETRY_MS: i64 = 10_000;
+/// Windows sem memória: confere de novo a cada 10 s, sem gastar tentativa.
+pub const RECONNECT_MEMORY_RETRY_MS: i64 = 10_000;
+/// Espera no máximo isto pela memória e abre mesmo assim: é só um respiro, e a
+/// regra é nunca deixar a conta de fora quando daria para jogar.
+pub const RECONNECT_MEMORY_WAIT_MAX_MS: i64 = 5 * 60_000;
 /// A fila de launch está ocupada (outro launch rodando): tenta de novo depois disto.
 pub const RECONNECT_BUSY_RETRY_MS: i64 = 5_000;
 
@@ -231,6 +236,9 @@ enum ReconnectPhase {
     Waiting { at_ms: i64 },
     /// Sem internet: confere de novo em `at_ms`, sem gastar tentativa.
     WaitingForInternet { at_ms: i64 },
+    /// Windows quase sem memória: confere de novo em `at_ms`, sem gastar
+    /// tentativa, até `RECONNECT_MEMORY_WAIT_MAX_MS`.
+    WaitingForMemory { at_ms: i64 },
     /// Tentativa em andamento (checagens + launch).
     Launching,
     /// Relançou: conferindo se fica no jogo por 2 min.
@@ -263,6 +271,8 @@ struct ReconnectEntry {
     watched_was_open: bool,
     target: Option<ReconnectTarget>,
     error: Option<String>,
+    /// Desde quando esta tentativa espera o Windows liberar memória.
+    memory_wait_since_ms: Option<i64>,
 }
 
 /// Uma queda que o monitor reportou, com o que o laço sabe da conta.
@@ -309,6 +319,8 @@ pub enum ReconnectAction {
         user_id: i64,
         attempt: u32,
         target: ReconnectTarget,
+        /// Confere a memória do Windows antes (já esperou o máximo: abre).
+        check_memory: bool,
     },
 }
 
@@ -319,6 +331,8 @@ pub enum AttemptOutcome {
     Launched { pid: u32 },
     /// Sem internet: espera ela voltar sem gastar tentativa.
     NoInternet,
+    /// Windows quase sem memória: abrir agora derrubaria mais clientes.
+    LowMemory,
     /// Outro launch está rodando: tenta logo depois.
     Busy,
     /// O cliente já voltou ao jogo sozinho (o Roblox reconectou).
@@ -332,6 +346,7 @@ pub enum AttemptOutcome {
 pub enum ReconnectNotice {
     Scheduled { user_id: i64, attempt: u32, in_ms: i64 },
     Offline { user_id: i64 },
+    LowMemory { user_id: i64 },
     Relaunched { user_id: i64, attempt: u32 },
     Reconnected { user_id: i64 },
     BackByItself { user_id: i64 },
@@ -346,7 +361,7 @@ pub enum ReconnectNotice {
 #[serde(rename_all = "camelCase")]
 pub struct ReconnectEntryView {
     pub user_id: i64,
-    /// `waiting`, `waitingForInternet`, `launching`, `checking`, `gaveUp`, `stopped`.
+    /// `waiting`, `waitingForInternet`, `waitingForMemory`, `launching`, `checking`, `gaveUp`, `stopped`.
     pub phase: &'static str,
     pub attempt: u32,
     pub max_attempts: u32,
@@ -440,6 +455,7 @@ impl ReconnectBook {
                 watched_was_open,
                 target: input.target,
                 error: None,
+                memory_wait_since_ms: None,
             },
         );
         Some(match stop {
@@ -520,7 +536,9 @@ impl ReconnectBook {
                 continue;
             }
             match entry.phase.clone() {
-                ReconnectPhase::Waiting { at_ms } | ReconnectPhase::WaitingForInternet { at_ms } => {
+                ReconnectPhase::Waiting { at_ms }
+                | ReconnectPhase::WaitingForInternet { at_ms }
+                | ReconnectPhase::WaitingForMemory { at_ms } => {
                     if obs.tracked_in_game {
                         // Voltou ao jogo sozinho (o Roblox reconectou), ou a
                         // pessoa abriu a conta de novo.
@@ -546,6 +564,9 @@ impl ReconnectBook {
                                     user_id,
                                     attempt: entry.attempt,
                                     target,
+                                    check_memory: !entry
+                                        .memory_wait_since_ms
+                                        .is_some_and(|since| now_ms - since >= RECONNECT_MEMORY_WAIT_MAX_MS),
                                 });
                             }
                             None => {
@@ -588,8 +609,11 @@ impl ReconnectBook {
                         notices.push(ReconnectNotice::Reconnected { user_id });
                     } else if obs.watched_exited {
                         // A queda (inclusive "fechou sozinho") já chegou por
-                        // `on_drop`; terminar sem queda é a pessoa fechando.
-                        if obs.watched_closed_by_app {
+                        // `on_drop`. Depois de entrar no jogo, terminar sem
+                        // queda é a pessoa fechando; antes de entrar é o cliente
+                        // quebrando ao carregar (falta de memória, sobretudo),
+                        // e a tentativa só não deu certo. O botão Parar existe.
+                        if obs.watched_closed_by_app || since.is_none() {
                             let notice = Self::fail_attempt(
                                 entry,
                                 user_id,
@@ -646,6 +670,7 @@ impl ReconnectBook {
         }
         match outcome {
             AttemptOutcome::Launched { pid } => {
+                entry.memory_wait_since_ms = None;
                 entry.watched_pid = Some(pid);
                 entry.watched_was_open = true;
                 entry.phase = ReconnectPhase::Checking {
@@ -662,6 +687,14 @@ impl ReconnectBook {
                     at_ms: now_ms + RECONNECT_OFFLINE_RETRY_MS,
                 };
                 Some(ReconnectNotice::Offline { user_id })
+            }
+            AttemptOutcome::LowMemory => {
+                let first = entry.memory_wait_since_ms.is_none();
+                entry.memory_wait_since_ms.get_or_insert(now_ms);
+                entry.phase = ReconnectPhase::WaitingForMemory {
+                    at_ms: now_ms + RECONNECT_MEMORY_RETRY_MS,
+                };
+                first.then_some(ReconnectNotice::LowMemory { user_id })
             }
             AttemptOutcome::Busy => {
                 entry.phase = ReconnectPhase::Waiting {
@@ -689,7 +722,9 @@ impl ReconnectBook {
         let entry = self.entries.get(&user_id)?;
         if matches!(
             entry.phase,
-            ReconnectPhase::Waiting { .. } | ReconnectPhase::WaitingForInternet { .. }
+            ReconnectPhase::Waiting { .. }
+                | ReconnectPhase::WaitingForInternet { .. }
+                | ReconnectPhase::WaitingForMemory { .. }
         ) {
             self.entries.remove(&user_id);
             return Some(ReconnectNotice::BackByItself { user_id });
@@ -720,6 +755,12 @@ impl ReconnectBook {
                 entry.phase = ReconnectPhase::Waiting { at_ms: now_ms };
                 true
             }
+            // A pessoa pediu: abre sem esperar a memória.
+            ReconnectPhase::WaitingForMemory { .. } => {
+                entry.memory_wait_since_ms = Some(now_ms - RECONNECT_MEMORY_WAIT_MAX_MS);
+                entry.phase = ReconnectPhase::Waiting { at_ms: now_ms };
+                true
+            }
             ReconnectPhase::GaveUp | ReconnectPhase::Stopped(_) => {
                 if entry.phase == ReconnectPhase::Stopped(ReconnectStopReason::Banned) || entry.target.is_none() {
                     return false;
@@ -746,6 +787,7 @@ impl ReconnectBook {
                 let (phase, next, reason) = match &e.phase {
                     ReconnectPhase::Waiting { at_ms } => ("waiting", Some(*at_ms), None),
                     ReconnectPhase::WaitingForInternet { at_ms } => ("waitingForInternet", Some(*at_ms), None),
+                    ReconnectPhase::WaitingForMemory { at_ms } => ("waitingForMemory", Some(*at_ms), None),
                     ReconnectPhase::Launching => ("launching", None, None),
                     ReconnectPhase::Checking { .. } => ("checking", None, None),
                     ReconnectPhase::GaveUp => ("gaveUp", None, None),
@@ -813,6 +855,10 @@ fn reconnect_console_line(notice: &ReconnectNotice) -> (&'static str, LogMsg) {
             "warn",
             log_msg!("No internet: the reconnection waits for it to come back"),
         ),
+        ReconnectNotice::LowMemory { .. } => (
+            "warn",
+            log_msg!("Windows is almost out of memory: the reconnection waits up to 5 minutes for some to free up"),
+        ),
         ReconnectNotice::Relaunched { attempt, .. } => (
             "info",
             log_msg!(
@@ -877,6 +923,7 @@ fn reconnect_notice_user(notice: &ReconnectNotice) -> i64 {
     match notice {
         ReconnectNotice::Scheduled { user_id, .. }
         | ReconnectNotice::Offline { user_id }
+        | ReconnectNotice::LowMemory { user_id }
         | ReconnectNotice::Relaunched { user_id, .. }
         | ReconnectNotice::Reconnected { user_id }
         | ReconnectNotice::BackByItself { user_id }
@@ -1192,10 +1239,11 @@ pub(crate) fn reconnect_after_health_tick(app: &tauri::AppHandle, notices: &[Hea
             user_id,
             attempt,
             target,
+            check_memory,
         } = action;
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let outcome = run_reconnect_attempt(&app, user_id, attempt, &target).await;
+            let outcome = run_reconnect_attempt(&app, user_id, attempt, &target, check_memory).await;
             let now_ms = chrono::Utc::now().timestamp_millis();
             let notice = with_reconnect_book(|book| book.attempt_finished(user_id, outcome, now_ms));
             publish_reconnect(&app, &notice.into_iter().collect::<Vec<_>>());
@@ -1211,9 +1259,21 @@ async fn run_reconnect_attempt(
     user_id: i64,
     attempt: u32,
     target: &ReconnectTarget,
+    check_memory: bool,
 ) -> AttemptOutcome {
     if !roblox_reachable().await {
         return AttemptOutcome::NoInternet;
+    }
+
+    // Com o Windows sem memória, abrir mais um derruba os outros. Se o cliente
+    // velho da conta ainda está aberto (caixa de erro, travado), fechar ele já
+    // devolve memória: não espera.
+    let old_client_open = platform::windows::tracker()
+        .get_all()
+        .iter()
+        .any(|p| p.user_id == user_id && client_still_open(client_health_of(p.user_id, p.pid).as_ref()));
+    if check_memory && !old_client_open && windows_memory_tight_now().is_some() {
+        return AttemptOutcome::LowMemory;
     }
 
     // Ban novo costuma vir logo depois de um kick: a 1ª tentativa pergunta de

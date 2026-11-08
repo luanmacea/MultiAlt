@@ -228,6 +228,16 @@ impl ProcessTracker {
         }
     }
 
+    /// Fecha um cliente doente (travado, memória, sem conexão). Igual ao
+    /// `kill_for_user`, mas o monitor de quedas o vê como queda, e a reconexão
+    /// traz a conta de volta se estiver ligada.
+    pub fn close_unhealthy(&self, user_id: i64) -> bool {
+        if let Some(pid) = self.get_pid(user_id) {
+            note_closed_as_unhealthy(pid);
+        }
+        self.kill_for_user(user_id)
+    }
+
     pub fn kill_for_user_graceful(&self, user_id: i64, timeout_ms: u64) -> bool {
         let Some(pid) = self.get_pid(user_id) else {
             return true;

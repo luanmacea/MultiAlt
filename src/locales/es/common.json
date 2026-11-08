@@ -3219,5 +3219,9 @@
   "Dropped: Roblox won't let this account back in (code {{code}})": "Se cayó: Roblox no deja volver a esta cuenta (código {{code}})",
   "No reconnection: Roblox won't let this account back in": "Sin reconexión: Roblox no deja volver a esta cuenta",
   "Not reconnecting: Roblox won't let this account back in": "No se reconectará: Roblox no deja volver a esta cuenta",
-  "Disconnected: Roblox won't let this account back in": "Desconectada: Roblox no deja volver a esta cuenta"
+  "Disconnected: Roblox won't let this account back in": "Desconectada: Roblox no deja volver a esta cuenta",
+  "Windows was almost out of memory when this client closed ({{free}} MB free of {{total}} MB). Open fewer clients or increase the page file": "Windows casi no tenía memoria cuando este cliente se cerró ({{free}} MB libres de {{total}} MB). Abre menos clientes o aumenta el archivo de paginación",
+  "Windows is almost out of memory: the reconnection waits up to 5 minutes for some to free up": "Windows casi no tiene memoria: la reconexión espera hasta 5 minutos a que se libere",
+  "Waiting for Windows to free some memory (attempt {{attempt}}/{{max}})": "Esperando a que Windows libere memoria (intento {{attempt}}/{{max}})",
+  "The client closed by itself: restarting the account in {{seconds}}s": "El cliente se cerró solo: reiniciando la cuenta en {{seconds}}s"
 }

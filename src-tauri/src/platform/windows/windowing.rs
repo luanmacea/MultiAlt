@@ -40,6 +40,34 @@ pub fn find_main_window(target_pid: u32) -> Option<HWND> {
     }
 }
 
+struct WindowTitlesData {
+    target_pid: u32,
+    titles: Vec<String>,
+}
+
+unsafe extern "system" fn window_titles_callback(hwnd: HWND, lparam: isize) -> i32 {
+    let data = &mut *(lparam as *mut WindowTitlesData);
+    let mut pid: u32 = 0;
+    GetWindowThreadProcessId(hwnd, &mut pid);
+    if pid == data.target_pid && IsWindowVisible(hwnd) != 0 {
+        data.titles.push(get_window_title(hwnd));
+    }
+    1
+}
+
+/// Os títulos das janelas visíveis do processo (a caixa de erro do Roblox é
+/// outra janela, ao lado da principal).
+pub fn window_titles_of(target_pid: u32) -> Vec<String> {
+    let mut data = WindowTitlesData {
+        target_pid,
+        titles: Vec::new(),
+    };
+    unsafe {
+        EnumWindows(Some(window_titles_callback), &mut data as *mut _ as isize);
+    }
+    data.titles
+}
+
 pub fn get_window_position(hwnd: HWND) -> Option<(i32, i32, i32, i32)> {
     unsafe {
         let mut rect: RECT = std::mem::zeroed();
@@ -2295,6 +2323,13 @@ pub fn get_process_memory_mb(pid: u32) -> Option<u64> {
 /// Memória física livre e total do Windows, em MB (o aviso "Windows quase sem
 /// memória" da página Discord). Só leitura.
 pub fn system_memory_mb() -> Option<(u64, u64)> {
+    system_memory_detail().map(|(physical, _)| physical)
+}
+
+/// Memória do Windows em MB: `((física livre, total), (confirmada livre, limite))`.
+/// A confirmada é RAM + arquivo de paginação; é ela que, ao acabar, faz os
+/// programas quebrarem. Só leitura.
+pub fn system_memory_detail() -> Option<((u64, u64), (u64, u64))> {
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     const MB: u64 = 1024 * 1024;
     // SAFETY: MEMORYSTATUSEX é uma struct C simples; zerada e com o
@@ -2304,5 +2339,8 @@ pub fn system_memory_mb() -> Option<(u64, u64)> {
     if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
         return None;
     }
-    Some((status.ullAvailPhys / MB, status.ullTotalPhys / MB))
+    Some((
+        (status.ullAvailPhys / MB, status.ullTotalPhys / MB),
+        (status.ullAvailPageFile / MB, status.ullTotalPageFile / MB),
+    ))
 }

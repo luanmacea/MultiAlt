@@ -328,7 +328,7 @@ impl MemoryOs for WindowsMemoryOs {
         platform::windows::trim_working_set(pid)
     }
     fn close(&self, user_id: i64) -> bool {
-        platform::windows::tracker().kill_for_user(user_id)
+        platform::windows::tracker().close_unhealthy(user_id)
     }
 }
 

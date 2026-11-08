@@ -3098,6 +3098,8 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
         return Ok(platform::windows::tracker()
             .get_all()
             .into_iter()
+            // Cliente morto que o tracker ainda não esqueceu: não está aberto.
+            .filter(|p| client_still_open(client_health_of(p.user_id, p.pid).as_ref()))
             .map(|p| RunningInstance {
                 pid: p.pid,
                 user_id: p.user_id,

@@ -74,6 +74,14 @@ export function autoReconnectLabel(entry: AutoReconnectEntry, nowMs: number, t: 
         canTryNow: true,
         canTryAgain: false,
       };
+    case "waitingForMemory":
+      return {
+        label: t("Waiting for Windows to free some memory (attempt {{attempt}}/{{max}})", counts),
+        detail,
+        tone: "pending",
+        canTryNow: true,
+        canTryAgain: false,
+      };
     case "launching":
       return {
         label: t("Reconnecting now (attempt {{attempt}}/{{max}})", counts),

@@ -184,7 +184,7 @@ async fn start_watcher(
                     // "Não respondendo" há 30 s (o monitor só conta clientes do app).
                     if cfg.close_if_not_responding
                         && health.as_ref().is_some_and(|h| h.not_responding)
-                        && tracker.kill_for_user(inst.user_id)
+                        && tracker.close_unhealthy(inst.user_id)
                     {
                         let _ = app_handle.emit(
                             "roblox-not-responding",
@@ -207,7 +207,7 @@ async fn start_watcher(
                                 mem,
                                 cfg.memory_low_mb,
                                 client_memory_was_trimmed(inst.user_id),
-                            ) && tracker.kill_for_user(inst.user_id)
+                            ) && tracker.close_unhealthy(inst.user_id)
                             {
                                 let _ = app_handle.emit(
                                     "roblox-low-memory",
@@ -299,7 +299,7 @@ async fn start_watcher(
                                     .entry(inst.user_id)
                                     .or_insert_with(std::time::Instant::now);
                                 if since.elapsed().as_secs() >= cfg.no_connection_timeout_secs
-                                    && tracker.kill_for_user(inst.user_id)
+                                    && tracker.close_unhealthy(inst.user_id)
                                 {
                                     let _ = app_handle.emit(
                                         "roblox-no-connection",

@@ -614,6 +614,44 @@ pub trait ClientHealthOs {
     fn set_window_title(&self, hwnd: isize, title: &str) -> bool;
     /// A janela está "Não respondendo" (`IsHungAppWindow`).
     fn is_hung(&self, hwnd: isize) -> bool;
+    /// Títulos das janelas visíveis do processo: a caixa de erro do Roblox é
+    /// uma janela à parte da principal.
+    fn window_titles(&self, pid: u32) -> Vec<String>;
+    /// O app fechou este PID porque ele estava doente (travado, memória,
+    /// sem conexão). Conta como queda: a reconexão é quem traz de volta.
+    fn closed_as_unhealthy(&self, pid: u32) -> bool;
+}
+
+/// A caixa que o Roblox abre quando o cliente quebra ("An unexpected error
+/// occurred and Roblox needs to quit"). O processo fica vivo até alguém clicar
+/// em OK: sem isto a conta seguia "em jogo" com o jogo já morto. Título
+/// **exato**: o app põe `<apelido> — Roblox` nas janelas, e um apelido
+/// "Roblox Crash" não pode virar queda.
+pub fn is_crash_dialog_title(title: &str) -> bool {
+    let title = title.trim();
+    title.eq_ignore_ascii_case("Roblox Crash")
+        || title.to_ascii_lowercase().starts_with("an unexpected error occurred")
+}
+
+/// Abaixo disto (e de 10% do total) um cliente novo não cabe: cada cliente do
+/// Roblox pede de 1 a 2 GB.
+pub const LOW_MEMORY_FLOOR_MB: u64 = 2_048;
+
+fn memory_figures_are_tight(free_mb: u64, total_mb: u64) -> bool {
+    total_mb > 0 && free_mb < (total_mb / 10).min(LOW_MEMORY_FLOOR_MB)
+}
+
+/// O Windows está quase sem memória? Devolve (livre, total) em MB do que
+/// faltou. Olha a memória física e a confirmada (RAM + arquivo de paginação):
+/// é a confirmada que, ao acabar, faz o programa quebrar, mesmo com RAM livre.
+pub fn tight_memory(physical: (u64, u64), commit: (u64, u64)) -> Option<(u64, u64)> {
+    if memory_figures_are_tight(commit.0, commit.1) {
+        Some(commit)
+    } else if memory_figures_are_tight(physical.0, physical.1) {
+        Some(physical)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -881,6 +919,32 @@ pub enum HealthNotice {
     Challenge { user_id: i64, pending: bool, resolved: bool },
 }
 
+fn crashed_drop(now_ms: i64) -> ClientDrop {
+    ClientDrop {
+        kind: DropKind::Crashed,
+        reason: None,
+        code: None,
+        message: None,
+        since_ms: now_ms,
+    }
+}
+
+/// Lê o que o cliente escreveu no log desde a última passada.
+fn read_new_log_lines(os: &dyn ClientHealthOs, entry: &mut ClientHealthEntry, now_ms: i64) {
+    let Some(path) = entry.log.clone() else {
+        return;
+    };
+    if let Some(bytes) = os.read_log(&path, entry.offset, CLIENT_LOG_READ_MAX) {
+        let consumed = complete_line_bytes(&bytes, CLIENT_LOG_READ_MAX);
+        if consumed > 0 {
+            entry
+                .session
+                .absorb(&String::from_utf8_lossy(&bytes[..consumed]), now_ms);
+            entry.offset += consumed as u64;
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ClientHealthMonitor {
     entries: HashMap<i64, ClientHealthEntry>,
@@ -901,6 +965,29 @@ impl ClientHealthMonitor {
         now_ms: i64,
     ) -> Vec<HealthNotice> {
         let mut notices = Vec::new();
+        if tracked.is_empty() && self.entries.is_empty() {
+            return notices;
+        }
+        let alive = os.alive_pids();
+        // Quem limpa o tracker (Watcher, launch) pode passar antes daqui. O
+        // cliente que morreu assim ainda é visto uma última vez: sem isso a
+        // queda sumia e a reconexão nem começava (relatos de 08/11/2026).
+        let forgotten: Vec<TrackedClient> = self
+            .entries
+            .iter()
+            .filter(|(uid, entry)| {
+                !entry.exit_seen && !alive.contains(&entry.pid) && !tracked.iter().any(|t| t.user_id == **uid)
+            })
+            .map(|(uid, entry)| TrackedClient {
+                user_id: *uid,
+                pid: entry.pid,
+                adopted: entry.adopted,
+                window_label: None,
+                browser_tracker_id: entry.browser_tracker_id.clone(),
+            })
+            .collect();
+        let tracked: Vec<TrackedClient> = tracked.iter().cloned().chain(forgotten).collect();
+        let tracked = tracked.as_slice();
         // Conta que saiu do tracker, ou que trocou de PID, começa do zero.
         self.entries.retain(|uid, entry| {
             tracked
@@ -918,8 +1005,6 @@ impl ClientHealthMonitor {
             entry.adopted = client.adopted;
             entry.browser_tracker_id = client.browser_tracker_id.clone();
         }
-
-        let alive = os.alive_pids();
 
         // Log devolvido por outro cliente: vai direto para o launch dele.
         if !self.handed_back.is_empty() {
@@ -961,31 +1046,24 @@ impl ClientHealthMonitor {
                 continue;
             };
             if alive.contains(&entry.pid) {
-                if let Some(path) = entry.log.clone() {
-                    if let Some(bytes) = os.read_log(&path, entry.offset, CLIENT_LOG_READ_MAX) {
-                        let consumed = complete_line_bytes(&bytes, CLIENT_LOG_READ_MAX);
-                        if consumed > 0 {
-                            entry
-                                .session
-                                .absorb(&String::from_utf8_lossy(&bytes[..consumed]), now_ms);
-                            entry.offset += consumed as u64;
-                        }
-                    }
+                read_new_log_lines(os, entry, now_ms);
+                if entry.crashed.is_none()
+                    && os.window_titles(entry.pid).iter().any(|title| is_crash_dialog_title(title))
+                {
+                    entry.crashed = Some(crashed_drop(now_ms));
                 }
             } else if !entry.exit_seen {
                 entry.exit_seen = true;
+                // O que ele escreveu nos últimos 2 s: fechar a janela escreve a
+                // saída e termina antes da passada seguinte.
+                read_new_log_lines(os, entry, now_ms);
                 // Sem log não dá para saber se a pessoa fechou a janela: não chuta.
-                if entry.log.is_some()
+                let closed_alone = entry.log.is_some()
                     && entry.session.ended_without_leaving()
-                    && !os.terminated_by_app(entry.pid)
-                {
-                    entry.crashed = Some(ClientDrop {
-                        kind: DropKind::Crashed,
-                        reason: None,
-                        code: None,
-                        message: None,
-                        since_ms: now_ms,
-                    });
+                    && !os.terminated_by_app(entry.pid);
+                let closed_unhealthy = entry.session.current_drop().is_none() && os.closed_as_unhealthy(entry.pid);
+                if entry.crashed.is_none() && (closed_alone || closed_unhealthy) {
+                    entry.crashed = Some(crashed_drop(now_ms));
                 }
             }
             entry.session.settle(now_ms);
@@ -1137,7 +1215,9 @@ impl ClientHealthMonitor {
                         drop: entry.current_drop().cloned(),
                         window_title: entry.applied_title.clone(),
                         not_responding: entry.not_responding,
-                        in_game: !entry.exit_seen && entry.session.in_game(),
+                        // A caixa de erro aberta não é "em jogo": sem isto a
+                        // reconexão diria que a conta já voltou.
+                        in_game: !entry.exit_seen && entry.crashed.is_none() && entry.session.in_game(),
                         wrong_account_user_id: entry.wrong_account,
                         server: server_view_of(entry.session.destination()),
                         challenge: !entry.exit_seen && entry.session.challenge_pending(),
@@ -1153,6 +1233,12 @@ impl ClientHealthMonitor {
 /// Último retrato do monitor, para o `get_running_instances` e o Watcher.
 static CLIENT_HEALTH_VIEWS: LazyLock<Mutex<HashMap<i64, ClientHealthView>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// O processo ainda existe? O tracker só esquece um cliente morto quando o
+/// Watcher ou um launch passam: até lá ele não pode aparecer como aberto.
+pub(crate) fn client_still_open(view: Option<&ClientHealthView>) -> bool {
+    !view.is_some_and(|v| v.exited)
+}
 
 /// A saúde do cliente `pid` da conta (`None` se o monitor ainda não o viu).
 pub(crate) fn client_health_of(user_id: i64, pid: u32) -> Option<ClientHealthView> {
@@ -1253,6 +1339,12 @@ impl ClientHealthOs for WindowsClientHealthOs {
     fn is_hung(&self, hwnd: isize) -> bool {
         platform::windows::is_window_hung(hwnd as _)
     }
+    fn window_titles(&self, pid: u32) -> Vec<String> {
+        platform::windows::window_titles_of(pid)
+    }
+    fn closed_as_unhealthy(&self, pid: u32) -> bool {
+        platform::windows::was_closed_as_unhealthy(pid)
+    }
 }
 
 /// O nome de cada conta para o título da janela, ou nada com a opção
@@ -1278,10 +1370,41 @@ fn window_labels(app: &tauri::AppHandle) -> HashMap<i64, String> {
 static CLIENT_HEALTH_MONITOR: LazyLock<Mutex<ClientHealthMonitor>> =
     LazyLock::new(|| Mutex::new(ClientHealthMonitor::new()));
 
+/// O Windows está quase sem memória agora? (livre, total) em MB do que faltou.
+#[cfg(target_os = "windows")]
+pub(crate) fn windows_memory_tight_now() -> Option<(u64, u64)> {
+    let (physical, commit) = platform::windows::system_memory_detail()?;
+    tight_memory(physical, commit)
+}
+
+/// O aperto de memória da passada de agora e da anterior. Quando o monitor vê
+/// o cliente morto a memória dele já voltou: o que explica a queda é o retrato
+/// de antes.
+#[cfg(target_os = "windows")]
+static RECENT_TIGHT_MEMORY: LazyLock<Mutex<[Option<(u64, u64)>; 2]>> = LazyLock::new(|| Mutex::new([None, None]));
+
+#[cfg(target_os = "windows")]
+fn remember_tight_memory() {
+    let now = windows_memory_tight_now();
+    if let Ok(mut recent) = RECENT_TIGHT_MEMORY.lock() {
+        recent[1] = recent[0];
+        recent[0] = now;
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn recent_tight_memory() -> Option<(u64, u64)> {
+    let recent = RECENT_TIGHT_MEMORY.lock().ok()?;
+    recent[1].or(recent[0])
+}
+
 /// Uma passada de verdade: lê o tracker, roda o monitor e publica o retrato.
 #[cfg(target_os = "windows")]
 fn run_client_health_tick(app: &tauri::AppHandle) -> Vec<HealthNotice> {
     let tracked_processes = platform::windows::tracker().get_all();
+    if !tracked_processes.is_empty() {
+        remember_tight_memory();
+    }
     let mut labels = if tracked_processes.is_empty() {
         HashMap::new()
     } else {
@@ -1406,6 +1529,22 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 }),
             );
             emit_launch_log(app, *user_id, "warn", "client", drop_console_line(drop));
+            // Fechou sem explicação com o Windows sem memória: diz à pessoa.
+            if drop.kind == DropKind::Crashed {
+                if let Some((free, total)) = recent_tight_memory() {
+                    emit_launch_log(
+                        app,
+                        *user_id,
+                        "warn",
+                        "client",
+                        log_msg!(
+                            "Windows was almost out of memory when this client closed ({{free}} MB free of {{total}} MB). Open fewer clients or increase the page file",
+                            free = free,
+                            total = total
+                        ),
+                    );
+                }
+            }
         }
         HealthNotice::NotResponding {
             user_id,

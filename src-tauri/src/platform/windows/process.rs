@@ -117,6 +117,30 @@ fn note_terminated_by_app(pid: u32) {
     }
 }
 
+/// PIDs que o app fechou por estarem doentes (travado, memória, sem conexão),
+/// não por pedido de alguém. A reconexão os trata como queda.
+static CLOSED_AS_UNHEALTHY: LazyLock<Mutex<std::collections::VecDeque<u32>>> =
+    LazyLock::new(|| Mutex::new(std::collections::VecDeque::new()));
+
+/// Anotar **antes** de fechar: a passada do monitor pode ver o processo morto
+/// logo em seguida.
+pub fn note_closed_as_unhealthy(pid: u32) {
+    if let Ok(mut pids) = CLOSED_AS_UNHEALTHY.lock() {
+        pids.retain(|p| *p != pid);
+        pids.push_back(pid);
+        while pids.len() > TERMINATED_BY_APP_MEMORY {
+            pids.pop_front();
+        }
+    }
+}
+
+pub fn was_closed_as_unhealthy(pid: u32) -> bool {
+    CLOSED_AS_UNHEALTHY
+        .lock()
+        .map(|pids| pids.contains(&pid))
+        .unwrap_or(false)
+}
+
 pub fn was_terminated_by_app(pid: u32) -> bool {
     TERMINATED_BY_APP
         .lock()

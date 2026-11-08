@@ -539,6 +539,9 @@ async fn run_botting_session(
     // Quantas vezes cada conta ja foi reiniciada nesta sessao. O usuario pediu
     // esse numero no console, e nao existe em lugar nenhum do estado.
     let mut restarts: HashMap<i64, u32> = HashMap::new();
+    // O cliente aberto de cada conta (PID, desde quando), para notar o que
+    // fechou sozinho.
+    let mut seen_clients: HashMap<i64, (u32, i64)> = HashMap::new();
 
     if let Ok(cfg) = config.lock() {
         emit_session_log(
@@ -708,10 +711,55 @@ async fn run_botting_session(
         let now = now_ms();
         let tracker = platform::windows::tracker();
         let user_ids = cfg.user_ids.clone();
+        let alive_pids: HashSet<u32> = platform::windows::get_roblox_pids().into_iter().collect();
 
         for uid in user_ids {
             if stop_flag.load(Ordering::Relaxed) {
                 break;
+            }
+
+            // Cliente que fechou sozinho volta já, sem esperar o ciclo (que
+            // pode ser de horas).
+            let mut restart_in_ms = None;
+            match tracker.get_pid(uid).filter(|pid| alive_pids.contains(pid)) {
+                Some(pid) => {
+                    if seen_clients.get(&uid).map(|(seen, _)| *seen) != Some(pid) {
+                        seen_clients.insert(uid, (pid, now));
+                    }
+                }
+                None => {
+                    if let Some((pid, since)) = seen_clients.remove(&uid) {
+                        let died = botting_client_died(
+                            Some(pid),
+                            platform::windows::was_terminated_by_app(pid),
+                            platform::windows::was_closed_as_unhealthy(pid),
+                        );
+                        if let (true, Ok(mut map)) = (died, accounts.lock()) {
+                            if let Some(entry) = map.get_mut(&uid).filter(|e| {
+                                !e.is_player && !e.disconnected && !e.manual_restart_pending && e.phase == "running"
+                            }) {
+                                let delay = botting_crash_restart_delay_ms(now - since);
+                                if entry.next_restart_at_ms.map_or(true, |at| at > now + delay) {
+                                    entry.next_restart_at_ms = Some(now + delay);
+                                    restart_in_ms = Some(delay);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(delay) = restart_in_ms {
+                emit_launch_log(
+                    &app,
+                    uid,
+                    "warn",
+                    "rejoin",
+                    log_msg!(
+                        "The client closed by itself: restarting the account in {{seconds}}s",
+                        seconds = delay / 1_000
+                    ),
+                );
+                emit_botting_status(&app);
             }
 
             let mut should_launch = false;
@@ -1426,4 +1474,27 @@ fn set_botting_player_accounts(
     _player_user_ids: Vec<i64>,
 ) -> Result<BottingStatusPayload, String> {
     Ok(BottingStatusPayload::default())
+}
+
+/// Cliente que durou bem e fechou sozinho: volta logo.
+const BOTTING_CRASH_RESTART_MS: i64 = 10_000;
+/// Fechou de novo pouco depois de abrir: dá tempo de a máquina respirar, para
+/// não virar um laço abrindo e quebrando.
+const BOTTING_CRASH_LOOP_RESTART_MS: i64 = 60_000;
+const BOTTING_CRASH_LOOP_LIVED_MS: i64 = 5 * 60_000;
+
+/// O cliente que o Auto Rejoin viu aberto morreu sem ninguém pedir?
+/// `seen_pid`: o que estava aberto na última olhada e não está mais.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn botting_client_died(seen_pid: Option<u32>, closed_by_app: bool, closed_as_unhealthy: bool) -> bool {
+    seen_pid.is_some() && (!closed_by_app || closed_as_unhealthy)
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn botting_crash_restart_delay_ms(lived_ms: i64) -> i64 {
+    if lived_ms < BOTTING_CRASH_LOOP_LIVED_MS {
+        BOTTING_CRASH_LOOP_RESTART_MS
+    } else {
+        BOTTING_CRASH_RESTART_MS
+    }
 }

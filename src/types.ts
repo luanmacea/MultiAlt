@@ -627,7 +627,14 @@ export interface ClientServer {
  * sem gastar tentativa; `launching`: tentativa em andamento; `checking`:
  * relançou e confere se fica 2 min no jogo; `gaveUp`/`stopped`: parou.
  */
-export type AutoReconnectPhase = "waiting" | "waitingForInternet" | "launching" | "checking" | "gaveUp" | "stopped";
+export type AutoReconnectPhase =
+  | "waiting"
+  | "waitingForInternet"
+  | "waitingForMemory"
+  | "launching"
+  | "checking"
+  | "gaveUp"
+  | "stopped";
 export type AutoReconnectStopReason =
   | "joinedElsewhere"
   | "closedByUser"
