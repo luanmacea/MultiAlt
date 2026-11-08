@@ -5,6 +5,7 @@ import type { RememberState } from "../../types";
 import { useTr } from "../../i18n/text";
 import { ModalWindowControls } from "./ModalWindowControls";
 import { lockErrorText } from "../../utils/inactivityLock";
+import { shaderCanvasSize, shaderFrameDue } from "./shaderFrame";
 
 type RestrictedBackgroundStyle = "waves" | "warp" | "warpLegacy" | "bubbles";
 
@@ -243,40 +244,62 @@ function useShaderCanvas(canvasRef: React.RefObject<HTMLCanvasElement | null>, f
     gl.uniform3fv(c3Loc, colors.panelSoft);
 
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // O relógio da animação só anda enquanto ela roda: ao voltar de uma pausa o
+    // fundo continua de onde parou, sem salto.
+    let elapsed = 0;
+    let lastTick = 0;
+    let lastDrawn = -Infinity;
+    const draw = () => {
+      gl.uniform1f(timeLoc, prefersReducedMotion ? 0 : elapsed / 1000);
+      gl.uniform2f(resLoc, canvas.width, canvas.height);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    };
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
+      const size = shaderCanvasSize(rect.width, rect.height);
+      canvas.width = size.width;
+      canvas.height = size.height;
       gl.viewport(0, 0, canvas.width, canvas.height);
-      if (prefersReducedMotion) {
-        gl.uniform1f(timeLoc, 0);
-        gl.uniform2f(resLoc, canvas.width, canvas.height);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      }
+      // Mudar o tamanho apaga o canvas: redesenha já, mesmo com a animação parada.
+      draw();
     };
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
 
     let raf = 0;
-    const t0 = performance.now();
-    const tick = () => {
-      gl.uniform1f(timeLoc, (performance.now() - t0) / 1000);
-      gl.uniform2f(resLoc, canvas.width, canvas.height);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    const tick = (now: number) => {
+      elapsed += Math.min(now - lastTick, 100);
+      lastTick = now;
+      if (shaderFrameDue(now, lastDrawn)) {
+        lastDrawn = now;
+        draw();
+      }
       raf = requestAnimationFrame(tick);
     };
-    if (prefersReducedMotion) {
-      gl.uniform1f(timeLoc, 0);
-      gl.uniform2f(resLoc, canvas.width, canvas.height);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    } else {
+    // Parado enquanto a janela está minimizada ou sem foco: o último quadro fica
+    // na tela e a GPU não trabalha por um fundo que ninguém está olhando.
+    const shouldRun = () => !prefersReducedMotion && !document.hidden && document.hasFocus();
+    const start = () => {
+      if (raf || !shouldRun()) return;
+      lastTick = performance.now();
       raf = requestAnimationFrame(tick);
-    }
+    };
+    const stop = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    const sync = () => (shouldRun() ? start() : stop());
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("focus", sync);
+    window.addEventListener("blur", sync);
+    start();
 
     return () => {
-      cancelAnimationFrame(raf);
+      stop();
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("blur", sync);
       observer.disconnect();
       gl.deleteProgram(prog);
       gl.deleteShader(vs);
