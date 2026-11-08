@@ -3214,5 +3214,10 @@
   "That client stays open. The queue is waiting for your answer.": "That client stays open. The queue is waiting for your answer.",
   "Don't ask again (change it in Settings › Launch)": "Don't ask again (change it in Settings › Launch)",
   "The Roblox log read for this client was another account's; looking for its own": "The Roblox log read for this client was another account's; looking for its own",
-  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer"
+  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer",
+  "Dropped: Roblox won't let this account back in": "Dropped: Roblox won't let this account back in",
+  "Dropped: Roblox won't let this account back in (code {{code}})": "Dropped: Roblox won't let this account back in (code {{code}})",
+  "No reconnection: Roblox won't let this account back in": "No reconnection: Roblox won't let this account back in",
+  "Not reconnecting: Roblox won't let this account back in": "Not reconnecting: Roblox won't let this account back in",
+  "Disconnected: Roblox won't let this account back in": "Disconnected: Roblox won't let this account back in"
 }

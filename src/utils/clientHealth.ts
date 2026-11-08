@@ -57,6 +57,8 @@ function dropLabel(
           return { label: t("Disconnected: the account joined somewhere else"), detail };
         case "idle":
           return { label: t("Disconnected: idle for too long"), detail };
+        case "noAccess":
+          return { label: t("Disconnected: Roblox won't let this account back in"), detail };
         default:
           return { label: t("Disconnected from the game"), detail };
       }

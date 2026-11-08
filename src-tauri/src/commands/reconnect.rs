@@ -70,6 +70,17 @@ pub enum ReconnectStopReason {
     NoDestination,
     /// A conta está aberta num cliente de fora do app (site): o app não o fecha.
     OpenedOutsideApp,
+    /// O Roblox tirou a conta do jogo ou não a deixa entrar nele.
+    NoAccess,
+}
+
+/// A queda que relançar não resolve, e o motivo de parar de vez.
+fn final_stop_of(drop: &ClientDrop) -> Option<ReconnectStopReason> {
+    match drop.reason {
+        Some(DropReason::JoinedElsewhere) => Some(ReconnectStopReason::JoinedElsewhere),
+        Some(DropReason::NoAccess) => Some(ReconnectStopReason::NoAccess),
+        _ => None,
+    }
 }
 
 /// Para onde o app mandou a conta no último launch (launch.rs grava).
@@ -363,7 +374,7 @@ impl ReconnectBook {
         if input.auto_rejoin || input.adopted {
             return None;
         }
-        let joined_elsewhere = input.drop.reason == Some(DropReason::JoinedElsewhere);
+        let final_stop = final_stop_of(&input.drop);
         let watched_was_open = input.drop.kind != DropKind::Crashed;
 
         if let Some(entry) = self.entries.get_mut(&user_id) {
@@ -373,12 +384,9 @@ impl ReconnectBook {
                 ReconnectPhase::Checking { in_game_since_ms, .. } if same_client => {
                     entry.drop = input.drop.clone();
                     entry.watched_was_open = watched_was_open;
-                    if joined_elsewhere {
-                        entry.phase = ReconnectPhase::Stopped(ReconnectStopReason::JoinedElsewhere);
-                        return Some(ReconnectNotice::Stopped {
-                            user_id,
-                            reason: ReconnectStopReason::JoinedElsewhere,
-                        });
+                    if let Some(reason) = final_stop {
+                        entry.phase = ReconnectPhase::Stopped(reason);
+                        return Some(ReconnectNotice::Stopped { user_id, reason });
                     }
                     return Some(Self::fail_attempt(
                         entry,
@@ -388,16 +396,13 @@ impl ReconnectBook {
                         in_game_since_ms.is_none(),
                     ));
                 }
-                // Já está reconectando esta queda: só a "entrou em outro lugar"
-                // (que pode chegar depois de outra linha) muda alguma coisa.
+                // Já está reconectando esta queda: só um motivo final (que pode
+                // chegar depois de outra linha) muda alguma coisa.
                 phase if !phase.is_final() => {
-                    if joined_elsewhere {
+                    if let Some(reason) = final_stop {
                         entry.drop = input.drop.clone();
-                        entry.phase = ReconnectPhase::Stopped(ReconnectStopReason::JoinedElsewhere);
-                        return Some(ReconnectNotice::Stopped {
-                            user_id,
-                            reason: ReconnectStopReason::JoinedElsewhere,
-                        });
+                        entry.phase = ReconnectPhase::Stopped(reason);
+                        return Some(ReconnectNotice::Stopped { user_id, reason });
                     }
                     return None;
                 }
@@ -412,8 +417,8 @@ impl ReconnectBook {
             self.entries.remove(&user_id);
             return None;
         }
-        let stop = if joined_elsewhere {
-            Some(ReconnectStopReason::JoinedElsewhere)
+        let stop = if final_stop.is_some() {
+            final_stop
         } else if input.target.is_none() {
             Some(ReconnectStopReason::NoDestination)
         } else {
@@ -571,12 +576,9 @@ impl ReconnectBook {
                         // O relançado caiu e o aviso passou enquanto a
                         // tentativa rodava: vale como se tivesse chegado agora.
                         entry.drop = drop.clone();
-                        if drop.reason == Some(DropReason::JoinedElsewhere) {
-                            entry.phase = ReconnectPhase::Stopped(ReconnectStopReason::JoinedElsewhere);
-                            notices.push(ReconnectNotice::Stopped {
-                                user_id,
-                                reason: ReconnectStopReason::JoinedElsewhere,
-                            });
+                        if let Some(reason) = final_stop_of(&drop) {
+                            entry.phase = ReconnectPhase::Stopped(reason);
+                            notices.push(ReconnectNotice::Stopped { user_id, reason });
                         } else {
                             entry.watched_was_open = drop.kind != DropKind::Crashed;
                             notices.push(Self::fail_attempt(entry, user_id, None, now_ms, since.is_none()));
@@ -844,6 +846,9 @@ fn reconnect_console_line(notice: &ReconnectNotice) -> (&'static str, LogMsg) {
                 }
                 ReconnectStopReason::OpenedOutsideApp => {
                     log_msg!("No reconnection: the account is open outside the app")
+                }
+                ReconnectStopReason::NoAccess => {
+                    log_msg!("No reconnection: Roblox won't let this account back in")
                 }
             },
         ),

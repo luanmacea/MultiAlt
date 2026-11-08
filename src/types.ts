@@ -511,7 +511,7 @@ export interface UnidentifiedClient {
  * jogo sem a conta sair e sem o app fechá-lo.
  */
 export type ClientDropKind = "disconnected" | "kicked" | "serverShutdown" | "crashed";
-export type ClientDropReason = "connectionLost" | "joinedElsewhere" | "idle" | "other";
+export type ClientDropReason = "connectionLost" | "joinedElsewhere" | "idle" | "noAccess" | "other";
 
 export interface ClientDrop {
   kind: ClientDropKind;
@@ -634,7 +634,8 @@ export type AutoReconnectStopReason =
   | "banned"
   | "sessionExpired"
   | "noDestination"
-  | "openedOutsideApp";
+  | "openedOutsideApp"
+  | "noAccess";
 
 export interface AutoReconnectEntry {
   userId: number;

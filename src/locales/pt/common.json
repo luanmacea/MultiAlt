@@ -3214,5 +3214,10 @@
   "That client stays open. The queue is waiting for your answer.": "Esse cliente continua aberto. A fila está esperando sua resposta.",
   "Don't ask again (change it in Settings › Launch)": "Não perguntar de novo (dá para mudar em Settings › Launch)",
   "The Roblox log read for this client was another account's; looking for its own": "O log do Roblox lido para este cliente era de outra conta; procurando o dele",
-  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Entrou como outra conta do Roblox (usuário {{userId}}). A fila de launch espera sua resposta"
+  "Joined as another Roblox account (user {{userId}}). The launch queue waits for your answer": "Entrou como outra conta do Roblox (usuário {{userId}}). A fila de launch espera sua resposta",
+  "Dropped: Roblox won't let this account back in": "Caiu: o Roblox não deixa esta conta voltar",
+  "Dropped: Roblox won't let this account back in (code {{code}})": "Caiu: o Roblox não deixa esta conta voltar (código {{code}})",
+  "No reconnection: Roblox won't let this account back in": "Sem reconexão: o Roblox não deixa esta conta voltar",
+  "Not reconnecting: Roblox won't let this account back in": "Não vai reconectar: o Roblox não deixa esta conta voltar",
+  "Disconnected: Roblox won't let this account back in": "Desconectada: o Roblox não deixa esta conta voltar"
 }

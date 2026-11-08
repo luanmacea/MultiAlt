@@ -162,6 +162,8 @@ function stopLabel(entry: AutoReconnectEntry, t: Translate): string {
       return t("Not reconnecting: no game to go back to");
     case "openedOutsideApp":
       return t("Not reconnecting: the account is open outside the app");
+    case "noAccess":
+      return t("Not reconnecting: Roblox won't let this account back in");
     default:
       return t("Not reconnecting");
   }

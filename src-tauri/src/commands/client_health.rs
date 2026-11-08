@@ -31,6 +31,9 @@ pub enum DropReason {
     JoinedElsewhere,
     /// 278: parada tempo demais (kick de inatividade do próprio Roblox).
     Idle,
+    /// O Roblox tirou a conta ou não a deixa entrar (ver [`NO_ACCESS_CODES`]):
+    /// relançar só repetiria a recusa.
+    NoAccess,
     Other,
 }
 
@@ -88,8 +91,17 @@ fn number_after(line: &str, marker: &str) -> Option<u32> {
     digits.parse().ok()
 }
 
+/// O Roblox tirou a conta do jogo ou não a deixa entrar (`Enum.ConnectionError`):
+/// 268 comportamento inesperado do cliente, 281 política de segurança, 282 IP
+/// bloqueado, 286 tirada do servidor privado, 287 jogo moderado, 515 jogo
+/// desativado, 523 jogo restrito, 524 sem permissão, 533 privacidade, 600 banida
+/// pelo criador do jogo. Relançar repetiria a recusa. Os de teleporte (770, 773)
+/// ficam de fora de propósito: teleporte recusado deixa o cliente onde está.
+const NO_ACCESS_CODES: [u32; 10] = [268, 281, 282, 286, 287, 515, 523, 524, 533, 600];
+
 fn drop_reason_for_code(code: u32) -> DropReason {
     match code {
+        code if NO_ACCESS_CODES.contains(&code) => DropReason::NoAccess,
         264 | 273 | 276 => DropReason::JoinedElsewhere,
         260..=262 | 266 | 277 | 279 => DropReason::ConnectionLost,
         278 => DropReason::Idle,
@@ -131,9 +143,10 @@ fn disconnect_code(line: &str) -> Option<u32> {
         return Some(code);
     }
     // Texto do aviso de erro (`Error Code: 277`), visto nos concorrentes. Só a
-    // faixa das desconexões: "error code: 403" de um asset não é queda.
+    // faixa das desconexões e os joins recusados: "error code: 403" de um asset
+    // não é queda.
     let lower = line.to_ascii_lowercase();
-    number_after(&lower, "error code: ").filter(|code| (256..=299).contains(code))
+    number_after(&lower, "error code: ").filter(|code| (256..=299).contains(code) || NO_ACCESS_CODES.contains(code))
 }
 
 /// `You were kicked from this experience: <mensagem> (Error Code: 267)`.
@@ -1187,6 +1200,10 @@ fn drop_console_line(drop: &ClientDrop) -> LogMsg {
                 log_msg!("Dropped: it stayed idle for too long (code {{code}})", code = code)
             }
             (Some(DropReason::Idle), None) => log_msg!("Dropped: it stayed idle for too long"),
+            (Some(DropReason::NoAccess), Some(code)) => {
+                log_msg!("Dropped: Roblox won't let this account back in (code {{code}})", code = code)
+            }
+            (Some(DropReason::NoAccess), None) => log_msg!("Dropped: Roblox won't let this account back in"),
             (_, Some(code)) => log_msg!("Dropped (code {{code}})", code = code),
             (_, None) => log_msg!("Dropped"),
         },
