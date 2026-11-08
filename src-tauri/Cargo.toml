@@ -123,6 +123,13 @@ http-body-util = "0.1"
 # levar 18 dos 24 minutos. O libsodium nao sofria disso por ser C pre-compilado.
 [profile.dev.package."*"]
 opt-level = 3
+# Sem informação de depuração nas dependências, e só as linhas no nosso código
+# (o backtrace de um teste que falha continua apontando arquivo e linha). A
+# depuração completa era a maior parte da `target/debug`: 17 GB em 08/11/2026.
+debug = false
+
+[profile.dev]
+debug = "line-tables-only"
 
 # Build de release otimizado para TAMANHO (medido em 10/10/2026, ver
 # docs/development.md, "Perfil de release"): o exe padrao com tudo dos pacotes
