@@ -35,7 +35,7 @@ export function LaunchTab({ s }: { s: UseSettingsReturn }) {
         checked={s.getBool("General", "EnableMultiRbx")}
         onChange={(v) => s.setBool("General", "EnableMultiRbx", v)}
         label={<>Multi Roblox<WarningBadge>use at own risk</WarningBadge></>}
-        description="Allow multiple Roblox instances to run simultaneously"
+        description="Keeps several accounts open at once, wherever you open them: the app, an account's browser or the Roblox website. Works while MultiAlt is open."
       />
       {/* Ideia 3 (platform/windows/core.rs, `apply_singleton_reservation`):
           experimental e desligado; o método atual continua o padrão. */}

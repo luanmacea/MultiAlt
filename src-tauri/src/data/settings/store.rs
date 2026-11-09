@@ -55,6 +55,11 @@ impl SettingsStore {
                 "ask",
                 Some("Multi-launch: when a client opens as a different Roblox account, ask whether to keep launching (ask), keep launching (continue) or stop the queue (stop)"),
             ),
+            (
+                "EnableMultiRbx",
+                "true",
+                Some("Launch: keep several Roblox clients open at once, wherever they are opened from, while this app is open"),
+            ),
             ("DisableAgingAlert", "false", None),
             (
                 "JoinFriendsByFollowing",
