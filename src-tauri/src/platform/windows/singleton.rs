@@ -385,6 +385,17 @@ fn singleton_close_wait(now_ms: i64, created_ms: &[Option<i64>]) -> Duration {
     Duration::from_millis(wait_ms as u64)
 }
 
+/// Algum processo do Roblox ainda está nos primeiros segundos de vida?
+pub(crate) fn roblox_client_is_starting() -> bool {
+    let os = WindowsExternalClientOs;
+    let created: Vec<Option<i64>> = find_roblox_pids_all().iter().map(|pid| os.process_created_ms(*pid)).collect();
+    !singleton_close_wait(os.now_ms(), &created).is_zero()
+}
+
+/// Um fechamento por vez: o launch e a passada em segundo plano leem a mesma
+/// tabela de handles, e um não pode fechar o valor que o outro acabou de ler.
+static SINGLETON_CLOSE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
 /// Fecha o `ROBLOX_singletonEvent` de todos os clientes Roblox abertos.
 /// Devolve quantos handles foram fechados e quantos clientes não puderam ser
 /// abertos para isso.
@@ -403,7 +414,10 @@ pub fn close_roblox_singleton_handles() -> SingletonCloseReport {
     if !wait.is_zero() {
         std::thread::sleep(wait);
     }
-    let report = close_singleton_events_for_pids(&pids, ROBLOX_SINGLETON_EVENT);
+    let report = {
+        let _one_at_a_time = SINGLETON_CLOSE_LOCK.lock();
+        close_singleton_events_for_pids(&pids, ROBLOX_SINGLETON_EVENT)
+    };
     if report.closed > 0 {
         eprintln!(
             "Multi Roblox: {} handle(s) de {} fechado(s) em {} processo(s) Roblox (clientes mantidos abertos)",

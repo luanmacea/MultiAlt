@@ -330,6 +330,59 @@ fn resolve_multi_roblox_outcome(
     }
 }
 
+/// O Event seguiu de pé depois da limpeza (outro programa, cliente como
+/// administrador): só confere de novo depois disto, porque a varredura lê a
+/// tabela de handles do sistema inteiro.
+const SINGLETON_GUARD_RETRY_MS: i64 = 30_000;
+
+/// Limpeza do `ROBLOX_singletonEvent` em segundo plano. Relato de 08/11/2026: a
+/// segunda conta aberta pelo navegador do app fechava a primeira. O launch do
+/// app destrava antes de abrir; o Play do site não passa pelo app, então o
+/// cliente novo encontrava o Event do anterior e o mandava sair.
+#[derive(Debug, Default)]
+struct SingletonGuard {
+    next_scan_ms: i64,
+}
+
+impl SingletonGuard {
+    /// Uma passada com o nome de pé. Devolve quantos handles fechou.
+    fn pass(
+        &mut self,
+        now_ms: i64,
+        client_starting: bool,
+        close: impl FnOnce() -> SingletonCloseReport,
+        still_blocks: impl FnOnce() -> bool,
+    ) -> usize {
+        // Fechar o Event de quem ainda está subindo pode fazê-lo sair.
+        if client_starting || now_ms < self.next_scan_ms {
+            return 0;
+        }
+        let report = close();
+        if still_blocks() {
+            self.next_scan_ms = now_ms + SINGLETON_GUARD_RETRY_MS;
+        }
+        report.closed
+    }
+}
+
+static SINGLETON_GUARD: LazyLock<Mutex<SingletonGuard>> = LazyLock::new(|| Mutex::new(SingletonGuard::default()));
+
+/// Mantém os clientes abertos destravados, para o próximo (aberto pelo site ou
+/// pelo navegador da conta) não fechar o anterior. Nunca fecha cliente. Sem o
+/// Event de pé custa só uma consulta pelo nome.
+pub fn keep_roblox_clients_unlocked(now_ms: i64) -> usize {
+    if !event_blocks_next_client(named_event_exists(ROBLOX_SINGLETON_EVENT), singleton_reservation_held()) {
+        return 0;
+    }
+    let starting = roblox_client_is_starting();
+    let Ok(mut guard) = SINGLETON_GUARD.lock() else {
+        return 0;
+    };
+    guard.pass(now_ms, starting, close_roblox_singleton_handles, || {
+        event_blocks_next_client(named_event_exists(ROBLOX_SINGLETON_EVENT), singleton_reservation_held())
+    })
+}
+
 /// `enable_multi_roblox` com o motivo da recusa. Nunca fecha cliente: no
 /// máximo fecha handles de Event e cria/fecha a reserva do app.
 pub fn enable_multi_roblox_checked() -> Result<MultiRobloxOutcome, String> {
