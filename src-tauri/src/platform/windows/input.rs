@@ -12,13 +12,7 @@
 //   lista fechada (`send_key_flags` é privado): não existe chamador com virtual key cru;
 // - `click_afk_point` recebe janela + **porcentagem** e clica com o botão
 //   esquerdo dentro da área interna dela (`send_mouse` é privado): não existe
-//   chamador com coordenada de tela crua. O cursor volta para onde estava;
-// - as Gravações (docs/features/recordings.md) usam as mesmas duas formas:
-//   `press_recording_key` recebe **nome** de tecla da lista fechada das
-//   gravações (`RECORDING_KEYS`) e `click_recording_point` é o clique do AFK,
-//   com o clique de foco opcional;
-// - a automação Python usa `press_python_key`: a lista das gravações mais o
-//   `Escape` (`PYTHON_ONLY_KEYS`), que as gravações e o AFK continuam recusando.
+//   chamador com coordenada de tela crua. O cursor volta para onde estava.
 // Ler teclado ou botão do usuário é proibido aqui; a posição do cursor é lida só
 // para devolvê-lo, para o Marcar e para a parada de emergência por chacoalhar
 // (`commands/shake_stop.rs`), que também sabe, por `app_cursor_move`, quando
@@ -76,8 +70,7 @@ pub fn window_exists(hwnd: HWND) -> bool {
 /// `up = true` solta; `extended` marca tecla estendida (as setas). Devolve
 /// `false` quando o Windows recusou o envio.
 ///
-/// Privado: quem chama passa **nome** de tecla por `tap_afk_key`,
-/// `press_recording_key` ou `press_python_key`, nunca um virtual key cru.
+/// Privado: quem chama passa **nome** de tecla por `tap_afk_key`, nunca um virtual key cru.
 fn send_key_flags(vk: u16, scan: u16, up: bool, extended: bool) -> bool {
     let mut flags = if up { KEYEVENTF_KEYUP } else { 0 };
     if extended {
@@ -157,61 +150,6 @@ pub fn tap_afk_key(
         }
     }
     Ok(())
-}
-
-/// `(virtual key, scan code, estendida)` de uma tecla da lista fechada das
-/// Gravações, ou `None` para qualquer outro nome.
-fn recording_vk_and_scan(key: &str) -> Option<(u16, u16, bool)> {
-    let (vk, extended) = crate::data::recordings::recording_key(key)?;
-    let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
-    Some((vk, scan, extended))
-}
-
-/// Aperta (`up = false`) ou solta (`up = true`) uma tecla da lista das
-/// Gravações na janela em primeiro plano. Tecla fora da lista: `false`, sem
-/// enviar nada. O "solta" é tentado até três vezes, como no AFK: tecla presa
-/// faz o personagem andar sozinho.
-pub fn press_recording_key(key: &str, up: bool) -> bool {
-    let Some((vk, scan, extended)) = recording_vk_and_scan(key) else {
-        return false;
-    };
-    press_named_key(vk, scan, extended, up)
-}
-
-/// `(virtual key, scan code, estendida)` de uma tecla que a automação Python
-/// pode mandar (a lista das gravações mais o `Escape`), ou `None`.
-fn python_vk_and_scan(key: &str) -> Option<(u16, u16, bool)> {
-    let (_, vk, extended) = crate::data::recordings::python_key(key)?;
-    let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
-    Some((vk, scan, extended))
-}
-
-/// A porta da automação Python: a das gravações mais o `Escape`
-/// (`data::recordings::PYTHON_ONLY_KEYS`). Tecla fora da lista: `false`, sem
-/// enviar nada.
-#[cfg_attr(not(feature = "python-scripts"), allow(dead_code))]
-pub fn press_python_key(key: &str, up: bool) -> bool {
-    let Some((vk, scan, extended)) = python_vk_and_scan(key) else {
-        return false;
-    };
-    press_named_key(vk, scan, extended, up)
-}
-
-/// Aperta ou solta uma tecla já resolvida por uma das listas fechadas. O
-/// "solta" é tentado até três vezes.
-fn press_named_key(vk: u16, scan: u16, extended: bool, up: bool) -> bool {
-    if !up {
-        return send_key_flags(vk, scan, false, extended);
-    }
-    for attempt in 0..KEY_UP_ATTEMPTS {
-        if send_key_flags(vk, scan, true, extended) {
-            return true;
-        }
-        if attempt + 1 < KEY_UP_ATTEMPTS {
-            std::thread::sleep(std::time::Duration::from_millis(KEY_UP_RETRY_MS));
-        }
-    }
-    false
 }
 
 /// Área interna (cliente) da janela, em coordenadas de tela. `None` para janela
@@ -316,19 +254,6 @@ fn virtual_desktop() -> Option<crate::AfkClientRect> {
 /// dentro do jogo.
 pub fn click_afk_point(hwnd: HWND, point: crate::AfkPoint, hold_ms: u64) -> Result<(), String> {
     click_point_with_plan(hwnd, point, hold_ms, true)
-}
-
-/// O clique de uma Gravação: a mesma receita do AFK (`click_afk_point`), e o
-/// clique de foco só quando `focus_click` — o primeiro clique depois de trazer
-/// a janela. Os seguintes da mesma gravação já acham o jogo focado, e um clique
-/// a mais ali apertaria o botão do jogo duas vezes.
-pub fn click_recording_point(
-    hwnd: HWND,
-    point: crate::AfkPoint,
-    hold_ms: u64,
-    focus_click: bool,
-) -> Result<(), String> {
-    click_point_with_plan(hwnd, point, hold_ms, focus_click)
 }
 
 fn click_point_with_plan(

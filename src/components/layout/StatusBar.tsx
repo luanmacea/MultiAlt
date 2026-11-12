@@ -7,16 +7,9 @@ import { TONE_STYLES } from "../../utils/toastTone";
 import { StatusBadge } from "../accounts/StatusBadge";
 import { moderationBadge } from "../../utils/moderation";
 
-/**
- * O chip do rodapé cobre as duas formas de criar conta, e o destino do clique
- * já depende disso (`provider` vazio = criação gratuita no formulário do
- * Roblox). O texto era único e dizia que estava gastando saldo mesmo quando o
- * que rodava era a gratuita.
- */
-export function generatorChipTooltip(provider: string, t: (key: string) => string): string {
-  return provider
-    ? t("The account generator is still running and spending your provider balance. Click to open it and stop.")
-    : t("Accounts are still being created in the browser, at no cost. Click to open it and stop.");
+/** O chip do rodapé do gerador pago: ele gasta o saldo do provedor enquanto roda. */
+export function generatorChipTooltip(t: (key: string) => string): string {
+  return t("The account generator is still running and spending your provider balance. Click to open it and stop.");
 }
 
 export function StatusBar() {
@@ -142,10 +135,10 @@ export function StatusBar() {
             </span>
           )}
           {generatorActive && generator && (
-            <Tooltip content={generatorChipTooltip(generator.provider, t)}>
+            <Tooltip content={generatorChipTooltip(t)}>
               <button
                 type="button"
-                onClick={() => store.openGeneratorDialog(generator.provider ? "provider" : "signup")}
+                onClick={() => store.openGeneratorDialog()}
                 className="theme-muted inline-flex items-center gap-1 shrink-0 hover:text-[var(--panel-fg)] transition-colors"
               >
                 <span className="w-2 h-2 rounded-full bg-lime-400 animate-pulse" />

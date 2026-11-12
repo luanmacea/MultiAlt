@@ -1,4 +1,3 @@
-import { ENABLE_AVATAR_BATCH } from "../../featureFlags";
 
 /**
  * Os tutoriais de cada tela, como dados.
@@ -22,7 +21,6 @@ export type TourId =
   | "session"
   | "console"
   | "afk"
-  | "avatars"
   | "groups"
   | "scripts"
   | "theme"
@@ -186,7 +184,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "settings",
         title: "Keep accounts in game",
-        description: "Settings for every account: reconnect the ones that drop, recordings and the memory limit.",
+        description: "Settings for every account: reconnect the ones that drop and the memory limit.",
         targets: [tour("session-summary")],
       },
     ],
@@ -219,8 +217,8 @@ export const TOURS: Record<TourId, TourDefinition> = {
     steps: [
       {
         id: "tabs",
-        title: "Three ways to stay in game",
-        description: "AFK clicks press a key so Roblox does not kick you. Recordings play back what you recorded. Auto Rejoin reopens the game on a timer.",
+        title: "Two ways to stay in game",
+        description: "AFK clicks press a key so Roblox does not kick you. Auto Rejoin reopens the game on a timer.",
         reveal: inside("afk-page", "afk-tab-clicks"),
         targets: [inside("afk-page", "afk-tabs")],
       },
@@ -243,19 +241,6 @@ export const TOURS: Record<TourId, TourDefinition> = {
         targets: [inside("afk-page", "afk-clicks-start")],
       },
       {
-        id: "recordings-slots",
-        title: "Recordings: who plays what",
-        description: "On top, pick the recording each account plays after a reconnect and on each AFK turn, and when they play.",
-        reveal: inside("afk-page", "afk-tab-recordings"),
-        targets: [inside("afk-page", "afk-recordings-slots")],
-      },
-      {
-        id: "recordings-library",
-        title: "Recordings: your library",
-        description: "Import a TinyTask .rec here: it is saved right away. Click a recording to open its steps.",
-        targets: [inside("afk-page", "afk-recordings-library")],
-      },
-      {
         id: "rejoin-server",
         title: "Auto Rejoin: where",
         description: "Choose where to rejoin: where the accounts are now, or a favorite game.",
@@ -268,66 +253,6 @@ export const TOURS: Record<TourId, TourDefinition> = {
         description: "Tick the accounts, then click Start Auto Rejoin at the top. Stop Auto Rejoin keeps the games open.",
         targets: [inside("afk-page", "afk-rejoin-accounts"), inside("afk-page", "afk-rejoin-start")],
       },
-    ],
-  },
-
-  avatars: {
-    id: "avatars",
-    label: "Avatars",
-    root: tour("avatars-page"),
-    steps: [
-      {
-        id: "build",
-        title: "Build",
-        description: "Make a look from free Roblox items. Nothing here costs Robux.",
-        reveal: tour("avatars-tab-build"),
-        targets: [tour("avatars-tab-build")],
-      },
-      {
-        id: "parts",
-        title: "Pick the parts",
-        description: "Choose a part on the left, then click an item in the middle.",
-        targets: [tour("avatars-categories")],
-      },
-      {
-        id: "preview",
-        title: "Preview",
-        description: "See your look here. Randomize all picks a full look for you.",
-        targets: [tour("avatars-preview")],
-      },
-      {
-        id: "save",
-        title: "Save",
-        description: "Give it a name and click Save.",
-        targets: [tour("avatars-save")],
-      },
-      // A distribuição em lote só vem na edição completa; na padrão a aba
-      // mostra o cartão que leva a ela.
-      ...(ENABLE_AVATAR_BATCH
-        ? [
-            {
-              id: "distribute",
-              title: "Distribute",
-              description: "Tick the saved looks you want to hand out.",
-              reveal: tour("avatars-tab-distribute"),
-              targets: [tour("avatars-handout"), tour("avatars-tab-distribute")],
-            },
-            {
-              id: "apply",
-              title: "Apply",
-              description: "Tick the accounts and click Apply avatars. Each account gets one look.",
-              targets: [tour("avatars-accounts")],
-            },
-          ]
-        : [
-            {
-              id: "distribute",
-              title: "Distribute",
-              description: "Handing saved looks out to many accounts comes with the complete edition.",
-              reveal: tour("avatars-tab-distribute"),
-              targets: [tour("avatars-edition"), tour("avatars-tab-distribute")],
-            },
-          ]),
     ],
   },
 

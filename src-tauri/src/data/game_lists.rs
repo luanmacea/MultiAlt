@@ -15,7 +15,7 @@
 //! - gravação atômica (temporário + troca), com o conteúdo anterior guardado em
 //!   `RAMGameLists.json.bak` a cada gravação;
 //! - arquivo ilegível **trava** a gravação em vez de ser sobrescrito (mesma regra
-//!   do `RAMAvatars.json`);
+//!   dos outros arquivos de dados);
 //! - uma gravação que zera **todos** os favoritos ou **todos** os servidores VIP
 //!   de uma vez é recusada, a menos que venha de uma exclusão explícita do
 //!   usuário (`allow_destructive`). O dono já perdeu VIPs salvos por um bug de

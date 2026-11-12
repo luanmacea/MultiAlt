@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
-  BellRing,
   CircleHelp,
-  Radio,
   Gamepad2,
   Keyboard,
   Layers,
@@ -11,7 +9,6 @@ import {
   PanelLeftOpen,
   ScrollText,
   Settings,
-  Shirt,
   Sparkles,
   Star,
   TerminalSquare,
@@ -86,13 +83,8 @@ const navGroups = (): NavItemDef[][] => [
     // O que o app fez (launch, Auto Rejoin, Watcher), ao lado do que roda agora.
     { page: "console", label: "Console", icon: ScrollText },
     { page: "afk", label: "AFK Mode", icon: Keyboard, tour: "nav-afk" },
-    // Avisos, status ao vivo e resumo no webhook do usuário (docs/features/webhook.md).
-    { page: "discord", label: "Discord alerts", icon: BellRing },
-    // A janela "MultiAlt Live" para transmitir as contas (docs/features/live.md).
-    { page: "live", label: "Live", icon: Radio },
   ],
   [
-    { page: "avatars", label: "Avatars", icon: Shirt },
     ...(ENABLE_GROUPS ? [{ page: "groups" as const, label: "Groups", icon: UsersRound }] : []),
     { page: "scripts", label: "Scripts", icon: TerminalSquare },
     { page: "theme", label: "Theme", icon: Palette },

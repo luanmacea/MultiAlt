@@ -1,13 +1,10 @@
 import { useRef, useState, type KeyboardEvent } from "react";
-import { Clapperboard, MousePointerClick, Repeat, X, type LucideIcon } from "lucide-react";
+import { MousePointerClick, Repeat, X, type LucideIcon } from "lucide-react";
 import { useStore, type AfkModeTab } from "../../store";
 import { useTr } from "../../i18n/text";
 import { RejoinTab } from "./RejoinTab";
 import { ClicksTab } from "./ClicksTab";
-import { RecordingsTab } from "./RecordingsTab";
-import { ShakeStopNotice } from "./ShakeStopNotice";
 import { AwayDigestLine } from "../session/AwayDigest";
-import { formatAfkIntervalSeconds, recordingTriggers } from "./recordings/triggers";
 
 export interface AfkModeViewProps {
   /** `modal`: dentro do `AfkModeDialog`. `page`: página inteira da navegação. */
@@ -47,28 +44,8 @@ export function AfkModeView({
   const t = useTr();
   const store = useStore();
   const [tab, setTab] = useState<AfkModeTab>(initialTab);
-  const tabRefs = useRef<Record<AfkModeTab, HTMLButtonElement | null>>({ rejoin: null, clicks: null, recordings: null });
+  const tabRefs = useRef<Record<AfkModeTab, HTMLButtonElement | null>>({ rejoin: null, clicks: null });
   const page = variant === "page";
-  // O cartão da aba Recordings diz quando a gravação toca, sem abrir a aba.
-  const triggers = recordingTriggers(null, store.settings);
-  const interval = formatAfkIntervalSeconds(triggers.intervalSeconds);
-  const afterBoth = triggers.afterLaunch && triggers.afterReconnect;
-  const recordingsHint = triggers.afkRepeats
-    ? afterBoth
-      ? t("Every {{interval}} in AFK mode, and after a launch or a reconnect", { interval })
-      : triggers.afterReconnect
-        ? t("Every {{interval}} in AFK mode, and after a reconnect", { interval })
-        : triggers.afterLaunch
-          ? t("Every {{interval}} in AFK mode, and after a launch", { interval })
-          : t("Every {{interval}} in AFK mode", { interval })
-    : afterBoth
-      ? t("Plays after a launch and after an automatic reconnect")
-      : triggers.afterReconnect
-        ? t("Plays after an automatic reconnect")
-        : triggers.afterLaunch
-          ? t("Plays after a launch")
-          : t("Sequences of keys, clicks and waits played on each window");
-
   const tabs: {
     id: AfkModeTab;
     label: string;
@@ -82,15 +59,6 @@ export function AfkModeView({
       hint: t("Sends a key or a click so accounts do not go idle"),
       Icon: MousePointerClick,
       running: store.afkStatus?.active === true,
-    },
-    {
-      // Gravações (docs/features/recordings.md): o que tocam fica nesta aba;
-      // o "rodando" é o do Modo AFK no modo gravação.
-      id: "recordings",
-      label: t("Recordings"),
-      hint: recordingsHint,
-      Icon: Clapperboard,
-      running: store.afkStatus?.active === true && store.afkStatus?.mode === "recording",
     },
     {
       id: "rejoin",
@@ -112,7 +80,7 @@ export function AfkModeView({
   }
 
   const tabList = (
-    <div role="tablist" aria-label={t("AFK Mode")} data-tour="afk-tabs" className={`grid shrink-0 grid-cols-3 gap-2 ${page ? "" : "min-w-[min(100%,520px)] flex-1"}`}>
+    <div role="tablist" aria-label={t("AFK Mode")} data-tour="afk-tabs" className={`grid shrink-0 grid-cols-2 gap-2 ${page ? "" : "min-w-[min(100%,520px)] flex-1"}`}>
       {tabs.map(({ id, label, hint, Icon, running }) => {
         const selected = tab === id;
         return (
@@ -253,18 +221,6 @@ export function AfkModeView({
         className="min-h-0 flex-1"
       >
         <ClicksTab targetUserIds={targetUserIds} />
-      </div>
-      {/* Parada de emergência por chacoalhar o mouse: a aba de cliques diz na
-          barra dela; a das gravações, aqui. */}
-      {tab === "recordings" ? <ShakeStopNotice /> : null}
-      <div
-        role="tabpanel"
-        id="afk-mode-panel-recordings"
-        aria-labelledby="afk-mode-tab-recordings"
-        hidden={tab !== "recordings"}
-        className="min-h-0 flex-1"
-      >
-        <RecordingsTab />
       </div>
     </div>
   );

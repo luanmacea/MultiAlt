@@ -9,7 +9,6 @@ mod data;
 #[cfg(feature = "nexus")]
 mod nexus;
 mod platform;
-mod python;
 mod roblox_log;
 #[cfg(target_os = "windows")]
 mod webview_recovery;
@@ -18,19 +17,18 @@ pub(crate) use log_msg::LogMsg;
 
 use api::batch::ImageCache;
 use data::accounts::{get_account_data_path, AccountStore};
-use data::avatars::AvatarStore;
 use data::crypto;
 use data::game_lists::GameListsStore;
 use data::launch_presets::LaunchPresetStore;
-use data::recordings::RecordingStore;
 use data::session_history::SessionHistoryStore;
 use data::scripts::ScriptStore;
 use data::settings::{
-    get_avatars_path, get_game_lists_path, get_launch_presets_path, get_recordings_path, get_scripts_path, get_session_history_path, get_settings_path, get_theme_path, get_theme_presets_path,
+    get_game_lists_path, get_launch_presets_path, get_scripts_path, get_session_history_path, get_settings_path, get_theme_path, get_theme_presets_path,
     SettingsStore, ThemePresetStore, ThemeStore,
 };
 use data::versions::{get_versions_catalog_path, VersionsCatalogStore};
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 #[cfg(target_os = "windows")]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(target_os = "windows")]
@@ -48,20 +46,15 @@ include!("commands/generators.rs");
 include!("commands/launch.rs");
 include!("commands/launch_presets.rs");
 include!("commands/tray.rs");
-include!("commands/webhook.rs");
-include!("commands/discord_status.rs");
-include!("commands/live_view.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
 include!("commands/versions.rs");
 include!("commands/watcher.rs");
 include!("commands/afk.rs");
-include!("commands/recordings.rs");
 include!("commands/services.rs");
 include!("commands/updater.rs");
 include!("commands/backups.rs");
-include!("commands/avatars.rs");
 include!("commands/groups.rs");
 include!("commands/external_clients.rs");
 include!("commands/focus_follow.rs");
@@ -330,10 +323,8 @@ pub fn run() {
     let theme_store = ThemeStore::new(get_theme_path());
     let theme_preset_store = ThemePresetStore::new(get_theme_presets_path());
     let script_store = ScriptStore::new(get_scripts_path());
-    let avatar_store = AvatarStore::new(get_avatars_path());
     let game_lists_store = GameListsStore::new(get_game_lists_path());
     let launch_preset_store = LaunchPresetStore::new(get_launch_presets_path());
-    let recording_store = RecordingStore::new(get_recordings_path());
     let session_history_store = SessionHistoryStore::new(get_session_history_path());
     let versions_catalog = VersionsCatalogStore::new(get_versions_catalog_path());
     let image_cache = ImageCache::new();
@@ -358,10 +349,8 @@ pub fn run() {
         .manage(theme_store)
         .manage(theme_preset_store)
         .manage(script_store)
-        .manage(avatar_store)
         .manage(game_lists_store)
         .manage(launch_preset_store)
-        .manage(recording_store)
         .manage(session_history_store)
         .manage(versions_catalog)
         .manage(image_cache)
@@ -402,12 +391,6 @@ pub fn run() {
             // Horários dos presets de launch: só com o app aberto, sem
             // recuperar o que passou — ver commands/launch_presets.rs.
             start_preset_scheduler(app.handle().clone());
-            // Avisos no Discord (desligados por padrão): a fila que manda —
-            // ver commands/webhook.rs.
-            start_webhook_dispatcher(app.handle().clone());
-            // Status ao vivo e resumo diário no mesmo webhook (desligados por
-            // padrão) — ver commands/discord_status.rs.
-            start_discord_status_loop(app.handle().clone());
             // Otimização que segue o foco: o laço só age com a opção ligada.
             #[cfg(target_os = "windows")]
             start_focus_follow_loop(app.handle().clone());
@@ -417,10 +400,6 @@ pub fn run() {
             // Devolver as configurações do Roblox sem esperar o app fechar.
             #[cfg(target_os = "windows")]
             start_settings_restore_loop(app.handle().clone());
-            // Automação Python: com o Modo desenvolvedor ligado, reabre o canal
-            // do terminal (python/mod.rs).
-            #[cfg(feature = "python-scripts")]
-            python::on_app_start(app.handle());
             // Navegador anônimo (o padrão): os perfis que sobraram de antes —
             // de quando ele era persistente, ou de uma janela fechada com o app
             // fora — somem ao abrir. Em segundo plano: pode haver muitos.
@@ -574,14 +553,6 @@ pub fn run() {
             follow_user_with_accounts,
             get_follow_user_state,
             get_recent_games_for_accounts,
-            avatar_free_catalog,
-            avatar_list_saved,
-            avatar_save,
-            avatar_delete,
-            avatar_apply_batch,
-            avatar_cancel_batch,
-            get_avatar_batch_state,
-            invalidate_avatar_headshots,
             groups_search,
             groups_icons,
             groups_join_batch,
@@ -648,19 +619,7 @@ pub fn run() {
             launch_preset,
             close_preset_clients,
             set_app_locked,
-            send_test_webhook,
-            send_discord_status_now,
             get_running_feature_channel,
-            live_accounts,
-            live_tiles,
-            set_live_accounts,
-            live_set_layout,
-            live_keep_minimized,
-            open_live_window,
-            close_live_window,
-            live_window_open,
-            live_focus_account,
-            send_discord_summary_now,
             get_session_history,
             get_current_sessions,
             save_history_export,
@@ -721,18 +680,6 @@ pub fn run() {
             get_afk_keys,
             afk_trigger_now,
             afk_capture_point,
-            get_recordings,
-            save_recording,
-            duplicate_recording,
-            delete_recording,
-            set_default_recording,
-            set_account_recording,
-            play_recording_now,
-            stop_recording_playback,
-            get_recording_playback,
-            import_tinytask_recording,
-            play_recording_draft,
-            recording_window_area,
             get_auto_reconnect_status,
             stop_auto_reconnect,
             retry_auto_reconnect,
@@ -746,9 +693,6 @@ pub fn run() {
             chromium::commands::open_account_browser,
             chromium::commands::import_userpass,
             chromium::commands::relogin_account,
-            chromium::signup_session::start_signup_session,
-            chromium::signup_session::stop_signup_session,
-            chromium::signup_session::get_signup_status,
             chromium::commands::is_browser_ready,
             chromium::commands::ensure_browser,
             start_web_server,
@@ -773,51 +717,11 @@ pub fn run() {
             open_feedback_form,
             get_report_environment,
             sync_windows_navbar_theme,
-            // Automação do Roblox Player em Python (python/commands.rs).
-            python::commands::python_runtime_status,
-            python::commands::python_install_runtime,
-            python::commands::python_reinstall_runtime,
-            python::commands::python_workspace_info,
-            python::commands::python_list_scripts,
-            python::commands::python_read_script,
-            python::commands::python_write_script,
-            python::commands::python_create_script,
-            python::commands::python_delete_script,
-            python::commands::python_list_default_blocks,
-            python::commands::python_read_default_block,
-            python::commands::python_write_default_block,
-            python::commands::python_restore_default_block,
-            python::commands::python_fs_tree,
-            python::commands::python_fs_read,
-            python::commands::python_fs_read_image,
-            python::commands::python_fs_write,
-            python::commands::python_fs_create,
-            python::commands::python_fs_rename,
-            python::commands::python_fs_delete,
-            python::commands::python_list_global_functions,
-            python::commands::python_open_workspace_folder,
-            python::commands::python_open_in_editor,
-            python::commands::python_get_run_configs,
-            python::commands::python_save_run_config,
-            python::commands::python_start_run,
-            python::commands::python_stop_run,
-            python::commands::python_stop_all_runs,
-            python::commands::python_list_runs,
-            python::commands::python_get_dashboard,
-            python::commands::python_clear_dashboard,
-            python::commands::python_inspector_capture,
-            python::commands::python_save_asset,
-            python::commands::python_set_developer_mode,
-            python::commands::python_get_logs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
             tauri::RunEvent::ExitRequested { .. } => {
-                // Para os scripts Python e solta tecla presa (não fecha cliente).
-                python::shutdown_on_exit();
-                // A Live devolve as janelas que tirou do minimizado.
-                live_cleanup();
                 // Antes da limpeza do Multi Roblox, que esvazia o rastreamento.
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
@@ -832,8 +736,6 @@ pub fn run() {
                 cleanup_multi_roblox_on_exit(app);
             }
             tauri::RunEvent::Exit => {
-                python::shutdown_on_exit();
-                live_cleanup();
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]

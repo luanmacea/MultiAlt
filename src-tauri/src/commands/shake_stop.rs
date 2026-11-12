@@ -1,23 +1,22 @@
 // Parada de emergência por chacoalhar o mouse (`Afk.ShakeToStop`, desligada por
 // padrão — escolha do dono). Ver docs/features/afk-mode.md#parada-de-emergência.
 //
-// Durante um ciclo do Modo AFK e durante uma gravação tocando, o app tira o
+// Durante um ciclo do Modo AFK, o app tira o
 // foco e leva o cursor até a janela de cada conta: o usuário não consegue
 // chegar ao botão Parar. Com a opção ligada, chacoalhar o mouse para tudo.
 //
 // O que este arquivo faz e o que não faz:
 // - lê **só a posição** do cursor (`cursor_position`), a cada 15 ms, e só
-//   enquanto há sessão do Modo AFK ou reprodução de gravação rodando;
+//   enquanto há sessão do Modo AFK rodando;
 // - nunca lê botão nem tecla, nunca envia entrada: a trava do
 //   `afk_input_safety_tests` vale aqui como em todo o Modo AFK;
-// - o movimento que o próprio app faz (o clique do AFK e das gravações, que
+// - o movimento que o próprio app faz (o clique do AFK, que
 //   leva o cursor e o devolve) é marcado pelo módulo de entrada
 //   (`app_cursor_move`) e descartado: amostra tirada durante ele não conta, e a
 //   linha de base recomeça depois dele;
-// - ao reconhecer o chacoalhar, liga as mesmas bandeiras dos botões Parar (a da
-//   sessão do Modo AFK e a da reprodução avulsa). As teclas apertadas são
-//   soltas pelos caminhos de sempre (`play_recording_with`); nenhum cliente é
-//   fechado.
+// - ao reconhecer o chacoalhar, liga a bandeira do botão Parar da sessão do
+//   Modo AFK. As teclas apertadas são soltas pelos caminhos de sempre; nenhum
+//   cliente é fechado.
 
 use std::collections::VecDeque;
 
@@ -210,34 +209,18 @@ struct EmergencyStopPayload {
     reason: String,
     /// Havia sessão do Modo AFK, e ela recebeu o parar.
     afk: bool,
-    /// Havia gravação tocando avulsa, e ela recebeu o parar.
-    recordings: bool,
-    /// Quantas execuções da automação Python receberam o parar
-    /// (docs/features/python-automation.md).
-    python: usize,
 }
 
-/// Liga as bandeiras dos botões Parar: a da sessão do Modo AFK (quando há) e a
-/// da reprodução avulsa. A reprodução avulsa passa pelo `request_playback_stop`,
-/// que também sobe a geração do "parar" — assim uma reprodução já na fila (um
-/// launch ou uma reconexão em lote arma várias) aborta ao pegar a vez, não só a
-/// que toca. Não fecha nada, não espera nada.
-fn apply_emergency_stop(
-    afk_stop: Option<&std::sync::atomic::AtomicBool>,
-    playback_stop: &std::sync::atomic::AtomicBool,
-    playback_stop_gen: &std::sync::atomic::AtomicU64,
-    playbacks_running: usize,
-) -> EmergencyStopPayload {
+/// Liga a bandeira do botão Parar da sessão do Modo AFK (quando há). Não fecha
+/// nada, não espera nada.
+fn apply_emergency_stop(afk_stop: Option<&std::sync::atomic::AtomicBool>) -> EmergencyStopPayload {
     use std::sync::atomic::Ordering;
     if let Some(flag) = afk_stop {
         flag.store(true, Ordering::SeqCst);
     }
-    request_playback_stop(playback_stop, playback_stop_gen);
     EmergencyStopPayload {
         reason: "shake".to_string(),
         afk: afk_stop.is_some(),
-        recordings: playbacks_running > 0,
-        python: 0,
     }
 }
 
@@ -259,8 +242,6 @@ fn afk_session_stop_flag() -> Option<Arc<AtomicBool>> {
 #[cfg(target_os = "windows")]
 fn shake_watch_needed() -> bool {
     afk_session_stop_flag().is_some()
-        || RECORDING_PLAYBACKS.load(Ordering::SeqCst) > 0
-        || python::runs_active() > 0
 }
 
 #[cfg(target_os = "windows")]
@@ -270,7 +251,7 @@ fn shake_stop_setting(app: &tauri::AppHandle) -> bool {
 
 /// Liga o vigia se a opção está ligada e há o que parar. Chamado no começo da
 /// sessão do Modo AFK, a cada tique dela (ligar a opção no meio vale) e no
-/// começo de cada reprodução avulsa. Um vigia só, para tudo.
+/// começo de cada sessão. Um vigia só, para tudo.
 #[cfg(target_os = "windows")]
 pub(crate) fn ensure_shake_watch(app: &tauri::AppHandle) {
     if !shake_stop_setting(app) || !shake_watch_needed() {
@@ -322,14 +303,7 @@ fn run_shake_watch(app: &tauri::AppHandle) {
 #[cfg(target_os = "windows")]
 fn trigger_emergency_stop(app: &tauri::AppHandle) {
     let afk_stop = afk_session_stop_flag();
-    let mut payload = apply_emergency_stop(
-        afk_stop.as_deref(),
-        &RECORDING_PLAYBACK_STOP,
-        &RECORDING_PLAYBACK_STOP_GEN,
-        RECORDING_PLAYBACKS.load(Ordering::SeqCst),
-    );
-    // As execuções Python também param (todas).
-    payload.python = python::emergency_stop();
+    let payload = apply_emergency_stop(afk_stop.as_deref());
     emit_session_log(
         app,
         "warn",

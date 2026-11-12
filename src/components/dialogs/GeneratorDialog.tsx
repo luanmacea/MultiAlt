@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
-import type { GeneratorDialogTab } from "../../store";
 import { collectGroupNames } from "../../types";
 import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useModalClose } from "../../hooks/useModalClose";
@@ -11,14 +10,11 @@ import { useTr } from "../../i18n/text";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
 import { X, Eye, EyeOff, Wallet, Info } from "lucide-react";
-import { SignupPanel } from "../signup/SignupPanel";
 import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
 
 interface GeneratorDialogProps {
   open: boolean;
   onClose: () => void;
-  /** Aba em que o diálogo abre; quem escolhe é a entrada usada no menu Add. */
-  initialTab?: GeneratorDialogTab;
 }
 
 interface GeneratedEntry {
@@ -89,7 +85,7 @@ function phaseTone(phase: string): string {
   }
 }
 
-export function GeneratorDialog({ open, onClose, initialTab = "provider" }: GeneratorDialogProps) {
+export function GeneratorDialog({ open, onClose }: GeneratorDialogProps) {
   const t = useTr();
   const store = useStore();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
@@ -112,29 +108,17 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
   const [nowMs, setNowMs] = useState(Date.now());
   const [log, setLog] = useState<GeneratedEntry[]>([]);
   /**
-   * Duas formas de conseguir conta nova moram no mesmo diálogo: comprar de um
-   * provedor (BloxGen) ou criar no formulário do Roblox com o CAPTCHA resolvido
-   * pelo usuário.
-   */
-  const [mode, setMode] = useState<GeneratorDialogTab>(initialTab);
-  /**
-   * O gerador pago está desligado por padrão (`ENABLE_ACCOUNT_GENERATOR`): o
-   * diálogo vira só a criação grátis, sem seletor de abas. Exceção: um gerador
-   * pago que já está rodando (ligado pela API de scripts) — o painel aparece
-   * para dar para pará-lo, senão ele gastaria o saldo sem botão de parar.
+   * O gerador pago está desligado por padrão (`ENABLE_ACCOUNT_GENERATOR`).
+   * Exceção: um gerador pago que já está rodando (ligado pela API de scripts) —
+   * o painel aparece para dar para pará-lo, senão ele gastaria o saldo sem
+   * botão de parar.
    */
   const providerAvailable = ENABLE_ACCOUNT_GENERATOR || (running && !!status?.provider);
-  const activeMode: GeneratorDialogTab = providerAvailable ? mode : "signup";
 
   // Sugestão para o campo "Add To Group": os grupos que já existem entre as
   // contas, em texto cru (ver `collectGroupNames` — não passa por
   // `parseGroupName`). O campo continua um `<input>` livre, isso é só datalist.
   const groupOptions = useMemo(() => collectGroupNames(store.accounts), [store.accounts]);
-
-  // Cada abertura respeita a entrada usada no menu Add.
-  useEffect(() => {
-    if (visible) setMode(initialTab);
-  }, [visible, initialTab]);
 
   useEffect(() => {
     if (!visible) return;
@@ -254,13 +238,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b theme-border flex items-center justify-between">
-          {/*
-            O título era "Account Generator" — o nome de **uma** das duas
-            funções servindo de nome para o conjunto, o que fazia a criação
-            grátis parecer parte do gerador pago. O título agora é do conjunto;
-            cada função guarda o seu nome na aba. Ver docs/features/account-creation.md.
-          */}
-          <div className="text-[15px] font-semibold text-[var(--panel-fg)]">{t("New Accounts")}</div>
+          <div className="text-[15px] font-semibold text-[var(--panel-fg)]">{t("Account Generator")}</div>
           <div className="flex items-center gap-2">
             <span
               className={`px-2 py-1 rounded-full text-[11px] border ${
@@ -280,68 +258,15 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
           </div>
         </div>
 
-        {/*
-          Nome e linha de apoio são os mesmos do menu `Add` e do
-          AddAccountDialog, palavra por palavra: eram quatro nomes para duas
-          funções. Mexeu aqui, mexa lá.
-        */}
         {providerAvailable && (
-        <div className="px-5 pt-3 flex flex-wrap items-stretch gap-1.5">
-          {([
-            {
-              id: "provider" as const,
-              label: t("Account Generator"),
-              hint: t("Paid — buys ready-made accounts from BloxGen (third party, API key)"),
-            },
-            {
-              id: "signup" as const,
-              label: t("Create Accounts"),
-              hint: t("Free — the app fills Roblox's signup form; you solve the CAPTCHA"),
-            },
-          ]).map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setMode(tab.id)}
-              className={`px-2.5 py-1.5 text-[12px] rounded-md border text-left transition-colors ${
-                activeMode === tab.id
-                  ? "border-[var(--accent-color)] text-[var(--panel-fg)] theme-soft"
-                  : "theme-border theme-muted theme-btn-ghost"
-              }`}
-            >
-              {tab.label}
-              <span className="block text-[11px] theme-muted leading-snug">{tab.hint}</span>
-            </button>
-          ))}
-        </div>
-        )}
-
-        {activeMode === "signup" && (
-          <div className="p-4 md:p-5 flex-1 min-h-0">
-            <SignupPanel
-              onOpenLoginSettings={() => {
-                // As Settings abrem por cima de tudo; fechar o diálogo primeiro
-                // evita dois modais empilhados sobre o mesmo assunto.
-                handleClose();
-                store.openSettingsSection("accounts");
-              }}
-            />
-          </div>
-        )}
-
-        {providerAvailable && (
-        <div
-          className={`p-4 md:p-5 flex-1 min-h-0 grid-cols-1 lg:grid-cols-12 gap-4 ${
-            activeMode === "provider" ? "grid" : "hidden"
-          }`}
-        >
+        <div className="p-4 md:p-5 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-5 min-h-0 animate-slide-left">
             <div className="theme-surface rounded-2xl border theme-border h-full p-3 overflow-y-auto space-y-3">
               {/*
                 O gerador não é uma função do app: é uma chamada para
                 `core.bloxgen.net` com a API key da pessoa, e cada conta sai do
                 saldo dessa chave (`commands/generators.rs`, `/api/generate` e
-                `/api/balance`). A tela não dizia nem que era de terceiro, nem
-                que custava, nem que a aba ao lado faz de graça.
+                `/api/balance`). A tela diz que é de terceiro e que custa.
               */}
               <section className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
                 <div className="flex items-center gap-1.5 text-[12px] font-medium text-amber-200">
@@ -351,11 +276,6 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                 <p className="text-[12px] text-amber-100/80 leading-snug">
                   {t(
                     "Every account it hands over is charged to the balance on your API key, so generating costs money. The app only calls their API with the key you paste — the accounts, the prices and the balance are theirs."
-                  )}
-                </p>
-                <p className="text-[12px] text-amber-100/80 leading-snug">
-                  {t(
-                    "Free alternative: the Create Accounts tab signs up on Roblox's own form at no cost — the app fills the form and you solve the CAPTCHA."
                   )}
                 </p>
               </section>

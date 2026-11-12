@@ -2320,12 +2320,6 @@ pub fn get_process_memory_mb(pid: u32) -> Option<u64> {
     Some(memory_reading_mb(private_ws, working_set))
 }
 
-/// Memória física livre e total do Windows, em MB (o aviso "Windows quase sem
-/// memória" da página Discord). Só leitura.
-pub fn system_memory_mb() -> Option<(u64, u64)> {
-    system_memory_detail().map(|(physical, _)| physical)
-}
-
 /// Memória do Windows em MB: `((física livre, total), (confirmada livre, limite))`.
 /// A confirmada é RAM + arquivo de paginação; é ela que, ao acabar, faz os
 /// programas quebrarem. Só leitura.

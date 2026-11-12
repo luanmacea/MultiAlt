@@ -72,9 +72,7 @@ struct JoinPacing {
     max: Duration,
 }
 
-/// Número aleatório do sistema (pausas e sorteios dos lotes). Mora aqui, e não
-/// no lote de avatares, porque este arquivo entra nas duas edições e o
-/// `avatar_batch.rs` só na completa — os dois usam.
+/// Número aleatório do sistema (pausas e sorteios dos lotes).
 fn os_random_u64() -> u64 {
     let mut bytes = [0u8; 8];
     getrandom::fill(&mut bytes).expect("OS RNG unavailable");

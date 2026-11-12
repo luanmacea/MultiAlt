@@ -44,7 +44,7 @@ const AFK_KEYS: &[(&str, u16)] = &[
 /// Pares de setas que **se anulam** (ideia 24, 15/10/2026): a primeira tecla é
 /// tocada e logo depois a segunda, do mesmo tamanho — conta como atividade, e o
 /// personagem termina onde começou. `(virtual key, estendida)` de cada toque:
-/// as setas são teclas estendidas, como nas Gravações.
+/// as setas são teclas estendidas.
 ///
 /// - `Right+Left`: no controle padrão do Roblox, ← e → giram a câmera — um
 ///   fio para a direita e o mesmo de volta; o personagem não anda.
@@ -109,9 +109,6 @@ enum AfkMode {
     /// Clique esquerdo num ponto relativo da janela da conta. Existe para quem
     /// quer o personagem **parado**: toda tecla da lista mexe nele.
     Click,
-    /// Toca a gravação da conta (a própria ou a de todas) — ver
-    /// docs/features/recordings.md.
-    Recording,
 }
 
 impl AfkMode {
@@ -120,8 +117,6 @@ impl AfkMode {
         let raw = raw.trim();
         if raw.eq_ignore_ascii_case("click") {
             AfkMode::Click
-        } else if raw.eq_ignore_ascii_case("recording") {
-            AfkMode::Recording
         } else {
             AfkMode::Key
         }
@@ -131,7 +126,6 @@ impl AfkMode {
         match self {
             AfkMode::Key => "key",
             AfkMode::Click => "click",
-            AfkMode::Recording => "recording",
         }
     }
 }
@@ -306,9 +300,7 @@ fn afk_click_plan(rect: AfkClientRect, point: AfkPoint, hold_ms: u64) -> Option<
 }
 
 /// A receita, com o clique de foco opcional. O AFK sempre o dá (a janela acabou
-/// de vir para frente); numa Gravação só o primeiro clique o dá — os seguintes
-/// já acham o jogo focado, e um clique a mais apertaria o botão do jogo duas
-/// vezes.
+/// de vir para frente).
 fn afk_click_plan_with(
     rect: AfkClientRect,
     point: AfkPoint,
@@ -371,16 +363,12 @@ fn afk_absolute_input(x: i32, y: i32, desktop: AfkClientRect) -> (i32, i32) {
 enum AfkCycleAction {
     Key(String),
     Click(HashMap<i64, AfkPoint>),
-    /// Os passos da gravação de cada conta, já resolvidos (a própria ou a de
-    /// todas). Conta sem gravação não está no mapa e é pulada sem foco nenhum.
-    Recording(HashMap<i64, Vec<data::recordings::RecordingStep>>),
 }
 
 /// Por que um start não pode acontecer. No modo tecla, sem tecla escolhida o
 /// modo **não liga**: inventar uma tecla padrão seria mexer no personagem sem o
 /// usuário pedir. O modo clique não usa tecla.
 fn validate_afk_start(mode: AfkMode, key: &str, user_ids: &[i64]) -> Result<(), String> {
-    // O modo gravação também não usa tecla: quem toca é a gravação de cada conta.
     if mode == AfkMode::Key && afk_key_taps(key).is_none() {
         return Err("Choose one of the AFK mode keys before starting".into());
     }
@@ -403,14 +391,6 @@ enum AfkSendError {
     KeyRefused,
     /// O clique foi recusado (ou o "solta o botão" não passou).
     ClickRefused,
-    /// Modo gravação: a conta não tem gravação (nem a própria, nem a de todas).
-    /// A janela nem vem para frente.
-    NoRecording,
-    /// Modo gravação: outra janela veio para frente no meio da gravação, e o
-    /// resto dela **não** foi tocado (cairia na janela do usuário).
-    FocusLost,
-    /// Modo gravação: parada no meio da gravação.
-    Stopped,
     /// Falha inesperada do ciclo.
     Internal(String),
 }
@@ -422,9 +402,6 @@ impl AfkSendError {
             AfkSendError::FocusDenied => "focusDenied",
             AfkSendError::KeyRefused => "keyRefused",
             AfkSendError::ClickRefused => "clickRefused",
-            AfkSendError::NoRecording => "noRecording",
-            AfkSendError::FocusLost => "focusLost",
-            AfkSendError::Stopped => "stopped",
             AfkSendError::Internal(_) => "internal",
         }
     }
@@ -438,11 +415,6 @@ impl AfkSendError {
             }
             AfkSendError::KeyRefused => "Windows refused the synthetic key".into(),
             AfkSendError::ClickRefused => "Windows refused the synthetic click".into(),
-            AfkSendError::NoRecording => "This account has no recording to play".into(),
-            AfkSendError::FocusLost => {
-                "Another window came to the front, so the rest of the recording was not played".into()
-            }
-            AfkSendError::Stopped => "Stopped in the middle of the recording".into(),
             AfkSendError::Internal(message) => message.clone(),
         }
     }
@@ -458,11 +430,6 @@ impl AfkSendError {
             ),
             AfkSendError::KeyRefused => log_msg!("Windows refused the synthetic key"),
             AfkSendError::ClickRefused => log_msg!("Windows refused the synthetic click"),
-            AfkSendError::NoRecording => log_msg!("This account has no recording to play"),
-            AfkSendError::FocusLost => {
-                log_msg!("Another window came to the front, so the rest of the recording was not played")
-            }
-            AfkSendError::Stopped => log_msg!("Stopped in the middle of the recording"),
             AfkSendError::Internal(message) => LogMsg::raw(message.clone()),
         }
     }
@@ -716,14 +683,14 @@ const AFK_FULLSCREEN_MAX_WAIT_MS: i64 = 5 * 60_000;
 
 /// `Afk.HideWindows`: ligada por padrão (o ciclo dá o foco às janelas do
 /// Roblox sem elas aparecerem na tela — `platform/windows/hidden_focus.rs`);
-/// só `"false"` desliga. Vale em todo modo desde 26/10/2026: no clique e na
-/// gravação a janela fica na frente, invisível, só durante o envio
+/// só `"false"` desliga. Vale em todo modo desde 26/10/2026: no clique a
+/// janela fica na frente, invisível, só durante o envio
 /// (`afk_hidden_alpha`, `afk_tuck_before_action`).
 fn afk_hide_windows(raw: &str) -> bool {
     raw.trim() != "false"
 }
 
-/// A transparência da janela escondida. Tecla: 0. Clique e gravação: 1 de
+/// A transparência da janela escondida. Tecla: 0. Clique: 1 de
 /// 255 — com 0 o teste de acerto do Windows pula a janela e o clique cai na de
 /// baixo (medido com `WindowFromPoint`, 26/10/2026); com 1 ela recebe o clique
 /// e continua invisível a olho nu.
@@ -736,7 +703,7 @@ fn afk_hidden_alpha(action_is_key: bool) -> u8 {
 }
 
 /// A janela volta para a profundidade de antes logo depois de ganhar o foco
-/// (tecla: vai para quem tem o foco) ou só depois do envio (clique e gravação:
+/// (tecla: vai para quem tem o foco) ou só depois do envio (clique:
 /// o clique cai na janela que estiver por cima do ponto).
 fn afk_tuck_before_action(action_is_key: bool) -> bool {
     action_is_key
@@ -872,8 +839,8 @@ struct AfkAccountStatus {
     next_send_at_ms: i64,
     sends: u64,
     last_error: Option<String>,
-    /// `noWindow`, `focusDenied`, `keyRefused`, `clickRefused`, `noRecording`,
-    /// `focusLost`, `stopped` ou `internal` — a tela escolhe a frase traduzida
+    /// `noWindow`, `focusDenied`, `keyRefused`, `clickRefused`
+    /// ou `internal` — a tela escolhe a frase traduzida
     /// por aqui, em vez de casar texto em inglês.
     last_error_code: Option<String>,
 }
@@ -1215,14 +1182,6 @@ fn run_afk_cycle_blocking(
                     Some(hwnd) => hwnd,
                     None => continue,
                 };
-                // Modo gravação sem gravação para esta conta: nada a tocar, e
-                // a janela nem vem para frente.
-                if let AfkCycleAction::Recording(plans) = action {
-                    if !plans.contains_key(&user_id) {
-                        outcome.push((user_id, Some(AfkSendError::NoRecording)));
-                        continue;
-                    }
-                }
                 // Quem trabalha com os clientes minimizados (ou cobertos) não
                 // pediu para vê-los: a janela volta ao lugar no fim do ciclo.
                 let (was_minimized, above) = before
@@ -1290,15 +1249,10 @@ fn run_afk_cycle_blocking(
                                 .err()
                                 .map(|_| AfkSendError::ClickRefused)
                         }
-                        AfkCycleAction::Recording(plans) => plans.get(&user_id).and_then(|steps| {
-                            play_recording_in_window(hwnd, steps, stop_flag)
-                                .err()
-                                .map(afk_error_from_playback)
-                        }),
                     }
                 };
 
-                // Clique e gravação: só agora volta para trás (o clique precisava
+                // Clique: só agora volta para trás (o clique precisava
                 // dela por cima do ponto). O foco continua com ela até o fim.
                 if requested && hide_windows && !afk_tuck_before_action(action_is_key) {
                     windows::tuck_window_after_focus(
@@ -1374,14 +1328,6 @@ fn run_afk_cycle_blocking(
 fn afk_cycle_action(app: &tauri::AppHandle, config: &AfkConfig, targets: &[i64]) -> AfkCycleAction {
     match config.mode {
         AfkMode::Key => AfkCycleAction::Key(config.key.clone()),
-        // A gravação de cada conta na vaga "On anti-AFK" é lida **agora**:
-        // editar a gravação, ou trocar qual vale para a conta, vale no ciclo
-        // seguinte. A vaga da reconexão é outra (commands/recordings.rs).
-        AfkMode::Recording => AfkCycleAction::Recording(recording_plans_for(
-            &app.state::<data::recordings::RecordingStore>().load().unwrap_or_default(),
-            data::recordings::RecordingSlot::AntiAfk,
-            targets,
-        )),
         AfkMode::Click => {
             let overrides: HashMap<i64, AfkPoint> = app
                 .state::<AccountStore>()
@@ -1563,15 +1509,6 @@ async fn start_afk_mode(
     let user_ids = dedupe_preserving_order(user_ids);
     let mode = AfkMode::parse(&mode);
     validate_afk_start(mode, &key, &user_ids)?;
-    if mode == AfkMode::Recording {
-        let file = app.state::<data::recordings::RecordingStore>().load()?;
-        if recording_plans_for(&file, data::recordings::RecordingSlot::AntiAfk, &user_ids).is_empty() {
-            return Err(
-                "None of these accounts has an anti-AFK recording to play: pick one in the Recordings tab".into(),
-            );
-        }
-    }
-
     stop_afk_session().await;
 
     let session = new_afk_session(

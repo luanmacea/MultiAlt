@@ -56,7 +56,6 @@ export interface AwayEvent {
   /** Texto cru do erro, quando o código não tem frase própria. */
   error?: string | null;
   afk?: boolean;
-  recordings?: boolean;
 }
 
 export type AwayEventInput = Omit<AwayEvent, "id">;
@@ -91,7 +90,7 @@ function sameFact(a: AwayEventInput, b: AwayEventInput): boolean {
     case "rejoinFailed":
       return a.error === b.error;
     case "emergencyStop":
-      return a.afk === b.afk && a.recordings === b.recordings;
+      return a.afk === b.afk;
     default:
       return true;
   }
@@ -221,12 +220,7 @@ export function awayEventText(event: AwayEvent, t: Translate): AwayEventText {
     case "emergencyStop":
       // As mesmas frases do alerta (EmergencyStopAlert).
       return {
-        text:
-          event.afk && event.recordings
-            ? t("You shook the mouse, so MultiAlt stopped AFK mode and the recording.")
-            : event.recordings
-              ? t("You shook the mouse, so MultiAlt stopped the recording.")
-              : t("You shook the mouse, so MultiAlt stopped AFK mode."),
+        text: t("You shook the mouse, so MultiAlt stopped AFK mode."),
         tone: "problem",
       };
     case "rejoinFailed":

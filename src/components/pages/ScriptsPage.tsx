@@ -40,9 +40,6 @@ import {
 import { createScriptWorker } from "../../scripting/workerSource";
 import { Select } from "../ui/Select";
 import { MenuItemView } from "../menus/MenuItemView";
-import { ENABLE_PYTHON_SCRIPTS } from "../../featureFlags";
-import { PYTHON_PAGE_INTRO, PythonAutomationView } from "../python/PythonAutomationView";
-import { ScriptsModeSwitch, useScriptsMode } from "../python/ScriptsModeSwitch";
 import type { MenuItem } from "../menus/MenuItemView";
 import type {
   ManagedScript,
@@ -170,9 +167,7 @@ export const isSecretSettingKey = (key: string) =>
   /(password|apikey|api_key|secret|token)$/i.test(key) && !/^(allow|every|auto|require)/i.test(key);
 
 // Segredos cujo NOME não casa com o padrão acima: valor sensível preso a uma
-// seção+chave específica. `Webhook.Url` carrega o token do webhook do Discord
-// na própria URL — tem que sair, enquanto as flags booleanas do Webhook
-// (Enabled, NotifyDropped, MaskNames, ...) continuam visíveis. Chave em
+// seção+chave específica (a URL carrega o token na própria URL). Chave em
 // minúsculas no formato "secao.chave".
 const SECRET_SETTING_PATHS = new Set<string>(["webhook.url"]);
 
@@ -1313,7 +1308,6 @@ export function ScriptsPage({ active, onLeave }: ScriptsPageProps) {
   const prompt = usePrompt();
   const confirm = useConfirm();
   const visible = active;
-  const [scriptsMode, setScriptsMode] = useScriptsMode();
 
   const [scripts, setScripts] = useState<ManagedScript[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -3054,810 +3048,805 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
   return (
     <PageShell
       title={t("Scripts")}
-      description={scriptsMode === "python" ? PYTHON_PAGE_INTRO : intro}
-      toolbar={ENABLE_PYTHON_SCRIPTS ? <ScriptsModeSwitch mode={scriptsMode} onChange={setScriptsMode} /> : undefined}
+      description={intro}
       onLeave={onLeave}
       dataTour="scripts-page"
       tour="scripts"
       bodyClassName="flex"
     >
-      {scriptsMode === "python" ? (
-        <PythonAutomationView />
-      ) : (
-        <div className="flex-1 min-h-0 min-w-0 flex">
-          <aside data-tour="scripts-list" className="w-[320px] 2xl:w-[380px] border-r theme-border flex flex-col min-h-0">
-            <div className="p-3 border-b theme-border flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search
-                  size={13}
-                  strokeWidth={1.9}
-                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600"
-                />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/60 text-[12px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
-                  placeholder={t("Search scripts")}
-                />
-              </div>
+      <div className="flex-1 min-h-0 min-w-0 flex">
+        <aside data-tour="scripts-list" className="w-[320px] 2xl:w-[380px] border-r theme-border flex flex-col min-h-0">
+          <div className="p-3 border-b theme-border flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search
+                size={13}
+                strokeWidth={1.9}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600"
+              />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/60 text-[12px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                placeholder={t("Search scripts")}
+              />
+            </div>
+            <button
+              onClick={() => setRunningOnly((prev) => !prev)}
+              className={`px-2 py-1.5 rounded-lg border text-[12px] transition-colors ${
+                runningOnly
+                  ? "bg-sky-500/15 border-sky-500/35 text-sky-300"
+                  : "bg-zinc-800/40 border-zinc-700/60 text-zinc-400"
+              }`}
+            >
+              {t("Running")}
+            </button>
+          </div>
+
+          <div className="px-3 py-2 border-b theme-border flex items-center gap-1.5">
+            <div ref={newMenuRef} className="relative">
               <button
-                onClick={() => setRunningOnly((prev) => !prev)}
-                className={`px-2 py-1.5 rounded-lg border text-[12px] transition-colors ${
-                  runningOnly
-                    ? "bg-sky-500/15 border-sky-500/35 text-sky-300"
-                    : "bg-zinc-800/40 border-zinc-700/60 text-zinc-400"
+                data-tour="scripts-new"
+                onClick={() => setNewMenuOpen((prev) => !prev)}
+                className={`px-2.5 py-1 rounded-md border text-[12px] transition-all duration-200 ${
+                  newMenuOpen
+                    ? "bg-sky-500/18 border-sky-500/35 text-sky-300 shadow-[0_0_0_1px_rgba(56,189,248,0.2)]"
+                    : "bg-zinc-800/40 border-zinc-700/60 text-zinc-300 hover:bg-zinc-700/50 hover:-translate-y-[1px]"
                 }`}
               >
-                {t("Running")}
+                <span className="inline-flex items-center gap-1.5">
+                  <Plus size={11} strokeWidth={2} />
+                  {t("New")}
+                  <ChevronDown
+                    size={11}
+                    strokeWidth={2}
+                    className={`transition-transform duration-200 ${newMenuOpen ? "rotate-180" : ""}`}
+                  />
+                </span>
               </button>
+
+              {newMenuOpen && (
+                <div className="theme-modal-scope theme-panel theme-border absolute left-0 top-full mt-1.5 w-[230px] rounded-xl border border-zinc-700/60 bg-zinc-900/96 shadow-2xl overflow-hidden origin-top-left animate-scale-in">
+                  <button
+                    onClick={() => {
+                      setNewMenuOpen(false);
+                      void handleCreate("blank");
+                    }}
+                    className="w-full text-left px-3 py-2 text-[12px] text-zinc-200 hover:bg-zinc-800/75 transition-all duration-200"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Plus size={12} strokeWidth={2} className="text-sky-300" />
+                      {t("New Script")}
+                    </span>
+                  </button>
+
+                  <div className="mx-2 my-1 border-t border-zinc-700/70" />
+
+                  <button
+                    onClick={() => {
+                      setNewMenuOpen(false);
+                      void handleCreate("monitor");
+                    }}
+                    className="w-full text-left px-3 py-2 text-[12px] text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/70 transition-all duration-200"
+                  >
+                    {t("Window Monitor Template")}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setNewMenuOpen(false);
+                      void handleCreate("discord");
+                    }}
+                    className="w-full text-left px-3 py-2 text-[12px] text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/70 transition-all duration-200"
+                  >
+                    {t("Discord Bridge Template")}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setNewMenuOpen(false);
+                      void handleCreate("hub");
+                    }}
+                    className="w-full text-left px-3 py-2 text-[12px] text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/70 transition-all duration-200"
+                  >
+                    {t("Hub Link Template")}
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="px-3 py-2 border-b theme-border flex items-center gap-1.5">
-              <div ref={newMenuRef} className="relative">
+            <button
+              onClick={() => importRef.current?.click()}
+              className="px-2 py-1 rounded-md bg-zinc-800/40 border border-zinc-700/60 text-[12px] text-zinc-300 hover:bg-zinc-700/50 hover:-translate-y-[1px] transition-all duration-200"
+            >
+              <span className="inline-flex items-center gap-1">
+                <Upload size={11} strokeWidth={2} />
+                {t("Import")}
+              </span>
+            </button>
+            <input
+              ref={importRef}
+              type="file"
+              accept=".js,.txt,.ram-script"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                void handleImportScript(file);
+              }}
+            />
+            <span className="ml-auto text-[12px] text-zinc-600">
+              {filteredScripts.length} {t("items")}
+            </span>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {filteredScripts.map((script) => {
+              const runtime = runtimeByScript[script.id] || createInitialRuntime();
+              const selected = selectedId === script.id;
+              return (
                 <button
-                  data-tour="scripts-new"
-                  onClick={() => setNewMenuOpen((prev) => !prev)}
-                  className={`px-2.5 py-1 rounded-md border text-[12px] transition-all duration-200 ${
-                    newMenuOpen
-                      ? "bg-sky-500/18 border-sky-500/35 text-sky-300 shadow-[0_0_0_1px_rgba(56,189,248,0.2)]"
-                      : "bg-zinc-800/40 border-zinc-700/60 text-zinc-300 hover:bg-zinc-700/50 hover:-translate-y-[1px]"
+                  key={script.id}
+                  onClick={() => setSelectedId(script.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setSelectedId(script.id);
+                    setScriptContextPos(null);
+                    setScriptContextMenu({
+                      scriptId: script.id,
+                      x: event.clientX,
+                      y: event.clientY,
+                    });
+                  }}
+                  className={`w-full text-left px-3 py-2.5 border-b border-zinc-800/50 transition-all duration-200 ${
+                    selected ? "bg-zinc-800/70" : "hover:bg-zinc-800/35 hover:translate-x-[1px]"
                   }`}
                 >
-                  <span className="inline-flex items-center gap-1.5">
-                    <Plus size={11} strokeWidth={2} />
-                    {t("New")}
-                    <ChevronDown
-                      size={11}
-                      strokeWidth={2}
-                      className={`transition-transform duration-200 ${newMenuOpen ? "rotate-180" : ""}`}
-                    />
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] text-zinc-200 font-medium truncate">{script.name}</span>
+                    {script.trusted ? (
+                      <ShieldCheck size={13} strokeWidth={1.8} className="text-emerald-300 shrink-0" />
+                    ) : (
+                      <ShieldAlert size={13} strokeWidth={1.8} className="text-amber-300 shrink-0" />
+                    )}
+                    <span className="ml-auto">{renderStatusChip(script)}</span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-zinc-500 truncate">
+                    {script.description || t("No description")}
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <span
+                      className={`px-1.5 py-0.5 rounded border text-[11px] ${
+                        script.enabled
+                          ? "border-emerald-500/25 text-emerald-300 bg-emerald-500/10"
+                          : "border-zinc-700 text-zinc-500"
+                      }`}
+                    >
+                      {script.enabled ? t("enabled") : t("disabled")}
+                    </span>
+                    {runtime.lastError ? (
+                      <span className="px-1.5 py-0.5 rounded border text-[11px] border-red-500/30 bg-red-500/12 text-red-300 truncate">
+                        {t("error")}
+                      </span>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+            {filteredScripts.length === 0 && (
+              <div className="px-4 py-8 text-center text-[12px] text-zinc-500">
+                {loaded ? t("No scripts found") : t("Loading scripts...")}
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <section data-tour="scripts-editor" className="flex-1 min-w-0 flex flex-col">
+          {!selectedScript || !draft ? (
+            <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
+              {t("Select a script or create a new one")}
+            </div>
+          ) : (
+            <>
+              <div className="px-4 py-3 border-b theme-border flex flex-wrap items-center gap-2">
+                <div className="flex-1 min-w-[240px]">
+                  <input
+                    value={draft.name}
+                    onChange={(event) =>
+                      updateDraft((prev) => ({ ...prev, name: event.target.value }))
+                    }
+                    className="w-full bg-transparent text-[15px] font-semibold text-zinc-100 outline-none"
+                  />
+                  <input
+                    value={draft.description}
+                    onChange={(event) =>
+                      updateDraft((prev) => ({ ...prev, description: event.target.value }))
+                    }
+                    placeholder={t("Description")}
+                    className="w-full mt-0.5 bg-transparent text-[12px] text-zinc-500 outline-none placeholder:text-zinc-600"
+                  />
+                </div>
+
+                <button
+                  onClick={() => handleToggleEnabled(selectedScript, !selectedScript.enabled)}
+                  className={`px-2.5 py-1.5 rounded-lg border text-[12px] transition-colors ${
+                    selectedScript.enabled
+                      ? "border-emerald-500/35 bg-emerald-500/15 text-emerald-300"
+                      : "border-zinc-700 bg-zinc-800/45 text-zinc-400"
+                  }`}
+                >
+                  {selectedScript.enabled ? t("Enabled") : t("Disabled")}
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (workersRef.current.has(selectedScript.id)) {
+                      stopScript(selectedScript.id, true);
+                    } else {
+                      handleRunScript(selectedScript.id);
+                    }
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg border text-[12px] transition-colors ${
+                    workersRef.current.has(selectedScript.id)
+                      ? "border-red-500/35 bg-red-500/15 text-red-300"
+                      : "border-sky-500/35 bg-sky-500/15 text-sky-300"
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {workersRef.current.has(selectedScript.id) ? (
+                      <Square size={11} strokeWidth={2} />
+                    ) : (
+                      <Play size={11} strokeWidth={2} />
+                    )}
+                    {workersRef.current.has(selectedScript.id) ? t("Stop") : t("Run")}
                   </span>
                 </button>
 
-                {newMenuOpen && (
-                  <div className="theme-modal-scope theme-panel theme-border absolute left-0 top-full mt-1.5 w-[230px] rounded-xl border border-zinc-700/60 bg-zinc-900/96 shadow-2xl overflow-hidden origin-top-left animate-scale-in">
-                    <button
-                      onClick={() => {
-                        setNewMenuOpen(false);
-                        void handleCreate("blank");
-                      }}
-                      className="w-full text-left px-3 py-2 text-[12px] text-zinc-200 hover:bg-zinc-800/75 transition-all duration-200"
+                <button
+                  onClick={() => handleRestartScript(selectedScript.id)}
+                  className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <RotateCcw size={11} strokeWidth={2} />
+                    {t("Restart")}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    void handleExportScript(selectedScript);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <Download size={11} strokeWidth={2} />
+                    {t("Export")}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    void handleDeleteScript(selectedScript.id);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border border-red-500/35 bg-red-500/12 text-[12px] text-red-300 hover:bg-red-500/20 transition-colors"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <Trash2 size={11} strokeWidth={2} />
+                    {t("Delete")}
+                  </span>
+                </button>
+              </div>
+
+              <div className="px-4 py-2 border-b theme-border flex items-center gap-2">
+                {([
+                  ["editor", t("Editor")],
+                  ["ui", t("UI")],
+                  ["logs", t("Logs")],
+                  ["api", t("API")],
+                ] as Array<[ScriptTabId, string]>).map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setTab(id)}
+                    className={`px-2.5 py-1 rounded-md text-[12px] border transition-colors ${
+                      tab === id
+                        ? "border-sky-500/35 bg-sky-500/15 text-sky-300"
+                        : "border-zinc-700/70 bg-zinc-800/40 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      void handleTrustToggle(selectedScript, !selectedScript.trusted);
+                    }}
+                    className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
+                      selectedScript.trusted
+                        ? "border-emerald-500/35 bg-emerald-500/15 text-emerald-300"
+                        : "border-amber-500/35 bg-amber-500/12 text-amber-300"
+                    }`}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {selectedScript.trusted ? (
+                        <ShieldCheck size={11} strokeWidth={2} />
+                      ) : (
+                        <ShieldAlert size={11} strokeWidth={2} />
+                      )}
+                      {selectedScript.trusted ? t("Trusted") : t("Untrusted")}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowUnsafe((prev) => !prev)}
+                    className="px-2 py-1 rounded-md border border-zinc-700 bg-zinc-800/45 text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors"
+                  >
+                    {showUnsafe ? t("Hide Unsafe Details") : t("Show Unsafe Details")}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto p-4">
+                {tab === "editor" && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <PermissionRow
+                        label={t("Invoke Rust Commands")}
+                        // Allow-list em SCRIPT_INVOKE_COMMANDS; `get_accounts`
+                        // só passa pela rota filtrada (SCRIPT_INVOKE_SANITIZERS).
+                        description={t(
+                          "Runs app commands: add, edit or remove accounts, launch or kill clients, start Auto Rejoin, the generator and the local servers. Cookies and passwords are stripped from the results."
+                        )}
+                        enabled={draft.permissions.allowInvoke}
+                        onChange={(value) => {
+                          updateDraft((prev) => ({
+                            ...prev,
+                            permissions: { ...prev.permissions, allowInvoke: value },
+                          }));
+                        }}
+                      />
+                      <PermissionRow
+                        label={t("HTTP Requests")}
+                        description={t(
+                          "Sends requests to any public http/https address, so data the script can read may leave this machine."
+                        )}
+                        enabled={draft.permissions.allowHttp}
+                        onChange={(value) => {
+                          updateDraft((prev) => ({
+                            ...prev,
+                            permissions: { ...prev.permissions, allowHttp: value },
+                          }));
+                        }}
+                      />
+                      <PermissionRow
+                        label={t("WebSocket Connections")}
+                        // Teto real: SCRIPT_SECURITY_LIMITS.maxWebSocketConnections = 8.
+                        description={t(
+                          "Keeps up to 8 live ws/wss connections open to an outside server."
+                        )}
+                        enabled={draft.permissions.allowWebSocket}
+                        onChange={(value) => {
+                          updateDraft((prev) => ({
+                            ...prev,
+                            permissions: { ...prev.permissions, allowWebSocket: value },
+                          }));
+                        }}
+                      />
+                      <PermissionRow
+                        label={t("Window Snapshot")}
+                        // Conteúdo do snapshot: ScriptWindowSnapshot; settings
+                        // passam por redactSecretSettings antes de sair daqui.
+                        description={t(
+                          "Reads app state on demand: account list, aliases, groups, selection, presence and the current Place/Job ID. No cookies or passwords."
+                        )}
+                        enabled={draft.permissions.allowWindow}
+                        onChange={(value) => {
+                          updateDraft((prev) => ({
+                            ...prev,
+                            permissions: { ...prev.permissions, allowWindow: value },
+                          }));
+                        }}
+                      />
+                      <PermissionRow
+                        label={t("Modal Access")}
+                        description={t(
+                          "Opens alert, confirm and input dialogs on top of the app window."
+                        )}
+                        enabled={draft.permissions.allowModal}
+                        onChange={(value) => {
+                          updateDraft((prev) => ({
+                            ...prev,
+                            permissions: { ...prev.permissions, allowModal: value },
+                          }));
+                        }}
+                      />
+                      <PermissionRow
+                        label={t("Script Settings")}
+                        // buildScriptSettingsSection prende a leitura/escrita
+                        // à seção `Script.<id>` do próprio script.
+                        description={t(
+                          "Reads and writes only this script's own section of RAMSettings.ini."
+                        )}
+                        enabled={draft.permissions.allowSettings}
+                        onChange={(value) => {
+                          updateDraft((prev) => ({
+                            ...prev,
+                            permissions: { ...prev.permissions, allowSettings: value },
+                          }));
+                        }}
+                      />
+                      <PermissionRow
+                        label={t("Custom UI")}
+                        description={t("Draws the script's own controls in the UI tab of this dialog.")}
+                        enabled={draft.permissions.allowUi}
+                        onChange={(value) => {
+                          updateDraft((prev) => ({
+                            ...prev,
+                            permissions: { ...prev.permissions, allowUi: value },
+                          }));
+                        }}
+                      />
+                      <PermissionRow
+                        label={t("Private Network (localhost/LAN)")}
+                        // isPrivateOrLoopbackHost bloqueia esses alvos por padrão
+                        // em normalizeScriptHttpUrl/normalizeWebSocketUrl.
+                        description={t(
+                          "Lets HTTP and WebSocket calls reach localhost and your local network instead of only the public internet."
+                        )}
+                        enabled={draft.permissions.allowPrivateNetwork === true}
+                        onChange={(value) => {
+                          updateDraft((prev) => ({
+                            ...prev,
+                            permissions: { ...prev.permissions, allowPrivateNetwork: value },
+                          }));
+                        }}
+                      />
+                    </div>
+
+                    <div
+                      className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out ${
+                        showUnsafe
+                          ? "max-h-[260px] opacity-100 translate-y-0"
+                          : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
+                      }`}
                     >
-                      <span className="inline-flex items-center gap-2">
-                        <Plus size={12} strokeWidth={2} className="text-sky-300" />
-                        {t("New Script")}
+                      <div className="rounded-lg border border-zinc-700/70 bg-zinc-900/45 px-3 py-2 text-[12px] space-y-1.5">
+                        <div className="text-zinc-300 font-medium tracking-wide">{t("Unsafe capability details")}</div>
+                        <div className="text-zinc-500">{t("Effective access is trust mode + permission toggle.")}</div>
+                        <div className="text-zinc-500">
+                          {t("Sandbox mode blocks direct global fetch/WebSocket/importScripts and constructor-chain escapes for untrusted scripts.")}
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-zinc-400">
+                          <div>{t("Invoke commands")}</div>
+                          <div className={`${draft.trusted && draft.permissions.allowInvoke ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
+                            {draft.permissions.allowInvoke ? (draft.trusted ? t("Allowed") : t("Blocked (untrusted)")) : t("Disabled")}
+                          </div>
+                          <div>{t("HTTP requests")}</div>
+                          <div className={`${draft.trusted && draft.permissions.allowHttp ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
+                            {draft.permissions.allowHttp ? (draft.trusted ? t("Allowed") : t("Blocked (untrusted)")) : t("Disabled")}
+                          </div>
+                          <div>{t("WebSocket")}</div>
+                          <div className={`${draft.trusted && draft.permissions.allowWebSocket ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
+                            {draft.permissions.allowWebSocket ? (draft.trusted ? t("Allowed") : t("Blocked (untrusted)")) : t("Disabled")}
+                          </div>
+                          <div>{t("Settings write")}</div>
+                          <div className={`${draft.trusted && draft.permissions.allowSettings ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
+                            {draft.permissions.allowSettings ? (draft.trusted ? t("Allowed") : t("Blocked (untrusted)")) : t("Disabled")}
+                          </div>
+                          <div>{t("Private network (localhost/LAN)")}</div>
+                          <div className={`${draft.permissions.allowPrivateNetwork ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
+                            {draft.permissions.allowPrivateNetwork ? t("Allowed") : t("Blocked")}
+                          </div>
+                          <div>{t("Account credentials")}</div>
+                          <div className="text-emerald-300 transition-colors duration-200">
+                            {t("Never (get_accounts is filtered)")}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-[12px] text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={draft.autoStart}
+                        onChange={(event) =>
+                          updateDraft((prev) => ({ ...prev, autoStart: event.target.checked }))
+                        }
+                        className="h-3.5 w-3.5 accent-sky-500"
+                      />
+                      {t("Auto start when app launches")}
+                    </label>
+
+                    <textarea
+                      value={draft.source}
+                      onChange={(event) =>
+                        updateDraft((prev) => ({ ...prev, source: event.target.value }))
+                      }
+                      className="w-full h-[360px] resize-none rounded-xl bg-zinc-900 border border-zinc-700/60 text-[12px] text-zinc-200 font-mono leading-relaxed p-3 focus:outline-none focus:border-zinc-500"
+                      spellCheck={false}
+                    />
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] text-zinc-500">
+                        {draftDirty
+                          ? t("Unsaved changes")
+                          : t("Saved at {{time}}", {
+                              time: new Date(draft.updatedAtMs).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                second: "2-digit",
+                                hour12: false,
+                              }),
+                            })}
                       </span>
-                    </button>
+                      <button
+                        onClick={() => {
+                          void handleSaveDraft();
+                        }}
+                        disabled={!draftDirty || busyId === draft.id}
+                        className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-[12px] font-medium text-white transition-colors"
+                      >
+                        {busyId === draft.id ? t("Saving...") : t("Save Script")}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-                    <div className="mx-2 my-1 border-t border-zinc-700/70" />
-
-                    <button
-                      onClick={() => {
-                        setNewMenuOpen(false);
-                        void handleCreate("monitor");
+                {tab === "ui" && (
+                  <div className="space-y-3">
+                    <div className="text-[12px] text-zinc-500">
+                      {t("UI defined by script via ram.ui.set(...) appears here.")}
+                    </div>
+                    <ScriptUiRenderer
+                      scriptId={selectedScript.id}
+                      elements={selectedUi}
+                      onEvent={handleUiEvent}
+                      onStateChange={(nextElements) => {
+                        updateRuntime(selectedScript.id, { uiElements: nextElements });
                       }}
-                      className="w-full text-left px-3 py-2 text-[12px] text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/70 transition-all duration-200"
-                    >
-                      {t("Window Monitor Template")}
-                    </button>
+                    />
+                  </div>
+                )}
 
-                    <button
-                      onClick={() => {
-                        setNewMenuOpen(false);
-                        void handleCreate("discord");
-                      }}
-                      className="w-full text-left px-3 py-2 text-[12px] text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/70 transition-all duration-200"
-                    >
-                      {t("Discord Bridge Template")}
-                    </button>
+                {tab === "logs" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search
+                          size={13}
+                          strokeWidth={1.9}
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600"
+                        />
+                        <input
+                          value={logQuery}
+                          onChange={(event) => setLogQuery(event.target.value)}
+                          className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/60 text-[12px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                          placeholder={t("Search logs")}
+                        />
+                      </div>
+                      <Select
+                        value={logLevel}
+                        onChange={(value) => setLogLevel(value as ScriptLogLevel | "all")}
+                        options={[
+                          { value: "all", label: "All" },
+                          { value: "debug", label: "Debug" },
+                          { value: "info", label: "Info" },
+                          { value: "warn", label: "Warn" },
+                          { value: "error", label: "Error" },
+                        ]}
+                        className="w-[130px]"
+                      />
+                      <button
+                        onClick={() => {
+                          setLogsByScript((prev) => ({ ...prev, [selectedScript.id]: [] }));
+                          setStickLogsToBottom(true);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                      >
+                        {t("Clear")}
+                      </button>
+                    </div>
 
-                    <button
-                      onClick={() => {
-                        setNewMenuOpen(false);
-                        void handleCreate("hub");
-                      }}
-                      className="w-full text-left px-3 py-2 text-[12px] text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/70 transition-all duration-200"
-                    >
-                      {t("Hub Link Template")}
-                    </button>
+                    <div className="relative">
+                      <div
+                        ref={logsContainerRef}
+                        onScroll={handleLogsScroll}
+                        className="rounded-xl border border-zinc-800 bg-zinc-950/40 h-[430px] overflow-y-auto p-2.5 space-y-1"
+                      >
+                        {visibleLogs.length === 0 && (
+                          <div className="text-[12px] text-zinc-600 p-2">{t("No logs")}</div>
+                        )}
+                        {visibleLogs.map((entry) => (
+                          <div
+                            key={entry.id}
+                            className={`text-[12px] font-mono px-2 py-1 rounded border ${
+                              entry.level === "error"
+                                ? "border-red-500/25 bg-red-500/10 text-red-200"
+                                : entry.level === "warn"
+                                  ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
+                                  : entry.level === "debug"
+                                    ? "border-zinc-700/50 bg-zinc-800/30 text-zinc-400"
+                                    : "border-zinc-700/50 bg-zinc-800/35 text-zinc-300"
+                            }`}
+                          >
+                            <span className="text-zinc-500 mr-2">
+                              {new Date(entry.at).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                second: "2-digit",
+                                hour12: false,
+                              })}
+                            </span>
+                            <span className="mr-2">[{entry.level.toUpperCase()}]</span>
+                            <span className="mr-2">[{entry.source}]</span>
+                            <span className="break-all">{entry.message}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {!stickLogsToBottom && visibleLogs.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setStickLogsToBottom(true);
+                            scrollLogsToBottom("smooth");
+                          }}
+                          className="absolute right-3 bottom-3 px-2.5 py-1 rounded-md border border-sky-500/35 bg-sky-500/18 text-[12px] text-sky-300 hover:bg-sky-500/28 transition-all duration-200"
+                        >
+                          {t("Jump to latest")}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {tab === "api" && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-[12px] text-zinc-300">
+                      <div className="font-medium text-zinc-200 mb-1">{t("Host API")}</div>
+                      <div className="text-zinc-400 leading-relaxed">
+                        {t("Use ram.invoke(command, args), ram.http.request(...), ram.ws.connect/send/on(...), ram.window.snapshot(), ram.settings.get/set(), ram.modal.confirm(), ram.ui.set().")}
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            void handleCopyApiSnippet();
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            <Copy size={11} strokeWidth={2} />
+                            {t("Copy snippet")}
+                          </span>
+                        </button>
+                        <span className="text-[12px] text-zinc-500">
+                          {selectedScript.trusted
+                            ? t("Trusted mode is enabled")
+                            : t("Trusted mode is disabled")}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search
+                          size={13}
+                          strokeWidth={1.9}
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600"
+                        />
+                        <input
+                          value={apiSearch}
+                          onChange={(event) => setApiSearch(event.target.value)}
+                          className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/60 text-[12px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
+                          placeholder={t("Search common command names")}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-950/35 p-2 h-[420px] overflow-y-auto grid grid-cols-2 gap-1">
+                      {commandList.map((command) => (
+                        <button
+                          key={command}
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(command);
+                            store.addToast(t("Copied {{name}}", { name: command }));
+                          }}
+                          className="text-left px-2.5 py-1.5 rounded-md border border-zinc-700/50 bg-zinc-800/30 text-[12px] text-zinc-300 hover:bg-zinc-700/50 transition-colors font-mono"
+                        >
+                          {command}
+                        </button>
+                      ))}
+                      {commandList.length === 0 && (
+                        <div className="text-[12px] text-zinc-600 px-2 py-2">{t("No matches")}</div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 text-[12px] text-zinc-500 leading-relaxed">
+                      <div className="mb-1 text-zinc-300 font-medium">{t("WebSocket helper")}</div>
+                      <div>{t("Connect with ram.ws.connect({ url, protocols? }).")}</div>
+                      <div>{t("Subscribe with ram.ws.on((evt) => ...).")}</div>
+                      <div>{t("Events: open, message, error, close.")}</div>
+                      <div>{t("Send data with ram.ws.send(connectionId, payload).")}</div>
+                      <div>{t("Close one or all connections with ram.ws.close(...).")}</div>
+                    </div>
+
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 text-[12px] text-zinc-500 leading-relaxed">
+                      <div className="mb-1 text-zinc-300 font-medium">{t("Trust Mode")}</div>
+                      <div>
+                        {t("Untrusted scripts keep read-only behavior. Trusted scripts can invoke commands, use HTTP/WebSocket, and write script-scoped settings.")}
+                      </div>
+                      <div>
+                        {t("HTTP requests block localhost/private-network targets. Only the \"Private Network (localhost/LAN)\" permission unblocks them — a script cannot unblock itself.")}
+                      </div>
+                      <div>
+                        {t("WebSocket connections follow the same rule: localhost/private-network targets need the \"Private Network (localhost/LAN)\" permission.")}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
 
-              <button
-                onClick={() => importRef.current?.click()}
-                className="px-2 py-1 rounded-md bg-zinc-800/40 border border-zinc-700/60 text-[12px] text-zinc-300 hover:bg-zinc-700/50 hover:-translate-y-[1px] transition-all duration-200"
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Upload size={11} strokeWidth={2} />
-                  {t("Import")}
-                </span>
-              </button>
-              <input
-                ref={importRef}
-                type="file"
-                accept=".js,.txt,.ram-script"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (!file) return;
-                  void handleImportScript(file);
-                }}
-              />
-              <span className="ml-auto text-[12px] text-zinc-600">
-                {filteredScripts.length} {t("items")}
-              </span>
-            </div>
-
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              {filteredScripts.map((script) => {
-                const runtime = runtimeByScript[script.id] || createInitialRuntime();
-                const selected = selectedId === script.id;
-                return (
+              <div className="px-4 py-2 border-t theme-border flex items-center justify-between gap-3 text-[12px]">
+                <div className="text-zinc-500 flex items-center gap-2">
+                  {(selectedRuntime?.status || "idle") === "running" ? (
+                    <>
+                      <CheckCircle2 size={13} strokeWidth={2} className="text-emerald-300" />
+                      <span>{t("Script running")}</span>
+                    </>
+                  ) : selectedRuntime?.status === "error" ? (
+                    <>
+                      <AlertCircle size={13} strokeWidth={2} className="text-red-300" />
+                      <span className="text-red-300">{selectedRuntime.lastError || t("Script error")}</span>
+                    </>
+                  ) : (
+                    <span>{t("Script idle")}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
                   <button
-                    key={script.id}
-                    onClick={() => setSelectedId(script.id)}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      setSelectedId(script.id);
-                      setScriptContextPos(null);
-                      setScriptContextMenu({
-                        scriptId: script.id,
-                        x: event.clientX,
-                        y: event.clientY,
+                    onClick={() => {
+                      if (!draft) return;
+                      if (!selectedScript) return;
+                      if (!draftDirty) {
+                        void handleRunScript(selectedScript.id);
+                        return;
+                      }
+                      void handleSaveDraft().then(() => {
+                        handleRunScript(selectedScript.id);
                       });
                     }}
-                    className={`w-full text-left px-3 py-2.5 border-b border-zinc-800/50 transition-all duration-200 ${
-                      selected ? "bg-zinc-800/70" : "hover:bg-zinc-800/35 hover:translate-x-[1px]"
-                    }`}
+                    className="px-3 py-1.5 rounded-lg border border-sky-500/35 bg-sky-500/15 text-[12px] text-sky-300 hover:bg-sky-500/25 transition-colors"
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="text-[12px] text-zinc-200 font-medium truncate">{script.name}</span>
-                      {script.trusted ? (
-                        <ShieldCheck size={13} strokeWidth={1.8} className="text-emerald-300 shrink-0" />
-                      ) : (
-                        <ShieldAlert size={13} strokeWidth={1.8} className="text-amber-300 shrink-0" />
-                      )}
-                      <span className="ml-auto">{renderStatusChip(script)}</span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-zinc-500 truncate">
-                      {script.description || t("No description")}
-                    </div>
-                    <div className="mt-1.5 flex items-center gap-1.5">
-                      <span
-                        className={`px-1.5 py-0.5 rounded border text-[11px] ${
-                          script.enabled
-                            ? "border-emerald-500/25 text-emerald-300 bg-emerald-500/10"
-                            : "border-zinc-700 text-zinc-500"
-                        }`}
-                      >
-                        {script.enabled ? t("enabled") : t("disabled")}
-                      </span>
-                      {runtime.lastError ? (
-                        <span className="px-1.5 py-0.5 rounded border text-[11px] border-red-500/30 bg-red-500/12 text-red-300 truncate">
-                          {t("error")}
-                        </span>
-                      ) : null}
-                    </div>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Play size={11} strokeWidth={2} />
+                      {t("Run latest")}
+                    </span>
                   </button>
-                );
-              })}
-              {filteredScripts.length === 0 && (
-                <div className="px-4 py-8 text-center text-[12px] text-zinc-500">
-                  {loaded ? t("No scripts found") : t("Loading scripts...")}
                 </div>
-              )}
-            </div>
-          </aside>
-
-          <section data-tour="scripts-editor" className="flex-1 min-w-0 flex flex-col">
-            {!selectedScript || !draft ? (
-              <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
-                {t("Select a script or create a new one")}
               </div>
-            ) : (
-              <>
-                <div className="px-4 py-3 border-b theme-border flex flex-wrap items-center gap-2">
-                  <div className="flex-1 min-w-[240px]">
-                    <input
-                      value={draft.name}
-                      onChange={(event) =>
-                        updateDraft((prev) => ({ ...prev, name: event.target.value }))
-                      }
-                      className="w-full bg-transparent text-[15px] font-semibold text-zinc-100 outline-none"
-                    />
-                    <input
-                      value={draft.description}
-                      onChange={(event) =>
-                        updateDraft((prev) => ({ ...prev, description: event.target.value }))
-                      }
-                      placeholder={t("Description")}
-                      className="w-full mt-0.5 bg-transparent text-[12px] text-zinc-500 outline-none placeholder:text-zinc-600"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => handleToggleEnabled(selectedScript, !selectedScript.enabled)}
-                    className={`px-2.5 py-1.5 rounded-lg border text-[12px] transition-colors ${
-                      selectedScript.enabled
-                        ? "border-emerald-500/35 bg-emerald-500/15 text-emerald-300"
-                        : "border-zinc-700 bg-zinc-800/45 text-zinc-400"
-                    }`}
-                  >
-                    {selectedScript.enabled ? t("Enabled") : t("Disabled")}
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (workersRef.current.has(selectedScript.id)) {
-                        stopScript(selectedScript.id, true);
-                      } else {
-                        handleRunScript(selectedScript.id);
-                      }
-                    }}
-                    className={`px-2.5 py-1.5 rounded-lg border text-[12px] transition-colors ${
-                      workersRef.current.has(selectedScript.id)
-                        ? "border-red-500/35 bg-red-500/15 text-red-300"
-                        : "border-sky-500/35 bg-sky-500/15 text-sky-300"
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {workersRef.current.has(selectedScript.id) ? (
-                        <Square size={11} strokeWidth={2} />
-                      ) : (
-                        <Play size={11} strokeWidth={2} />
-                      )}
-                      {workersRef.current.has(selectedScript.id) ? t("Stop") : t("Run")}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => handleRestartScript(selectedScript.id)}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      <RotateCcw size={11} strokeWidth={2} />
-                      {t("Restart")}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      void handleExportScript(selectedScript);
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      <Download size={11} strokeWidth={2} />
-                      {t("Export")}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      void handleDeleteScript(selectedScript.id);
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg border border-red-500/35 bg-red-500/12 text-[12px] text-red-300 hover:bg-red-500/20 transition-colors"
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      <Trash2 size={11} strokeWidth={2} />
-                      {t("Delete")}
-                    </span>
-                  </button>
-                </div>
-
-                <div className="px-4 py-2 border-b theme-border flex items-center gap-2">
-                  {([
-                    ["editor", t("Editor")],
-                    ["ui", t("UI")],
-                    ["logs", t("Logs")],
-                    ["api", t("API")],
-                  ] as Array<[ScriptTabId, string]>).map(([id, label]) => (
-                    <button
-                      key={id}
-                      onClick={() => setTab(id)}
-                      className={`px-2.5 py-1 rounded-md text-[12px] border transition-colors ${
-                        tab === id
-                          ? "border-sky-500/35 bg-sky-500/15 text-sky-300"
-                          : "border-zinc-700/70 bg-zinc-800/40 text-zinc-400 hover:text-zinc-200"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-
-                  <div className="ml-auto flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        void handleTrustToggle(selectedScript, !selectedScript.trusted);
-                      }}
-                      className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
-                        selectedScript.trusted
-                          ? "border-emerald-500/35 bg-emerald-500/15 text-emerald-300"
-                          : "border-amber-500/35 bg-amber-500/12 text-amber-300"
-                      }`}
-                    >
-                      <span className="inline-flex items-center gap-1">
-                        {selectedScript.trusted ? (
-                          <ShieldCheck size={11} strokeWidth={2} />
-                        ) : (
-                          <ShieldAlert size={11} strokeWidth={2} />
-                        )}
-                        {selectedScript.trusted ? t("Trusted") : t("Untrusted")}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => setShowUnsafe((prev) => !prev)}
-                      className="px-2 py-1 rounded-md border border-zinc-700 bg-zinc-800/45 text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors"
-                    >
-                      {showUnsafe ? t("Hide Unsafe Details") : t("Show Unsafe Details")}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-y-auto p-4">
-                  {tab === "editor" && (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
-                        <PermissionRow
-                          label={t("Invoke Rust Commands")}
-                          // Allow-list em SCRIPT_INVOKE_COMMANDS; `get_accounts`
-                          // só passa pela rota filtrada (SCRIPT_INVOKE_SANITIZERS).
-                          description={t(
-                            "Runs app commands: add, edit or remove accounts, launch or kill clients, start Auto Rejoin, the generator and the local servers. Cookies and passwords are stripped from the results."
-                          )}
-                          enabled={draft.permissions.allowInvoke}
-                          onChange={(value) => {
-                            updateDraft((prev) => ({
-                              ...prev,
-                              permissions: { ...prev.permissions, allowInvoke: value },
-                            }));
-                          }}
-                        />
-                        <PermissionRow
-                          label={t("HTTP Requests")}
-                          description={t(
-                            "Sends requests to any public http/https address, so data the script can read may leave this machine."
-                          )}
-                          enabled={draft.permissions.allowHttp}
-                          onChange={(value) => {
-                            updateDraft((prev) => ({
-                              ...prev,
-                              permissions: { ...prev.permissions, allowHttp: value },
-                            }));
-                          }}
-                        />
-                        <PermissionRow
-                          label={t("WebSocket Connections")}
-                          // Teto real: SCRIPT_SECURITY_LIMITS.maxWebSocketConnections = 8.
-                          description={t(
-                            "Keeps up to 8 live ws/wss connections open to an outside server."
-                          )}
-                          enabled={draft.permissions.allowWebSocket}
-                          onChange={(value) => {
-                            updateDraft((prev) => ({
-                              ...prev,
-                              permissions: { ...prev.permissions, allowWebSocket: value },
-                            }));
-                          }}
-                        />
-                        <PermissionRow
-                          label={t("Window Snapshot")}
-                          // Conteúdo do snapshot: ScriptWindowSnapshot; settings
-                          // passam por redactSecretSettings antes de sair daqui.
-                          description={t(
-                            "Reads app state on demand: account list, aliases, groups, selection, presence and the current Place/Job ID. No cookies or passwords."
-                          )}
-                          enabled={draft.permissions.allowWindow}
-                          onChange={(value) => {
-                            updateDraft((prev) => ({
-                              ...prev,
-                              permissions: { ...prev.permissions, allowWindow: value },
-                            }));
-                          }}
-                        />
-                        <PermissionRow
-                          label={t("Modal Access")}
-                          description={t(
-                            "Opens alert, confirm and input dialogs on top of the app window."
-                          )}
-                          enabled={draft.permissions.allowModal}
-                          onChange={(value) => {
-                            updateDraft((prev) => ({
-                              ...prev,
-                              permissions: { ...prev.permissions, allowModal: value },
-                            }));
-                          }}
-                        />
-                        <PermissionRow
-                          label={t("Script Settings")}
-                          // buildScriptSettingsSection prende a leitura/escrita
-                          // à seção `Script.<id>` do próprio script.
-                          description={t(
-                            "Reads and writes only this script's own section of RAMSettings.ini."
-                          )}
-                          enabled={draft.permissions.allowSettings}
-                          onChange={(value) => {
-                            updateDraft((prev) => ({
-                              ...prev,
-                              permissions: { ...prev.permissions, allowSettings: value },
-                            }));
-                          }}
-                        />
-                        <PermissionRow
-                          label={t("Custom UI")}
-                          description={t("Draws the script's own controls in the UI tab of this dialog.")}
-                          enabled={draft.permissions.allowUi}
-                          onChange={(value) => {
-                            updateDraft((prev) => ({
-                              ...prev,
-                              permissions: { ...prev.permissions, allowUi: value },
-                            }));
-                          }}
-                        />
-                        <PermissionRow
-                          label={t("Private Network (localhost/LAN)")}
-                          // isPrivateOrLoopbackHost bloqueia esses alvos por padrão
-                          // em normalizeScriptHttpUrl/normalizeWebSocketUrl.
-                          description={t(
-                            "Lets HTTP and WebSocket calls reach localhost and your local network instead of only the public internet."
-                          )}
-                          enabled={draft.permissions.allowPrivateNetwork === true}
-                          onChange={(value) => {
-                            updateDraft((prev) => ({
-                              ...prev,
-                              permissions: { ...prev.permissions, allowPrivateNetwork: value },
-                            }));
-                          }}
-                        />
-                      </div>
-
-                      <div
-                        className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out ${
-                          showUnsafe
-                            ? "max-h-[260px] opacity-100 translate-y-0"
-                            : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
-                        }`}
-                      >
-                        <div className="rounded-lg border border-zinc-700/70 bg-zinc-900/45 px-3 py-2 text-[12px] space-y-1.5">
-                          <div className="text-zinc-300 font-medium tracking-wide">{t("Unsafe capability details")}</div>
-                          <div className="text-zinc-500">{t("Effective access is trust mode + permission toggle.")}</div>
-                          <div className="text-zinc-500">
-                            {t("Sandbox mode blocks direct global fetch/WebSocket/importScripts and constructor-chain escapes for untrusted scripts.")}
-                          </div>
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-zinc-400">
-                            <div>{t("Invoke commands")}</div>
-                            <div className={`${draft.trusted && draft.permissions.allowInvoke ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
-                              {draft.permissions.allowInvoke ? (draft.trusted ? t("Allowed") : t("Blocked (untrusted)")) : t("Disabled")}
-                            </div>
-                            <div>{t("HTTP requests")}</div>
-                            <div className={`${draft.trusted && draft.permissions.allowHttp ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
-                              {draft.permissions.allowHttp ? (draft.trusted ? t("Allowed") : t("Blocked (untrusted)")) : t("Disabled")}
-                            </div>
-                            <div>{t("WebSocket")}</div>
-                            <div className={`${draft.trusted && draft.permissions.allowWebSocket ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
-                              {draft.permissions.allowWebSocket ? (draft.trusted ? t("Allowed") : t("Blocked (untrusted)")) : t("Disabled")}
-                            </div>
-                            <div>{t("Settings write")}</div>
-                            <div className={`${draft.trusted && draft.permissions.allowSettings ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
-                              {draft.permissions.allowSettings ? (draft.trusted ? t("Allowed") : t("Blocked (untrusted)")) : t("Disabled")}
-                            </div>
-                            <div>{t("Private network (localhost/LAN)")}</div>
-                            <div className={`${draft.permissions.allowPrivateNetwork ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
-                              {draft.permissions.allowPrivateNetwork ? t("Allowed") : t("Blocked")}
-                            </div>
-                            <div>{t("Account credentials")}</div>
-                            <div className="text-emerald-300 transition-colors duration-200">
-                              {t("Never (get_accounts is filtered)")}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <label className="flex items-center gap-2 text-[12px] text-zinc-300">
-                        <input
-                          type="checkbox"
-                          checked={draft.autoStart}
-                          onChange={(event) =>
-                            updateDraft((prev) => ({ ...prev, autoStart: event.target.checked }))
-                          }
-                          className="h-3.5 w-3.5 accent-sky-500"
-                        />
-                        {t("Auto start when app launches")}
-                      </label>
-
-                      <textarea
-                        value={draft.source}
-                        onChange={(event) =>
-                          updateDraft((prev) => ({ ...prev, source: event.target.value }))
-                        }
-                        className="w-full h-[360px] resize-none rounded-xl bg-zinc-900 border border-zinc-700/60 text-[12px] text-zinc-200 font-mono leading-relaxed p-3 focus:outline-none focus:border-zinc-500"
-                        spellCheck={false}
-                      />
-
-                      <div className="flex items-center justify-between">
-                        <span className="text-[12px] text-zinc-500">
-                          {draftDirty
-                            ? t("Unsaved changes")
-                            : t("Saved at {{time}}", {
-                                time: new Date(draft.updatedAtMs).toLocaleTimeString([], {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                  second: "2-digit",
-                                  hour12: false,
-                                }),
-                              })}
-                        </span>
-                        <button
-                          onClick={() => {
-                            void handleSaveDraft();
-                          }}
-                          disabled={!draftDirty || busyId === draft.id}
-                          className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-[12px] font-medium text-white transition-colors"
-                        >
-                          {busyId === draft.id ? t("Saving...") : t("Save Script")}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {tab === "ui" && (
-                    <div className="space-y-3">
-                      <div className="text-[12px] text-zinc-500">
-                        {t("UI defined by script via ram.ui.set(...) appears here.")}
-                      </div>
-                      <ScriptUiRenderer
-                        scriptId={selectedScript.id}
-                        elements={selectedUi}
-                        onEvent={handleUiEvent}
-                        onStateChange={(nextElements) => {
-                          updateRuntime(selectedScript.id, { uiElements: nextElements });
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {tab === "logs" && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="relative flex-1">
-                          <Search
-                            size={13}
-                            strokeWidth={1.9}
-                            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600"
-                          />
-                          <input
-                            value={logQuery}
-                            onChange={(event) => setLogQuery(event.target.value)}
-                            className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/60 text-[12px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
-                            placeholder={t("Search logs")}
-                          />
-                        </div>
-                        <Select
-                          value={logLevel}
-                          onChange={(value) => setLogLevel(value as ScriptLogLevel | "all")}
-                          options={[
-                            { value: "all", label: "All" },
-                            { value: "debug", label: "Debug" },
-                            { value: "info", label: "Info" },
-                            { value: "warn", label: "Warn" },
-                            { value: "error", label: "Error" },
-                          ]}
-                          className="w-[130px]"
-                        />
-                        <button
-                          onClick={() => {
-                            setLogsByScript((prev) => ({ ...prev, [selectedScript.id]: [] }));
-                            setStickLogsToBottom(true);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
-                        >
-                          {t("Clear")}
-                        </button>
-                      </div>
-
-                      <div className="relative">
-                        <div
-                          ref={logsContainerRef}
-                          onScroll={handleLogsScroll}
-                          className="rounded-xl border border-zinc-800 bg-zinc-950/40 h-[430px] overflow-y-auto p-2.5 space-y-1"
-                        >
-                          {visibleLogs.length === 0 && (
-                            <div className="text-[12px] text-zinc-600 p-2">{t("No logs")}</div>
-                          )}
-                          {visibleLogs.map((entry) => (
-                            <div
-                              key={entry.id}
-                              className={`text-[12px] font-mono px-2 py-1 rounded border ${
-                                entry.level === "error"
-                                  ? "border-red-500/25 bg-red-500/10 text-red-200"
-                                  : entry.level === "warn"
-                                    ? "border-amber-500/25 bg-amber-500/10 text-amber-200"
-                                    : entry.level === "debug"
-                                      ? "border-zinc-700/50 bg-zinc-800/30 text-zinc-400"
-                                      : "border-zinc-700/50 bg-zinc-800/35 text-zinc-300"
-                              }`}
-                            >
-                              <span className="text-zinc-500 mr-2">
-                                {new Date(entry.at).toLocaleTimeString([], {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                  second: "2-digit",
-                                  hour12: false,
-                                })}
-                              </span>
-                              <span className="mr-2">[{entry.level.toUpperCase()}]</span>
-                              <span className="mr-2">[{entry.source}]</span>
-                              <span className="break-all">{entry.message}</span>
-                            </div>
-                          ))}
-                        </div>
-
-                        {!stickLogsToBottom && visibleLogs.length > 0 && (
-                          <button
-                            onClick={() => {
-                              setStickLogsToBottom(true);
-                              scrollLogsToBottom("smooth");
-                            }}
-                            className="absolute right-3 bottom-3 px-2.5 py-1 rounded-md border border-sky-500/35 bg-sky-500/18 text-[12px] text-sky-300 hover:bg-sky-500/28 transition-all duration-200"
-                          >
-                            {t("Jump to latest")}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {tab === "api" && (
-                    <div className="space-y-3">
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-[12px] text-zinc-300">
-                        <div className="font-medium text-zinc-200 mb-1">{t("Host API")}</div>
-                        <div className="text-zinc-400 leading-relaxed">
-                          {t("Use ram.invoke(command, args), ram.http.request(...), ram.ws.connect/send/on(...), ram.window.snapshot(), ram.settings.get/set(), ram.modal.confirm(), ram.ui.set().")}
-                        </div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              void handleCopyApiSnippet();
-                            }}
-                            className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
-                          >
-                            <span className="inline-flex items-center gap-1">
-                              <Copy size={11} strokeWidth={2} />
-                              {t("Copy snippet")}
-                            </span>
-                          </button>
-                          <span className="text-[12px] text-zinc-500">
-                            {selectedScript.trusted
-                              ? t("Trusted mode is enabled")
-                              : t("Trusted mode is disabled")}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <div className="relative flex-1">
-                          <Search
-                            size={13}
-                            strokeWidth={1.9}
-                            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600"
-                          />
-                          <input
-                            value={apiSearch}
-                            onChange={(event) => setApiSearch(event.target.value)}
-                            className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/60 text-[12px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500"
-                            placeholder={t("Search common command names")}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl border border-zinc-800 bg-zinc-950/35 p-2 h-[420px] overflow-y-auto grid grid-cols-2 gap-1">
-                        {commandList.map((command) => (
-                          <button
-                            key={command}
-                            onClick={async () => {
-                              await navigator.clipboard.writeText(command);
-                              store.addToast(t("Copied {{name}}", { name: command }));
-                            }}
-                            className="text-left px-2.5 py-1.5 rounded-md border border-zinc-700/50 bg-zinc-800/30 text-[12px] text-zinc-300 hover:bg-zinc-700/50 transition-colors font-mono"
-                          >
-                            {command}
-                          </button>
-                        ))}
-                        {commandList.length === 0 && (
-                          <div className="text-[12px] text-zinc-600 px-2 py-2">{t("No matches")}</div>
-                        )}
-                      </div>
-
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 text-[12px] text-zinc-500 leading-relaxed">
-                        <div className="mb-1 text-zinc-300 font-medium">{t("WebSocket helper")}</div>
-                        <div>{t("Connect with ram.ws.connect({ url, protocols? }).")}</div>
-                        <div>{t("Subscribe with ram.ws.on((evt) => ...).")}</div>
-                        <div>{t("Events: open, message, error, close.")}</div>
-                        <div>{t("Send data with ram.ws.send(connectionId, payload).")}</div>
-                        <div>{t("Close one or all connections with ram.ws.close(...).")}</div>
-                      </div>
-
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 text-[12px] text-zinc-500 leading-relaxed">
-                        <div className="mb-1 text-zinc-300 font-medium">{t("Trust Mode")}</div>
-                        <div>
-                          {t("Untrusted scripts keep read-only behavior. Trusted scripts can invoke commands, use HTTP/WebSocket, and write script-scoped settings.")}
-                        </div>
-                        <div>
-                          {t("HTTP requests block localhost/private-network targets. Only the \"Private Network (localhost/LAN)\" permission unblocks them — a script cannot unblock itself.")}
-                        </div>
-                        <div>
-                          {t("WebSocket connections follow the same rule: localhost/private-network targets need the \"Private Network (localhost/LAN)\" permission.")}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="px-4 py-2 border-t theme-border flex items-center justify-between gap-3 text-[12px]">
-                  <div className="text-zinc-500 flex items-center gap-2">
-                    {(selectedRuntime?.status || "idle") === "running" ? (
-                      <>
-                        <CheckCircle2 size={13} strokeWidth={2} className="text-emerald-300" />
-                        <span>{t("Script running")}</span>
-                      </>
-                    ) : selectedRuntime?.status === "error" ? (
-                      <>
-                        <AlertCircle size={13} strokeWidth={2} className="text-red-300" />
-                        <span className="text-red-300">{selectedRuntime.lastError || t("Script error")}</span>
-                      </>
-                    ) : (
-                      <span>{t("Script idle")}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        if (!draft) return;
-                        if (!selectedScript) return;
-                        if (!draftDirty) {
-                          void handleRunScript(selectedScript.id);
-                          return;
-                        }
-                        void handleSaveDraft().then(() => {
-                          handleRunScript(selectedScript.id);
-                        });
-                      }}
-                      className="px-3 py-1.5 rounded-lg border border-sky-500/35 bg-sky-500/15 text-[12px] text-sky-300 hover:bg-sky-500/25 transition-colors"
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <Play size={11} strokeWidth={2} />
-                        {t("Run latest")}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </section>
-
-          {scriptContextMenu && contextScript && (
-            <div
-              ref={scriptContextRef}
-              className="theme-modal-scope theme-panel theme-border fixed z-[120] min-w-[220px] bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-xl shadow-2xl py-1.5 animate-scale-in"
-              style={{
-                left: scriptContextPos?.left ?? scriptContextMenu.x,
-                top: scriptContextPos?.top ?? scriptContextMenu.y,
-              }}
-            >
-              {scriptContextItems.map((item, index) => (
-                <MenuItemView
-                  key={`${contextScript.id}-${index}`}
-                  item={item}
-                  close={closeScriptContextMenu}
-                />
-              ))}
-            </div>
+            </>
           )}
-        </div>
-      )}
+        </section>
+
+        {scriptContextMenu && contextScript && (
+          <div
+            ref={scriptContextRef}
+            className="theme-modal-scope theme-panel theme-border fixed z-[120] min-w-[220px] bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-xl shadow-2xl py-1.5 animate-scale-in"
+            style={{
+              left: scriptContextPos?.left ?? scriptContextMenu.x,
+              top: scriptContextPos?.top ?? scriptContextMenu.y,
+            }}
+          >
+            {scriptContextItems.map((item, index) => (
+              <MenuItemView
+                key={`${contextScript.id}-${index}`}
+                item={item}
+                close={closeScriptContextMenu}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </PageShell>
   );
 }

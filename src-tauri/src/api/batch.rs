@@ -134,13 +134,6 @@ where
         self.insertion_order.clear();
     }
 
-    /// Remove as entradas cuja chave satisfaz `matches`.
-    fn remove_matching(&mut self, matches: impl Fn(&K) -> bool) {
-        self.entries.retain(|key, _| !matches(key));
-        let entries = &self.entries;
-        self.insertion_order.retain(|key| entries.contains_key(key));
-    }
-
     fn len(&self) -> usize {
         self.entries.len()
     }
@@ -532,18 +525,6 @@ impl ImageCache {
                 }
             })
             .collect()
-    }
-
-    /// Esquece as miniaturas de um tipo para os alvos dados, em qualquer
-    /// tamanho (a chave é `alvo:tipo:tamanho`). Usado quando a conta troca de
-    /// avatar e o headshot em cache deixa de valer.
-    pub async fn invalidate_targets(&self, thumbnail_type: &str, target_ids: &[i64]) {
-        let prefixes: Vec<String> = target_ids
-            .iter()
-            .map(|id| format!("{}:{}:", id, thumbnail_type))
-            .collect();
-        let mut cache = self.cache.lock().await;
-        cache.remove_matching(|key: &String| prefixes.iter().any(|p| key.starts_with(p.as_str())));
     }
 
     pub async fn clear_cache(&self) {

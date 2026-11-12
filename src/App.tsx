@@ -47,9 +47,6 @@ import { WrongAccountQueueConfirm } from "./components/WrongAccountQueueConfirm"
 import { SessionPage } from "./components/pages/SessionPage";
 import { ConsolePage } from "./components/pages/ConsolePage";
 import { AfkPage } from "./components/pages/AfkPage";
-import { DiscordPage } from "./components/pages/DiscordPage";
-import { LivePage } from "./components/pages/LivePage";
-import { AvatarsPage } from "./components/pages/AvatarsPage";
 import { GroupsPage } from "./components/pages/GroupsPage";
 import { ScriptsPage } from "./components/pages/ScriptsPage";
 import { ThemePage } from "./components/pages/ThemePage";
@@ -201,8 +198,7 @@ function AppContent() {
           (`activePage`); a página de contas é a de sempre — Toolbar, lista,
           painel da conta, barra de ações e a Choose Game por cima. As outras
           ficam montadas o tempo todo (como os modais ficavam) e só aparecem
-          quando ativas: Scripts mantém os workers em execução, Avatars o
-          ouvinte do lote. Ver docs/features/ui-layout.md. */}
+          quando ativas: Scripts mantém os workers em execução. Ver docs/features/ui-layout.md. */}
       <div className="flex flex-1 min-h-0">
         <NavSidebar />
         <main className="flex flex-1 min-w-0 min-h-0 flex-col">
@@ -283,9 +279,6 @@ function AppContent() {
           <SessionPage active={page === "session"} onLeave={leavePage} />
           <ConsolePage active={page === "console"} onLeave={leavePage} />
           <AfkPage active={page === "afk"} onLeave={leavePage} />
-          <DiscordPage active={page === "discord"} onLeave={leavePage} />
-          <LivePage active={page === "live"} onLeave={leavePage} />
-          <AvatarsPage active={page === "avatars"} onLeave={leavePage} />
           <GroupsPage active={page === "groups"} onLeave={leavePage} />
           <ScriptsPage active={page === "scripts"} onLeave={leavePage} />
           <ThemePage active={page === "theme"} onLeave={leavePage} />
@@ -378,7 +371,6 @@ function AppContent() {
 
       <GeneratorDialog
         open={store.generatorDialogOpen}
-        initialTab={store.generatorDialogTab}
         onClose={() => store.setGeneratorDialogOpen(false)}
       />
 

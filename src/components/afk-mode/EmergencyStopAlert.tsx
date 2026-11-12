@@ -27,12 +27,7 @@ export function EmergencyStopAlert() {
 
   if (!stop) return null;
 
-  const what =
-    stop.afk && stop.recordings
-      ? t("You shook the mouse, so MultiAlt stopped AFK mode and the recording.")
-      : stop.recordings
-        ? t("You shook the mouse, so MultiAlt stopped the recording.")
-        : t("You shook the mouse, so MultiAlt stopped AFK mode.");
+  const what = t("You shook the mouse, so MultiAlt stopped AFK mode.");
 
   return (
     <div

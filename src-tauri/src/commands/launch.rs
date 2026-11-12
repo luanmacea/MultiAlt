@@ -1028,34 +1028,6 @@ fn emit_launch_queue(app: &tauri::AppHandle, payload: &LaunchQueuePayload) {
     let _ = app.emit("launch-queue", payload);
 }
 
-/// O resultado de um lote que acabou de fechar, para o aviso no Discord:
-/// (abertas, falharam, canceladas). Só lote de 2 contas ou mais — o launch de
-/// uma conta não é "lote".
-fn launch_batch_result(entries: &[LaunchQueueEntry]) -> Option<(u32, u32, u32)> {
-    if entries.len() < 2 {
-        return None;
-    }
-    let count = |state: LaunchQueueState| entries.iter().filter(|e| e.state == state).count() as u32;
-    Some((
-        count(LaunchQueueState::Done),
-        count(LaunchQueueState::Failed),
-        count(LaunchQueueState::Cancelled),
-    ))
-}
-
-/// A fila acabou de fechar: avisa no Discord (se a caixa estiver ligada).
-fn webhook_after_launch_batch(app: &tauri::AppHandle, payload: &LaunchQueuePayload) {
-    if let Some((done, failed, cancelled)) = launch_batch_result(&payload.entries) {
-        notify_webhook(
-            app,
-            WebhookEventKind::BatchFinished,
-            0,
-            Some(WebhookReason::BatchResult { done, failed, cancelled }),
-            (payload.place_id > 0).then_some(payload.place_id),
-        );
-    }
-}
-
 /// Código devolvido quando o usuário dispara um launch com outro em andamento.
 /// É um código, não uma frase: quem traduz é o frontend
 /// (`isLaunchAlreadyActiveError` em `src/utils/robloxErrors.ts`).
@@ -1145,7 +1117,6 @@ impl LaunchSequenceGuard {
         });
         if closed {
             emit_launch_queue(&self.app, &payload);
-            webhook_after_launch_batch(&self.app, &payload);
         }
         next
     }
@@ -1162,7 +1133,6 @@ impl LaunchSequenceGuard {
         let (changed, payload) = with_launch_queue(|queue| queue.finish(self.generation));
         if changed {
             emit_launch_queue(&self.app, &payload);
-            webhook_after_launch_batch(&self.app, &payload);
         }
     }
 
@@ -1633,7 +1603,6 @@ async fn launch_roblox_windows(
         Err(e) => {
             emit_launch_log(&app, user_id, "error", "auth", log_msg!("Authentication ticket failed: {{error}}", error = e.clone()));
             mark_account_session_dead(state.inner(), &app, user_id, &e);
-            notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WebhookReason::AuthTicketFailed), None);
             if is_moderated_error(&e) {
                 mark_account_moderated(state.inner(), &app, user_id);
                 emit_launch_log(&app, user_id, "warn", "moderated", "Account moved to the Moderated group");
@@ -1710,7 +1679,6 @@ async fn launch_roblox_windows(
     };
     if let Err(err) = spawn_result {
         emit_launch_log(&app, user_id, "error", "spawn", log_msg!("Could not open the client: {{error}}", error = err.to_string()));
-        notify_webhook(&app, WebhookEventKind::LaunchFailed, user_id, Some(WebhookReason::ClientDidNotOpen), None);
         tracker.clear_pending_launch(pending_id);
         return Err(err);
     }
@@ -1752,11 +1720,6 @@ async fn launch_roblox_windows(
             browser_tracker_id.clone(),
             resolved_version_id.clone(),
         );
-        // Gravação "After launch" (commands/recordings.rs): todo launch arma,
-        // menos o relançamento da reconexão, que arma a vaga dele.
-        if launch_arms_after_launch(allow_session_refresh) {
-            arm_recording_after_launch(user_id, chrono::Utc::now().timestamp_millis());
-        }
         if let Some(version_id) = resolved_version_id.as_deref() {
             if let Some((channel, hash)) = version_id.split_once(':') {
                 versions.touch_launched(channel, hash);
@@ -2442,7 +2405,6 @@ async fn run_launch_queue_windows(
             Err(e) => {
                 emit_launch_log(app, uid, "error", "auth", log_msg!("Authentication ticket failed: {{error}}", error = e.clone()));
                 mark_account_session_dead(state.inner(), app, uid, &e);
-                notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WebhookReason::AuthTicketFailed), None);
                 if is_moderated_error(&e) {
                     mark_account_moderated(state.inner(), app, uid);
                     emit_launch_log(app, uid, "warn", "moderated", "Account moved to the Moderated group");
@@ -2526,7 +2488,6 @@ async fn run_launch_queue_windows(
 
         if let Err(err) = &launch_result {
             emit_launch_log(app, uid, "error", "spawn", log_msg!("Could not open the client: {{error}}", error = err.to_string()));
-            notify_webhook(app, WebhookEventKind::LaunchFailed, uid, Some(WebhookReason::ClientDidNotOpen), None);
             sequence.mark(uid, LaunchQueueState::Failed, Some(err.clone()));
             tracker.clear_pending_launch(acct_pending_id);
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -2563,8 +2524,6 @@ async fn run_launch_queue_windows(
                 },
             );
             tracker.track_with_version(uid, pid, browser_tracker_id, acct_version_id.clone());
-            // Gravação "After launch" (commands/recordings.rs): lote e preset.
-            arm_recording_after_launch(uid, chrono::Utc::now().timestamp_millis());
             if let Some(version_id) = acct_version_id.as_deref() {
                 if let Some((channel, hash)) = version_id.split_once(':') {
                     versions.touch_launched(channel, hash);

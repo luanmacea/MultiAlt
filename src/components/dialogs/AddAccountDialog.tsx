@@ -1,4 +1,4 @@
-import { File, FileText, Globe, KeyRound, Package, Plus, Smartphone, Sparkles, UserPlus, X } from "lucide-react";
+import { File, FileText, Globe, KeyRound, Package, Plus, Smartphone, Sparkles, X } from "lucide-react";
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
 import { useBackdropClose } from "../../hooks/useBackdropClose";
@@ -63,14 +63,9 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
     store.setImportDialogOpen(true);
   }
 
-  function handleOpenSignup() {
-    onClose();
-    store.openGeneratorDialog("signup");
-  }
-
   function handleOpenGenerator() {
     onClose();
-    store.openGeneratorDialog("provider");
+    store.openGeneratorDialog();
   }
 
   function handleOpenVersions() {
@@ -166,31 +161,13 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
               {t("Import Old Account Data")}
             </button>
 
-            <div className="my-1 border-t border-zinc-800/70" />
-
-            <p className="px-3 pt-1 text-[12px] text-zinc-500">{t("No account yet? Get a new one")}</p>
-
-            {/*
-              Mesmo texto do menu da toolbar, de propósito: uma cria de graça no
-              navegador embutido (a pessoa resolve o CAPTCHA), a outra compra
-              conta pronta de um serviço pago de terceiro.
-              Ver docs/features/account-creation.md.
-            */}
-            <button
-              onClick={handleOpenSignup}
-              className="flex items-start gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
-            >
-              <UserPlus size={15} strokeWidth={1.75} className="theme-muted mt-0.5 shrink-0" />
-              <span className="min-w-0">
-                {t("Create Accounts")}
-                <span className="block text-[12px] theme-muted leading-snug">
-                  {t("Free — the app fills Roblox's signup form; you solve the CAPTCHA")}
-                </span>
-              </span>
-            </button>
-
             {/* O gerador pago está desligado por padrão — ver ENABLE_ACCOUNT_GENERATOR. */}
             {ENABLE_ACCOUNT_GENERATOR && (
+              <>
+                <div className="my-1 border-t border-zinc-800/70" />
+
+                <p className="px-3 pt-1 text-[12px] text-zinc-500">{t("No account yet? Get a new one")}</p>
+
               <button
                 onClick={handleOpenGenerator}
                 className="flex items-start gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
@@ -203,6 +180,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
                   </span>
                 </span>
               </button>
+              </>
             )}
 
             <div className="my-1 border-t border-zinc-800/70" />

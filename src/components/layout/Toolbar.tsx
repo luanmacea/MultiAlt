@@ -8,7 +8,7 @@ import { quickAddAccount } from "../../utils/quickAdd";
 import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
 import { TourButton } from "../tour/TourButton";
 import { useAttentionCount } from "../../hooks/useAccountLiveState";
-import { AlertTriangle, Search, X, SquareX, SquareCheckBig, PanelRight, LayoutGrid, List, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus, Bookmark, Smartphone } from "lucide-react";
+import { AlertTriangle, Search, X, SquareX, SquareCheckBig, PanelRight, LayoutGrid, List, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, Bookmark, Smartphone } from "lucide-react";
 
 /**
  * Barra de cima da página de contas: filtro, selecionar tudo, nomes, painel
@@ -101,12 +101,7 @@ export function Toolbar() {
 
   function handleOpenGenerator() {
     setAddMenuOpen(false);
-    store.openGeneratorDialog("provider");
-  }
-
-  function handleOpenSignup() {
-    setAddMenuOpen(false);
-    store.openGeneratorDialog("signup");
+    store.openGeneratorDialog();
   }
 
   function handleOpenVersions() {
@@ -330,26 +325,6 @@ export function Toolbar() {
                 {t("Import Old Account Data")}
               </button>
               <div className="my-1 border-t theme-border" />
-              {/*
-                As duas entradas que trazem conta nova são bem diferentes e a
-                tela não dizia nada: uma cria de graça no navegador embutido
-                (a pessoa resolve o CAPTCHA), a outra compra conta pronta de um
-                serviço pago de terceiro. Ver docs/features/account-creation.md.
-                O mesmo texto aparece no AddAccountDialog — as duas portas têm
-                que dizer a mesma coisa.
-              */}
-              <button
-                onClick={handleOpenSignup}
-                className="flex items-start gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
-              >
-                <UserPlus size={14} strokeWidth={1.5} className="theme-muted mt-0.5 shrink-0" />
-                <span className="min-w-0">
-                  {t("Create Accounts")}
-                  <span className="block text-[12px] theme-muted leading-snug">
-                    {t("Free — the app fills Roblox's signup form; you solve the CAPTCHA")}
-                  </span>
-                </span>
-              </button>
               {/* O gerador pago está desligado por padrão — ver ENABLE_ACCOUNT_GENERATOR. */}
               {ENABLE_ACCOUNT_GENERATOR && (
                 <button

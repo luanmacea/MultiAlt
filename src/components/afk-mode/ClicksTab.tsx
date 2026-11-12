@@ -44,9 +44,7 @@ export function ClicksTab(props: ClicksTabOptions) {
 
   const sendNowLabel = ctl.sendingNow
     ? t("Sending...")
-    : ctl.recordingMode
-      ? t("Play now")
-      : ctl.clickMode
+    : ctl.clickMode
       ? t("Click now")
       : t("Send the key now");
 
@@ -171,7 +169,6 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
           options={[
             { value: "key", label: "Key press" },
             { value: "click", label: "Mouse click" },
-            { value: "recording", label: "Play the recording" },
           ]}
           disabled={configDisabled}
           ariaLabel="What to send"
@@ -179,13 +176,7 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
           className="flex-1"
         />
       </div>
-      {ctl.recordingMode ? (
-        <div className="text-[11px] theme-muted leading-4">
-          {t(
-            "Each account plays its On anti-AFK recording (its own, or the global one) from start to end on every turn. The After auto-reconnect recording is a separate choice. Pick both in the Recordings tab; the list below shows the anti-AFK one next to each account."
-          )}
-        </div>
-      ) : clickMode ? (
+      {clickMode ? (
         <>
           <div className="flex items-center gap-2">
             <span className="text-[12px] theme-muted w-32 shrink-0">{t("Click point")}</span>
@@ -256,7 +247,7 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
         />
         <div className="text-[11px] theme-muted leading-4">
           {t(
-            "A Roblox window that was minimized or covered does its turn without showing up, so you can keep watching or working. In click and recording modes the mouse pointer still jumps to the click point for a moment."
+            "A Roblox window that was minimized or covered does its turn without showing up, so you can keep watching or working. In click mode the mouse pointer still jumps to the click point for a moment."
           )}
         </div>
       </div>
@@ -281,13 +272,6 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
           <>
             {t(
               "In click mode the cursor also jumps to the point and comes back, and the cycle takes about 1.2 seconds per account: the game has to see the mouse move and get a focus click before the real one."
-            )}{" "}
-          </>
-        ) : null}
-        {ctl.recordingMode ? (
-          <>
-            {t(
-              "With a recording, each window stays in front for the whole recording, so the cycle takes as long as the recordings add up to."
             )}{" "}
           </>
         ) : null}
@@ -375,16 +359,6 @@ function AccountsCard({ ctl }: { ctl: ClicksController }) {
                       {t("next {{time}}", {
                         time: formatAfkCountdown(row?.nextSendAtMs ?? null, ctl.nowMs, ctl.intervalSeconds * 1000),
                       })}
-                    </span>
-                  ) : null}
-                  {ctl.recordingMode && picked ? (
-                    <span
-                      className={`text-[11px] shrink-0 max-w-[8rem] truncate ${
-                        ctl.recordingNameFor(account.UserID) ? "theme-muted" : "text-amber-300/90"
-                      }`}
-                      title={ctl.recordingNameFor(account.UserID) ?? undefined}
-                    >
-                      {ctl.recordingNameFor(account.UserID) ?? t("no recording")}
                     </span>
                   ) : null}
                   {row?.lastErrorCode === "focusDenied" ? (

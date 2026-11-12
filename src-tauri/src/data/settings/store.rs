@@ -379,17 +379,6 @@ impl SettingsStore {
             ("TargetGroup", "BloxGen"),
             ("MaxAccounts", "0"),
             ("MaxConsecutiveFailures", "3"),
-            // Padrao de nome do fluxo gratis (formulario do Roblox): "arvore"
-            // gera "arvore_k3p9z". Vazio mantem o nome de palavras de sempre.
-            // Nao vale para o BloxGen, cujo nome vem pronto do provedor.
-            ("SignupUsernamePrefix", ""),
-            // Com prefixo, nomes em ordem (prefixo_1, prefixo_2...) em vez
-            // dos 5 caracteres sorteados; o próximo número fica gravado.
-            ("SignupUsernameNumbered", "false"),
-            ("SignupUsernameNext", "1"),
-            // O criador de contas clica em "Cadastrar-se" sozinho; o CAPTCHA,
-            // se aparecer, continua sendo da pessoa (14/10/2026).
-            ("SignupAutoSubmit", "true"),
         ];
 
         let generator = ini.section("Generator");
@@ -499,73 +488,6 @@ impl SettingsStore {
             if !afk.exists(key) {
                 afk.set(key, value, None);
             }
-        }
-
-        // Gravações (docs/features/recordings.md): tocar a gravação da conta
-        // depois de a reconexão automática devolvê-la ao jogo nasce desligado;
-        // ligado, espera a conta ficar 30 s no jogo antes de tocar. O mesmo
-        // para depois de um launch (ideia 52): desligado, 30 s.
-        let recordings_defaults: &[(&str, &str)] = &[
-            ("AfterReconnect", "false"),
-            ("AfterReconnectDelaySeconds", "30"),
-            ("AfterLaunch", "false"),
-            ("AfterLaunchDelaySeconds", "30"),
-        ];
-        let recordings = ini.section("Recordings");
-        for (key, value) in recordings_defaults {
-            if !recordings.exists(key) {
-                recordings.set(key, value, None);
-            }
-        }
-
-        // Avisos no Discord (docs/features/webhook.md): **desligado** por
-        // padrão — os avisos saem do PC. `Url` e `Mention` nascem vazias (e
-        // por isso não chegam ao arquivo). Nome da conta mascarado por padrão.
-        let webhook_defaults: &[(&str, &str)] = &[
-            ("Enabled", "false"),
-            ("NotifyDropped", "true"),
-            ("NotifyReconnected", "false"),
-            ("NotifyReconnectFailed", "true"),
-            ("NotifyNotResponding", "true"),
-            ("NotifyLaunchFailed", "false"),
-            ("NotifyWrongAccount", "true"),
-            ("NotifyModerated", "true"),
-            ("NotifyBatchFinished", "false"),
-            ("NotifyMemoryClosed", "true"),
-            ("NotifySystemLowMemory", "false"),
-            ("NotifyScriptMessage", "true"),
-            ("MaskNames", "false"),
-            ("QuietHours", "false"),
-            ("QuietStart", "23:00"),
-            ("QuietEnd", "08:00"),
-            ("QuietSkip", "false"),
-            ("StatusEnabled", "false"),
-            ("StatusInterval", "5"),
-            ("SummaryEnabled", "false"),
-            ("SummaryTime", "23:00"),
-        ];
-        // Live (docs/features/live.md). `Accounts` vazio = todas as abertas.
-        let live_defaults: &[(&str, &str)] = &[("ShowNames", "true"), ("KeepMinimized", "true"), ("Background", "dark")];
-        let live = ini.section("Live");
-        for (key, value) in live_defaults {
-            if !live.exists(key) {
-                live.set(key, value, None);
-            }
-        }
-
-        let webhook = ini.section("Webhook");
-        for (key, value) in webhook_defaults {
-            if !webhook.exists(key) {
-                webhook.set(key, value, None);
-            }
-        }
-
-        // Automação do Roblox Player em Python (docs/features/python-automation.md):
-        // o Modo desenvolvedor (editar os blocos padrão e o canal do terminal)
-        // nasce desligado.
-        let python = ini.section("Python");
-        if !python.exists("DeveloperMode") {
-            python.set("DeveloperMode", "false", None);
         }
 
         ini.section("Prompts");
