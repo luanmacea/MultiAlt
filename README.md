@@ -133,7 +133,7 @@ What MultiAlt will **not** do: anything that breaks Roblox's rules, like cheats,
 bun install              # frontend dependencies
 bun run tauri dev        # run the app in dev mode (hot reload)
 bun run tauri build      # production build (installer)
-bun run check            # typecheck + all tests (vitest + cargo test)
+bun run check            # typecheck + cargo check
 ```
 
 The first `tauri dev`/`tauri build` compiles every Rust crate from scratch and can take a few minutes; later builds are incremental. Developer documentation (in Portuguese) lives in [docs/](docs/README.md).

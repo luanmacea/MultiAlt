@@ -13,15 +13,13 @@ function walk(dir: string, out: string[] = []): string[] {
     const st = statSync(full);
     if (st.isDirectory()) {
       if (ent === "locales" || ent === "i18n") continue;
-      // `src/dev/harness`: dublês do `bun run dev:ui`, não texto de tela. O
-      // `alt="@luanmacea"` das notas de release falsas virava chave do catálogo.
+      // `src/dev`: código de desenvolvimento, não texto de tela.
       if (full === path.join(srcRoot, "dev")) continue;
       walk(full, out);
       continue;
     }
     if (!/\.(ts|tsx)$/.test(ent)) continue;
-    // Fixture de teste não é texto de tela: `<MenuItemView item={{ label: "First" }}>`
-    // virava chave no catálogo como se alguém fosse traduzir.
+    // Arquivo de teste não é texto de tela.
     if (/\.test\.(ts|tsx)$/.test(ent)) continue;
     out.push(full);
   }

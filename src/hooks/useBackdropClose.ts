@@ -12,8 +12,7 @@ import { useCallback, useRef, type MouseEvent } from "react";
  *
  * Uso: `const backdrop = useBackdropClose(handleClose)` e `<div {...backdrop}>`.
  * Sem `onClose` (diálogo que não pode ser dispensado agora), o fundo não fecha.
- * Uma guarda em `useBackdropClose.test.tsx` falha se um fundo voltar a usar
- * `onClick` cru.
+ * Fundo de modal não usa `onClick` cru.
  */
 export function useBackdropClose(onClose?: () => void) {
   const pressedOnBackdrop = useRef(false);

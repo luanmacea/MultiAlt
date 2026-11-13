@@ -2,7 +2,7 @@
 // /get/<origem>/. Cada origem é uma página própria porque o Cloudflare Web
 // Analytics conta por caminho (o ?ref= some do relatório). A página /get/
 // conta a visita e manda para o instalador. Toda origem daqui precisa de uma
-// pasta em site/get/ (scripts/site/downloadSource.test.ts confere).
+// pasta em site/get/.
 (function (root) {
   var SOURCES = ["youtube", "google", "bing", "search", "github", "devto", "alternativeto", "direct", "other"];
 

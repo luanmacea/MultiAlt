@@ -15,5 +15,4 @@
 ## Checklist
 
 - [ ] `bun run check` passes
-- [ ] New or fixed behavior has a test mapped in `scripts/test-suites.ts`
 - [ ] Docs in `docs/` updated if a business rule changed

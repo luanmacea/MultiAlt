@@ -1483,7 +1483,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * chamando `addToast(frase)` e nada mais.
    *
    * O tom é deduzido de `msg` (não do texto localizado) porque o catálogo
-   * garante que a tradução preserva o marcador — ver `src/i18n/locales.test.ts`.
+   * garante que a tradução preserva o marcador.
    */
   const addToast = useCallback((msg: string, tone?: ToastTone, options?: ToastOptions) => {
     // `msg` is usually an i18n key, but some call sites pass an already-localized string (interpolated).

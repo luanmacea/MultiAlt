@@ -35,8 +35,8 @@ const KIND_MARKER = /<!--\s*release-kind:\s*(fix|feature|mixed|major)\s*-->/i;
 /**
  * Linhas do tipo que o app não mostra como texto: a marca (de qualquer valor)
  * e os três selos, que no app viram o selo da própria tela. Os textos dos selos
- * são os de `RELEASE_KIND_BADGES` (release-kind.mjs) — o release-kind.test.mjs
- * confere que os dois lados batem.
+ * são os de `RELEASE_KIND_BADGES` (release-kind.mjs): os dois lados precisam
+ * bater.
  */
 const KIND_LINE =
   /^\s*(?:<!--\s*release-kind:[^>]*-->|\*\*\s*(?:🩹 Hotfix|✨ New features|📦 General update|🚀 Major update)\s*\*\*)\s*$/u;

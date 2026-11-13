@@ -56,7 +56,7 @@ const rawTags = execSync('git tag --list "v*"', { encoding: "utf8" })
   .map((line) => line.trim())
   .filter(Boolean);
 
-// Serie e numero da release: regra em release-version.mjs (suite `release`).
+// Serie e numero da release: regra em release-version.mjs.
 const { version: coreVersion, previousTag } = nextReleaseVersion({
   current: packageJson.version,
   tags: rawTags,

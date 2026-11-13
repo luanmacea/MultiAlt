@@ -1,5 +1,4 @@
-// Número da próxima release, separado do prepare-release.mjs para ser testado
-// (release-version.test.mjs, suíte `release`).
+// Número da próxima release, separado do prepare-release.mjs.
 //
 // A série é o major do package.json: tags de outro major não contam (as v4.x,
 // herdadas do número do projeto original, ficam fora da série 0.x).

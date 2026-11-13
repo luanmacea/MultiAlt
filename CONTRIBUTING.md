@@ -24,13 +24,11 @@ MultiAlt is a [Tauri 2](https://tauri.app) app: Rust backend (`src-tauri/`) and 
 
 ```bash
 bun install
-bun run dev:ui      # the real interface in the browser with a fake backend (no Roblox, no accounts)
 bun run tauri dev   # the full desktop app
-bun run check       # typecheck + tests (frontend and Rust) — must pass before a pull request
+bun run check       # typecheck + Rust check — must pass before a pull request
 ```
 
 - Day-to-day work happens on `develop`; open pull requests against `develop`. `main` is the release branch: every merge into it publishes a new version.
-- Write the failing test first when fixing a bug, and keep the test in the feature's suite (`bun run t --list`, map in `scripts/test-suites.ts`).
 - Code and commit messages in English. Project documentation (`docs/`) is in Portuguese.
 - The app never opens Roblox through the raw `roblox-player:` handler, never changes the user's Roblox channel and never closes other accounts' clients — see `docs/features/launch.md` before touching the launch flow.
 - Keep pull requests focused, and fill in the **What's new** section of the template: it becomes the release notes users read, so write it in short, plain sentences.

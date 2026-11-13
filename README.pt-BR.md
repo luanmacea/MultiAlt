@@ -120,7 +120,7 @@ Em desenvolvimento ativo: as versões 0.x vão até a primeira versão completam
 bun install              # dependências do frontend
 bun run tauri dev        # roda o app em modo dev (hot reload)
 bun run tauri build      # build de produção (instalador)
-bun run check            # typecheck + todos os testes (vitest + cargo test)
+bun run check            # typecheck + cargo check
 ```
 
 O primeiro `tauri dev`/`tauri build` compila todas as crates Rust do zero e pode levar alguns minutos; os seguintes são incrementais. A documentação de desenvolvimento fica em [docs/](docs/README.md).

@@ -19,7 +19,7 @@ tauri-build = { version = "2", features = [] }
 # workflow não tem lista própria. `full` = `standard` + o que fica só na
 # completa (hoje Nexus e Web API). Feature nova entra no `standard` se puder ir
 # para as duas edições, ou direto no `full` se for segurada por marcação de
-# scanner; o release-workflow.test.mjs falha se alguma ficar fora do `full`.
+# scanner; toda feature opcional precisa estar no `full`.
 default = ["full"]
 standard = ["live-audio", "memory-trim"]
 full = ["standard", "nexus", "webserver"]
@@ -135,11 +135,10 @@ opt-level = 3
 [profile.release.package.poly1305]
 opt-level = 3
 
-# Executavel de TESTE do dono (`bun run build:test`): o release sem a parte
-# lenta. LTO + codegen-units 1 deixam a otimizacao final num nucleo so (~4 min
-# por edicao, a cada build); aqui ela e dividida e reaproveita o anterior. O exe
-# sai maior e NAO vale para o scan de antivirus — para publicar e para o scan,
-# so o `release` (docs/development.md, "Build rapido de teste").
+# Release rapido para testar localmente: o release sem a parte lenta. LTO +
+# codegen-units 1 deixam a otimizacao final num nucleo so (~4 min por edicao, a
+# cada build); aqui ela e dividida e reaproveita o anterior. O exe sai maior —
+# para publicar, so o `release`.
 [profile.test-exe]
 inherits = "release"
 lto = false

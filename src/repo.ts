@@ -8,8 +8,7 @@
  * a instalaria por cima desta. Com o endereço espalhado em literais, cada um
  * era corrigido num dia diferente.
  *
- * O lado Rust tem o seu próprio (`commands/services.rs`, `commands/updater.rs`);
- * [repoOwnership.test.ts](./repoOwnership.test.ts) varre os dois lados.
+ * O lado Rust tem o seu próprio (`commands/services.rs`, `commands/updater.rs`).
  */
 export const REPO_SLUG = "luanmacea/MultiAlt";
 

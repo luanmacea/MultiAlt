@@ -10,9 +10,8 @@
  * aos outros por `hreflang`.
  *
  * As páginas geradas ficam no repositório (o site não tem build: o Cloudflare
- * publica a pasta como está). O teste `locales.test.ts` falha se elas ficarem
- * desatualizadas — rode `bun scripts/site/build-locales.ts` depois de mexer no
- * `index.html` ou no `i18n.js`.
+ * publica a pasta como está) — rode `bun scripts/site/build-locales.ts` depois
+ * de mexer no `index.html` ou no `i18n.js`.
  */
 import { Window } from "happy-dom";
 

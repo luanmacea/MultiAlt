@@ -1,4 +1,4 @@
-// Tipo da release e o bump que ele decide (suíte `release`, release-kind.test.mjs).
+// Tipo da release e o bump que ele decide.
 //
 // Toda release tem um tipo, que aparece na página da release, na janela de
 // atualização e na página "What's new" do app:

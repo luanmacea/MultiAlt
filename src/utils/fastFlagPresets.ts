@@ -5,8 +5,7 @@
  *
  * Por que espelhar em vez de expor por comando Tauri: a conferência acontece
  * enquanto o usuário digita, e a tela de Settings monta sem depender de ida ao
- * backend. O preço do espelho é pago por `fastFlagAllowlist.test.ts`, que lê o
- * próprio .rs e quebra a suíte se as duas listas divergirem.
+ * backend. O preço do espelho: as duas listas não podem divergir.
  */
 export const WINDOWS_FASTFLAG_ALLOWLIST = [
   "DFIntCSGLevelOfDetailSwitchingDistance",
