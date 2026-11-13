@@ -1432,6 +1432,7 @@ fn run_client_health_tick(app: &tauri::AppHandle) -> Vec<HealthNotice> {
             apply_server_regions(&mut fresh, &lookups, &template);
         }
     }
+    let in_game = accounts_past_a_human_check(&fresh);
     if let Ok(mut views) = CLIENT_HEALTH_VIEWS.lock() {
         *views = fresh;
     }
@@ -1439,6 +1440,8 @@ fn run_client_health_tick(app: &tauri::AppHandle) -> Vec<HealthNotice> {
     drop(monitor);
     // Histórico de sessões (ideia 6): grava cada mudança na hora.
     record_session_history(app, &snapshots, now_ms);
+    // Entrou no jogo: a marca de verificação humana de antes já não vale.
+    clear_human_checks_after_health_tick(app, &in_game);
     notices
 }
 
@@ -1652,6 +1655,36 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
             );
             emit_launch_log(app, *user_id, "info", "client", "Joined a game again");
         }
+    }
+}
+
+/// Contas que estão dentro de um jogo agora, como elas mesmas: a verificação
+/// humana de qualquer sessão anterior já passou. O aviso `Challenge` só limpa
+/// a marca na sessão em que a verificação apareceu; uma sessão nova que entra
+/// direto no jogo não avisava nada, e a marca ficava para sempre (relato de
+/// 13/11/2026).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn accounts_past_a_human_check(views: &HashMap<i64, ClientHealthView>) -> Vec<i64> {
+    let mut ids: Vec<i64> = views
+        .iter()
+        .filter(|(_, view)| view.in_game && !view.challenge && view.wrong_account_user_id.is_none())
+        .map(|(user_id, _)| *user_id)
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
+/// Tira a marca das contas que entraram no jogo e avisa a lista.
+#[cfg(target_os = "windows")]
+fn clear_human_checks_after_health_tick(app: &tauri::AppHandle, in_game: &[i64]) {
+    let Ok(cleared) = app.state::<AccountStore>().clear_human_checks(in_game) else {
+        return;
+    };
+    for user_id in cleared {
+        let _ = app.emit(
+            "account-human-check",
+            serde_json::json!({ "userId": user_id, "at": serde_json::Value::Null }),
+        );
     }
 }
 

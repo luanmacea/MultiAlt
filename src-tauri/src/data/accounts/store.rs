@@ -1482,6 +1482,27 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// Limpa a marca de verificação humana das contas que estão dentro de um
+    /// jogo agora (o monitor passa aqui a cada 2 s). Devolve as que tinham
+    /// marca; sem nenhuma, não grava nada.
+    pub fn clear_human_checks(&self, user_ids: &[i64]) -> Result<Vec<i64>, String> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let mut cleared = Vec::new();
+        for account in accounts.iter_mut() {
+            if account.human_check_at.is_some() && user_ids.contains(&account.user_id) {
+                account.human_check_at = None;
+                cleared.push(account.user_id);
+            }
+        }
+        if !cleared.is_empty() {
+            self.save_locked(&accounts)?;
+        }
+        Ok(cleared)
+    }
+
     /// Marca que a conta **foi usada agora**. Chamado no sucesso do launch (app,
     /// botting e web server): sem isso `last_use` só era escrito ao criar ou
     /// re-adicionar a conta, e a coluna "3d"/"2mo" da lista media idade do
