@@ -19,7 +19,7 @@ Fast and lightweight: rewritten from scratch in **Rust + TypeScript** with [Taur
 
 *MultiAlt was called **RAM — Roblox Account Manager** until v0.1.8: same app, same data, it updates itself to the new name.*
 
-Full credit to [ic3w0lf22](https://github.com/ic3w0lf22), who created the original Roblox Account Manager, and to [niccdevs](https://github.com/niccdevs), who maintained it afterwards. This project continues their work: the original Roblox Account Manager was [archived in October 2024](https://github.com/ic3w0lf22/Roblox-Account-Manager), and MultiAlt is its maintained successor. Coming from RAM? **Add → Import Old Account Data** brings your accounts over.
+Coming from RAM? **Add → Import Old Account Data** brings your accounts over.
 
 Found a bug or have an idea? Open an [issue](https://github.com/luanmacea/MultiAlt/issues) or talk to us on [Discord](https://discord.gg/NPvyWgKbfH).
 

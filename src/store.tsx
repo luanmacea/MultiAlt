@@ -4115,7 +4115,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       "",
       "## What's Changed",
       "",
-      "\\* fix(client-settings): add Windows runtime overrides via GlobalBasicSettings_13.xml by @niccdevs in #21",
+      "\\* fix(client-settings): add Windows runtime overrides via GlobalBasicSettings_13.xml by @luanmacea in #21",
       "* fix(update-dialog): render release notes with GitHub-style bullets, callouts, and links",
       "* chore(ui): improve update modal note spacing for long changelogs",
       "",
@@ -4123,9 +4123,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       "",
       "## Contributors",
       "",
-      "<a href=\"https://github.com/niccdevs\"><img src=\"https://github.com/niccdevs.png?size=64\" width=\"32\" height=\"32\" alt=\"@niccdevs\" /></a>",
+      "<a href=\"https://github.com/luanmacea\"><img src=\"https://github.com/luanmacea.png?size=64\" width=\"32\" height=\"32\" alt=\"@luanmacea\" /></a>",
       "",
-      "[@niccdevs](https://github.com/niccdevs)",
+      "[@luanmacea](https://github.com/luanmacea)",
     ].join("\n");
 
     setUpdateInfo({
