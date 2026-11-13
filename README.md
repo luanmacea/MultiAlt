@@ -3,9 +3,9 @@
 Página pública do app (recursos, download, segurança, dúvidas). HTML, CSS e JS puros — sem build, sem dependência, sem nada do app Tauri.
 
 - `index.html` — conteúdo em inglês (o que buscador e quem está sem JS veem).
-- `pt/index.html` e `es/index.html` — **gerados**, não edite à mão: saem do `index.html` + `i18n.js` por `bun scripts/site/build-locales.ts`, que também regrava o FAQ estruturado (`#faq-ld`) do `index.html`. Mexeu no texto do site? Rode o script e commite o resultado; a suíte `bun run t site` falha se as páginas ficarem velhas ou se faltar tradução. Nelas, os botões de idioma levam ao endereço do outro idioma (em vez de trocar o texto na hora).
+- `pt/index.html` e `es/index.html` — **gerados**, não edite à mão: saem do `index.html` + `i18n.js` por `bun scripts/site/build-locales.ts`, que também regrava o FAQ estruturado (`#faq-ld`) do `index.html`. Mexeu no texto do site? Rode o script e commite o resultado (páginas velhas ou tradução faltando não podem ir ao ar). Nelas, os botões de idioma levam ao endereço do outro idioma (em vez de trocar o texto na hora).
 - `multiple-roblox-accounts/` e `is-multialt-safe/` — guias em inglês, escritos à mão, cada um mirando uma busca. Guia novo: pasta com `index.html`, entrada no `sitemap.xml`, link no rodapé do `index.html` e no `llms.txt`.
-- `pt/varias-contas-roblox/`, `pt/multialt-e-seguro/`, `es/varias-cuentas-roblox/` e `es/multialt-es-seguro/` — as traduções dos dois guias, também escritas à mão (não saem do `build-locales.ts`). Cada trio en/pt/es se liga pelo `hreflang` no `<head>` e no `sitemap.xml`, e o rodapé de `/pt/` e `/es/` aponta para o guia do mesmo idioma (chaves `ft.guide*` do `i18n.js`); a suíte `site` confere que o `hreflang` é recíproco. Mexeu num guia? Mexa nos três.
+- `pt/varias-contas-roblox/`, `pt/multialt-e-seguro/`, `es/varias-cuentas-roblox/` e `es/multialt-es-seguro/` — as traduções dos dois guias, também escritas à mão (não saem do `build-locales.ts`). Cada trio en/pt/es se liga pelo `hreflang` no `<head>` e no `sitemap.xml`, e o rodapé de `/pt/` e `/es/` aponta para o guia do mesmo idioma (chaves `ft.guide*` do `i18n.js`); o `hreflang` tem de ser recíproco. Mexeu num guia? Mexa nos três.
 - `llms.txt` — resumo do app para assistentes de IA (ChatGPT, Perplexity, Claude) citarem certo.
 - `<32 hex>.txt` — chave do IndexNow (o job `indexnow` do [site.yml](../.github/workflows/site.yml) avisa Bing e Yandex a cada publicação). **Não apague.**
 - `i18n.js` — português, espanhol e os textos montados na hora. Chave `data-i18n` nova no HTML precisa da tradução nos dois. O idioma vem de `?lang=`, depois da escolha salva no navegador, depois do idioma do navegador (pt e es; o resto cai no inglês).
@@ -15,7 +15,7 @@ Página pública do app (recursos, download, segurança, dúvidas). HTML, CSS e 
 
 ## Download sempre na versão nova
 
-Os botões não têm versão escrita: o `main.js` lê `api.github.com/repos/luanmacea/MultiAlt/releases` e aponta para o `.msi` da edição padrão da release mais recente — arquivo com `_full-`/`_Full-` no nome (a edição completa) nunca entra: ela só aparece nos anexos da release (decisão do dono, 10/10/2026; `scripts/site/editions.test.ts`). É a lista, e não `/releases/latest`, porque a série 0.x sai como pre-release e o `latest` do GitHub ignora pre-release. Se a API falhar (limite de 60 pedidos por hora por IP), os botões continuam levando à página de releases. **Renomear os arquivos da release quebra a escolha** — as regras estão em `pickAssets`.
+Os botões não têm versão escrita: o `main.js` lê `api.github.com/repos/luanmacea/MultiAlt/releases` e aponta para o `.msi` da edição padrão da release mais recente — arquivo com `_full-`/`_Full-` no nome (a edição completa) nunca entra: ela só aparece nos anexos da release (decisão do dono, 10/10/2026). É a lista, e não `/releases/latest`, porque a série 0.x sai como pre-release e o `latest` do GitHub ignora pre-release. Se a API falhar (limite de 60 pedidos por hora por IP), os botões continuam levando à página de releases. **Renomear os arquivos da release quebra a escolha** — as regras estão em `pickAssets`.
 
 ## De onde vem cada download
 
