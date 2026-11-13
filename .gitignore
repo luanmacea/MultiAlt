@@ -354,3 +354,22 @@ ui-audit-out/
 graphify-out/
 CLAUDE.local.md
 .graphifyignore
+
+# Ferramentas locais de desenvolvimento
+.claude/
+.impeccable/
+CLAUDE.md
+CLAUDE.local.md
+.superpowers/
+.agents/
+.codex/
+.cursor/
+.cursorrules
+.windsurf/
+.gemini/
+.aider*
+.mcp.json
+AGENTS.md
+GEMINI.md
+greptile.json
+.github/copilot-instructions.md
