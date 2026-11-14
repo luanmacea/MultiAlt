@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          HOST="multialt.pages.dev"
+          HOST="multialt.net"
           KEYFILE=$(ls site | grep -E '^[0-9a-f]{32}\.txt$' | head -n1)
           KEY="${KEYFILE%.txt}"
           for i in $(seq 1 30); do

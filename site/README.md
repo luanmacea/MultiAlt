@@ -37,9 +37,11 @@ O workflow [site.yml](../.github/workflows/site.yml) copia esta pasta para a bra
 
 Ativar uma vez: no GitHub, **Settings → Pages → Build and deployment → Source: Deploy from a branch → `gh-pages` / `(root)` → Save**.
 
-O endereço principal é **https://multialt.pages.dev/** (Cloudflare Pages, grátis), desde a troca de nome para MultiAlt (03/10/2026). O projeto `multialt` do Cloudflare está ligado a este repositório: branch de produção `main`, sem comando de build, pasta de saída `site`. Ele publica sozinho a cada push em `main`, sem passar pelo workflow (um push em `develop` vira no máximo uma prévia, num endereço próprio, nunca o site principal) — o `site.yml` só alimenta o endereço do GitHub Pages.
+Os endereços principais são **https://multialt.net/** (inglês e espanhol) e **https://multialt.com.br/pt/** (português), desde 14/11/2026: os dois domínios são do dono, ficam na Cloudflare e apontam para o projeto `multialt` do Cloudflare Pages (antes era só https://multialt.pages.dev/, que continua no ar). O projeto está ligado a este repositório: branch de produção `main`, sem comando de build, pasta de saída `site`. Ele publica sozinho a cada push em `main`, sem passar pelo workflow (um push em `develop` vira no máximo uma prévia, num endereço próprio, nunca o site principal) — o `site.yml` só alimenta o endereço do GitHub Pages.
 
-O projeto antigo, `roblox-account-manager-app` (https://roblox-account-manager-app.pages.dev/), continua ligado ao repositório com a mesma configuração e serve o mesmo site, para links antigos não quebrarem. Os três endereços servem o mesmo site; o `<link rel="canonical">` aponta para o do Cloudflare, para o buscador juntar os dois num resultado só. Todos os caminhos do site são relativos para funcionar nos dois.
+Regras de redirecionamento na Cloudflare (fora do repositório): `www.` vai para o domínio sem www; `multialt.net/pt/*` vai para `multialt.com.br/pt/*`; em `multialt.com.br`, a raiz vai para `/pt/` e o resto (inglês e espanhol) vai para o mesmo caminho em `multialt.net`. O `hreflang` de cada página liga as três línguas entre os dois domínios, para o Google mostrar o `.com.br` a quem busca do Brasil.
+
+O projeto antigo, `roblox-account-manager-app` (https://roblox-account-manager-app.pages.dev/), continua ligado ao repositório com a mesma configuração e serve o mesmo site, para links antigos não quebrarem. Os três endereços servem o mesmo site; o `<link rel="canonical">` aponta para o domínio próprio (multialt.net, ou multialt.com.br nas páginas em português), para o buscador juntar tudo num resultado só. Todos os caminhos do site são relativos para funcionar nos dois.
 
 ## Buscadores (SEO)
 

@@ -15,7 +15,9 @@
  */
 import { Window } from "happy-dom";
 
-export const SITE_URL = "https://multialt.pages.dev/";
+export const SITE_URL = "https://multialt.net/";
+/** O português mora no domínio brasileiro (14/11/2026): o Google mostra o `.com.br` a quem busca do Brasil. */
+export const SITE_URL_BR = "https://multialt.com.br/";
 export const LOCALES = ["pt", "es"] as const;
 export type Locale = (typeof LOCALES)[number];
 export type Dict = Record<string, Record<string, string>>;
@@ -34,7 +36,8 @@ export function loadDict(i18nSource: string): Dict {
 
 /** Endereço público de cada idioma (o inglês fica na raiz). */
 export function localeUrl(lang: Locale | "en"): string {
-  return lang === "en" ? SITE_URL : `${SITE_URL}${lang}/`;
+  if (lang === "en") return SITE_URL;
+  return lang === "pt" ? `${SITE_URL_BR}pt/` : `${SITE_URL}${lang}/`;
 }
 
 /** Caminho relativo que, saindo de `/pt/`, aponta para o mesmo arquivo da raiz. */

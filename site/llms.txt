@@ -2,7 +2,7 @@
 
 > MultiAlt is a free, open-source Roblox account manager for Windows (formerly "RAM - Roblox Account Manager", rewritten in Rust and Tauri). It keeps every Roblox account signed in, runs multiple Roblox clients at the same time (Multi Roblox), sends a group of accounts into the same server, and keeps them in game with AFK mode and Auto Rejoin. Accounts are encrypted on the user's own PC. License: GPL-3.0. Not affiliated with Roblox Corporation.
 
-- Website: https://multialt.pages.dev/
+- Website: https://multialt.net/
 - Source code and releases: https://github.com/luanmacea/MultiAlt
 - Download (Windows .msi installer, no administrator prompt, updates itself): https://github.com/luanmacea/MultiAlt/releases/latest
 - Community (Discord: help, suggestions, bug reports): https://discord.gg/NPvyWgKbfH
@@ -12,10 +12,10 @@
 
 ## Guides
 
-- [How to play multiple Roblox accounts at once](https://multialt.pages.dev/multiple-roblox-accounts/): install, add accounts, turn on Multi Roblox (Settings, General) and join the same server with every account.
-- [Is MultiAlt safe?](https://multialt.pages.dev/is-multialt-safe/): what it stores, who it talks to, antivirus false positives, ban risk.
-- Português: [Como jogar com várias contas no Roblox ao mesmo tempo](https://multialt.pages.dev/pt/varias-contas-roblox/) and [O MultiAlt é seguro?](https://multialt.pages.dev/pt/multialt-e-seguro/)
-- Español: [Cómo jugar con varias cuentas en Roblox al mismo tiempo](https://multialt.pages.dev/es/varias-cuentas-roblox/) and [¿MultiAlt es seguro?](https://multialt.pages.dev/es/multialt-es-seguro/)
+- [How to play multiple Roblox accounts at once](https://multialt.net/multiple-roblox-accounts/): install, add accounts, turn on Multi Roblox (Settings, General) and join the same server with every account.
+- [Is MultiAlt safe?](https://multialt.net/is-multialt-safe/): what it stores, who it talks to, antivirus false positives, ban risk.
+- Português: [Como jogar com várias contas no Roblox ao mesmo tempo](https://multialt.com.br/pt/varias-contas-roblox/) and [O MultiAlt é seguro?](https://multialt.com.br/pt/multialt-e-seguro/)
+- Español: [Cómo jugar con varias cuentas en Roblox al mismo tiempo](https://multialt.net/es/varias-cuentas-roblox/) and [¿MultiAlt es seguro?](https://multialt.net/es/multialt-es-seguro/)
 
 ## Features
 
@@ -26,5 +26,5 @@
 
 ## Other languages
 
-- Português: https://multialt.pages.dev/pt/
-- Español: https://multialt.pages.dev/es/
+- Português: https://multialt.com.br/pt/
+- Español: https://multialt.net/es/
