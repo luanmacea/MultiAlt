@@ -4,7 +4,7 @@
 // para multialt.net. Os arquivos de verificação de buscadores ficam no ar
 // (o Search Console precisa deles para a mudança de endereço).
 const OLD_HOSTS = new Set(["multialt.pages.dev", "roblox-account-manager-app.pages.dev"]);
-const KEEP = /^\/(google[0-9a-f]+\.html|[0-9a-f]{32}\.txt|robots\.txt)$/;
+const KEEP = /^\/(google[0-9a-f]+(\.html)?|[0-9a-f]{32}\.txt|robots\.txt)$/;
 
 export async function onRequest(context) {
   const url = new URL(context.request.url);
