@@ -799,13 +799,6 @@ impl LaunchQueue {
         self.accepting = false;
     }
 
-    /// Alguma destas contas ainda espera a vez (`queued` ou `launching`)?
-    fn has_pending(&self, user_ids: &[i64]) -> bool {
-        self.entries
-            .iter()
-            .any(|entry| user_ids.contains(&entry.user_id) && !entry.state.is_terminal())
-    }
-
     /// Solta a reserva: fecha toda conta que não chegou a estado final
     /// (`queued` nunca foi tentada, `launching` acabou sem resposta) e desativa
     /// a fila. Devolve se algo mudou, para o chamador só emitir evento quando há
@@ -1284,16 +1277,6 @@ async fn launch_queue_admit(
     }
 }
 
-/// Espera estas contas saírem da fila (abrirem, falharem ou serem canceladas).
-/// É o caminho do preset cujo lote entrou no fim da fila de outro launch: o
-/// comando volta na hora, e contar os clientes abertos antes de as contas
-/// abrirem daria zero.
-async fn wait_until_launched(user_ids: &[i64]) {
-    while with_launch_queue(|queue| queue.has_pending(user_ids)).0 {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    }
-}
-
 /// A conta que o laço acabou de lançar, para a espera antes da próxima.
 struct PreviousLaunch {
     user_id: i64,
@@ -1488,17 +1471,7 @@ async fn launch_roblox_windows(
         .find(|a| a.user_id == user_id)
         .and_then(|a| a.fields.get("RobloxVersion").cloned())
         .filter(|v| !v.trim().is_empty());
-    // Exceções desta conta (FPS, volume, qualidade, tela cheia, minimizar).
-    // Lidas antes do `start_minimized` porque podem trocá-lo.
-    let account_overrides = account_snapshot_for_version
-        .iter()
-        .find(|a| a.user_id == user_id)
-        .and_then(|a| account_client_overrides(&a.fields));
-
-    let start_minimized = account_overrides
-        .as_ref()
-        .and_then(|o| o.start_minimized)
-        .unwrap_or_else(|| settings.get_bool("General", "StartRobloxMinimized"));
+    let start_minimized = settings.get_bool("General", "StartRobloxMinimized");
 
     let (resolved_base_path, resolved_version_id) =
         {
@@ -1636,7 +1609,6 @@ async fn launch_roblox_windows(
     let resolved_window = patch_client_settings_for_launch(
         &settings,
         LaunchClientProfile::Normal,
-        account_overrides.as_ref(),
         Some(&client_dir),
     );
 
@@ -1737,11 +1709,7 @@ async fn launch_roblox_windows(
             &app,
             pid,
             client_window_plan(ClientWindowInputs {
-                fullscreen: resolved_window.fullscreen,
                 window_size: resolved_window.window_size,
-                keeps_own_window: account_overrides
-                    .as_ref()
-                    .is_some_and(|o| o.keeps_own_window()),
                 start_minimized,
                 auto_arrange_grid: auto_arrange_grid_enabled(&settings),
                 saved_rect,
@@ -1885,17 +1853,7 @@ async fn launch_roblox_other(
             let _ = macos::disable_multi_roblox();
         }
 
-        let account_overrides = state
-            .get_all()
-            .ok()
-            .and_then(|list| list.into_iter().find(|a| a.user_id == user_id))
-            .and_then(|a| account_client_overrides(&a.fields));
-        patch_client_settings_for_launch(
-            &settings,
-            LaunchClientProfile::Normal,
-            account_overrides.as_ref(),
-            None,
-        );
+        patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal, None);
 
         let tracker = macos::tracker();
         if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -2003,8 +1961,7 @@ async fn launch_roblox_other(
 async fn launch_multiple(
     app: tauri::AppHandle,
     // Os stores são lidos pelo laço da fila (`run_launch_queue_windows`), que
-    // os tira do `AppHandle`; ficam na assinatura porque o preset chama este
-    // comando direto.
+    // os tira do `AppHandle`.
     _state: tauri::State<'_, AccountStore>,
     settings: tauri::State<'_, SettingsStore>,
     _versions: tauri::State<'_, data::versions::VersionsCatalogStore>,
@@ -2246,13 +2203,6 @@ async fn run_launch_queue_windows(
         let acct_version_override = account
             .and_then(|a| a.fields.get("RobloxVersion").cloned())
             .filter(|v| !v.trim().is_empty());
-        // Exceções desta conta. A fila é sequencial e o patch roda logo antes de
-        // cada spawn, então cada cliente abre com o que a sua conta pediu.
-        let acct_overrides = account.and_then(|a| account_client_overrides(&a.fields));
-        let acct_start_minimized = acct_overrides
-            .as_ref()
-            .and_then(|o| o.start_minimized)
-            .unwrap_or(start_minimized);
 
         let acct_target_desc = launch_target_description(request.join_vip, &request.link_code, &acct_job);
         emit_launch_log(
@@ -2444,7 +2394,6 @@ async fn run_launch_queue_windows(
         let acct_window = patch_client_settings_for_launch(
             &settings,
             LaunchClientProfile::Normal,
-            acct_overrides.as_ref(),
             Some(&acct_client_dir),
         );
 
@@ -2540,18 +2489,14 @@ async fn run_launch_queue_windows(
                 app,
                 pid,
                 client_window_plan(ClientWindowInputs {
-                    fullscreen: acct_window.fullscreen,
                     window_size: acct_window.window_size,
-                    keeps_own_window: acct_overrides
-                        .as_ref()
-                        .is_some_and(|o| o.keeps_own_window()),
-                    start_minimized: acct_start_minimized,
+                    start_minimized,
                     // Lido a cada conta: desligar no meio da fila já vale.
                     auto_arrange_grid: auto_arrange_grid_enabled(&settings),
                     saved_rect: None,
                 }),
             );
-            if acct_start_minimized {
+            if start_minimized {
                 let baseline = pids_before.clone();
                 tokio::spawn(async move {
                     minimize_new_roblox_windows(baseline, std::time::Duration::from_secs(14)).await;
@@ -2577,7 +2522,7 @@ async fn run_launch_queue_windows(
 async fn launch_multiple(
     app: tauri::AppHandle,
     // Lidos pelo laço da fila (`run_launch_queue_macos`) a partir do
-    // `AppHandle`; ficam na assinatura porque o preset chama este comando.
+    // `AppHandle`.
     _state: tauri::State<'_, AccountStore>,
     _settings: tauri::State<'_, SettingsStore>,
     user_ids: Vec<i64>,
@@ -2760,17 +2705,7 @@ async fn run_launch_queue_macos(
             let _ = macos::disable_multi_roblox();
         }
 
-        let acct_overrides = state
-            .get_all()
-            .ok()
-            .and_then(|list| list.into_iter().find(|a| a.user_id == uid))
-            .and_then(|a| account_client_overrides(&a.fields));
-        patch_client_settings_for_launch(
-            &settings,
-            LaunchClientProfile::Normal,
-            acct_overrides.as_ref(),
-            None,
-        );
+        patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal, None);
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
             tracker.kill_for_user(uid);
@@ -2977,8 +2912,7 @@ fn list_display_monitors() -> Result<serde_json::Value, String> {
 
 /// Arrange the open Roblox windows into the grid across the selected monitors
 /// (1-based indices; empty = all monitors) — the same slots the automatic grid
-/// uses. Accounts with their own window size (launch exception) are left
-/// alone, and the cell is the global window size when it is on.
+/// uses. The cell is the global window size when it is on.
 #[tauri::command]
 fn arrange_windows_grid(
     state: tauri::State<'_, AccountStore>,
@@ -2989,7 +2923,8 @@ fn arrange_windows_grid(
     #[cfg(target_os = "windows")]
     {
         let size = global_window_size(&settings, LaunchClientProfile::Normal);
-        let excluded = grid_excluded_pids(state.inner());
+        let _ = &state;
+        let excluded = HashSet::new();
         let style = grid_window_style(&settings);
         let (arranged, total) =
             platform::windows::arrange_roblox_grid(&monitor_indices, gap, size, &excluded, style)?;
@@ -3045,9 +2980,6 @@ struct RunningInstance {
     /// Queda lida do log do cliente — ver client_health.rs. `None` enquanto o
     /// monitor não viu este PID.
     health: Option<ClientHealthView>,
-    /// Memória e limite do cliente — ver memory_ceiling.rs. `None` para o
-    /// cliente do site e sem a feature `memory-trim`.
-    memory: Option<ClientMemoryView>,
 }
 
 #[tauri::command]
@@ -3063,7 +2995,6 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 pid: p.pid,
                 user_id: p.user_id,
                 health: client_health_of(p.user_id, p.pid),
-                memory: client_memory_of(p.user_id),
                 browser_tracker_id: p.browser_tracker_id,
                 adopted: p.adopted,
             })
@@ -3080,7 +3011,6 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 browser_tracker_id: p.browser_tracker_id,
                 adopted: false,
                 health: None,
-                memory: None,
             })
             .collect());
     }
@@ -3143,11 +3073,7 @@ fn cmd_apply_fps_unlock(max_fps: u32) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use platform::windows;
-        // Também entra no que é devolvido (ideia 21), com a opção ligada ou não.
-        let snapshot = windows::snapshot_roblox_settings(windows::roblox_settings_files(None));
-        let result = windows::apply_fps_unlock(max_fps);
-        windows::record_roblox_settings_change(snapshot);
-        return result;
+        return windows::apply_fps_unlock(max_fps);
     }
     #[cfg(not(target_os = "windows"))]
     let _ = &settings;

@@ -5,10 +5,10 @@ import { useEscapeStack } from "../../hooks/useEscapeStack";
 
 /**
  * Chip compacto que abre um menu pequeno de opções (uma escolhida). É o
- * controle das linhas da lista "Em jogo" (teto de memória, reconexão) e da
- * barra de lote: mostra o valor numa pílula de 24 px de altura e só abre a
- * lista quando a pessoa quer mudar — o seletor nativo de 104 px que havia
- * antes cobria a leitura de memória e espremia o resto da linha.
+ * controle das linhas da lista "Em jogo" (reconexão) e da barra de lote:
+ * mostra o valor numa pílula de 24 px de altura e só abre a lista quando a
+ * pessoa quer mudar — o seletor nativo de 104 px que havia antes espremia o
+ * resto da linha.
  *
  * Teclado: Enter/Espaço/seta abrem; setas andam; Enter escolhe; Escape fecha
  * (pela pilha de Escape) e devolve o foco ao chip.

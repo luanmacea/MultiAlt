@@ -146,24 +146,13 @@ pub async fn get_email_info(security_token: &str) -> Result<serde_json::Value, S
 
 pub async fn send_friend_request(security_token: &str, target_user_id: i64) -> Result<(), String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
-    send_friend_request_with_csrf(security_token, &csrf, target_user_id).await
-}
-
-/// Same as `send_friend_request` but uses a caller-supplied CSRF token so a
-/// batch of requests from one account can reuse a single token instead of
-/// fetching a fresh one per call.
-pub async fn send_friend_request_with_csrf(
-    security_token: &str,
-    csrf: &str,
-    target_user_id: i64,
-) -> Result<(), String> {
     let client = http_client::client();
 
     let request = client
         .post(format!("{}/v1/users/{}/request-friendship", endpoints::host("friends"), target_user_id))
         .header(COOKIE, cookie_header(security_token))
         .header("Content-Type", "application/json");
-    let response = crate::api::auth::send_with_csrf_retry(request, csrf).await?;
+    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -172,35 +161,6 @@ pub async fn send_friend_request_with_csrf(
         let body = response.text().await.unwrap_or_default();
         Err(format!("Failed to send friend request (status {}): {}", status, body))
     }
-}
-
-/// Returns the user IDs of an account's current friends. Used to skip pairs
-/// that are already friends and to verify newly-formed friendships.
-pub async fn get_friend_ids(security_token: &str, user_id: i64) -> Result<Vec<i64>, String> {
-    let client = http_client::client();
-
-    let response = client
-        .get(format!("{}/v1/users/{}/friends", endpoints::host("friends"), user_id))
-        .header(COOKIE, cookie_header(security_token))
-        .send_noting()
-        .await
-        .map_err(|e| http_client::describe_error(&e))?;
-
-    if !response.status().is_success() {
-        return Err(format!("Failed to get friends (status {})", response.status().as_u16()));
-    }
-
-    let body: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse friends: {}", e))?;
-
-    let ids = body["data"]
-        .as_array()
-        .map(|arr| arr.iter().filter_map(|u| u["id"].as_i64()).collect())
-        .unwrap_or_default();
-
-    Ok(ids)
 }
 
 pub async fn block_user(security_token: &str, target_user_id: i64) -> Result<(), String> {

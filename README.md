@@ -46,7 +46,6 @@ Only download from this repository. The `zz-…sig` files on the [releases page]
 | Groups & ordering | Drag & drop, groups, manual ordering that survives restarts, aliases up to 240 characters, descriptions, custom fields |
 | Live status | See who is online, in game or in Studio, whose session expired and which accounts have been idle for 20+ days |
 | Account utilities | Display name, privacy, change password/e-mail, PIN, sign out of other sessions, blocks, outfits, avatar JSON, Quick Login code |
-| Make Friends | Friend all your accounts with each other (mesh) or with one account (star), with a configurable delay |
 | Streamer mode | Hide usernames in the list to record or stream |
 | Backups | Create, list and restore backups of accounts, settings, scripts and themes from inside the app |
 
@@ -114,7 +113,6 @@ Not yet — macOS support is partial.
 # Roadmap
 MultiAlt is actively maintained. What is planned next:
 
-- **Groups** — find a Roblox group and put many accounts in it at once (in testing).
 - **FAQ inside the app** — quick answers without leaving MultiAlt.
 - **Your ideas** — suggestions with the most votes in [Discussions › Ideas](https://github.com/luanmacea/MultiAlt/discussions/categories/ideas) are the next candidates.
 

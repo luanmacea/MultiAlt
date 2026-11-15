@@ -22,17 +22,6 @@ pub(super) fn manual_binary_path(settings: &SettingsStore) -> String {
 
 pub(super) const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
 const ROBLOX_HOME_URL: &str = "https://www.roblox.com/home";
-const ROBLOX_COMMUNITIES_URL: &str = "https://www.roblox.com/communities";
-
-/// Página em que o navegador da conta abre: a home, ou a página de um grupo
-/// (a tela Groups abre ali para a pessoa resolver o captcha e entrar). Só id
-/// numérico: o front não escolhe URL nenhuma para uma janela logada.
-fn account_browser_start_url(group_id: Option<i64>) -> String {
-    match group_id {
-        Some(id) if id > 0 => format!("{}/{}", ROBLOX_COMMUNITIES_URL, id),
-        _ => ROBLOX_HOME_URL.to_string(),
-    }
-}
 
 /// Quanto esperamos o browser de setup sair sozinho antes de matá-lo.
 const BROWSER_EXIT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -129,7 +118,6 @@ pub async fn open_account_browser(
     chromium: State<'_, ChromiumManager>,
     settings: State<'_, SettingsStore>,
     user_id: i64,
-    group_id: Option<i64>,
 ) -> Result<(), String> {
     let token = {
         let accounts = state.get_all()?;
@@ -194,211 +182,13 @@ pub async fn open_account_browser(
     // cookie do perfil e **sem** porta de debug. Sem CDP anexado o
     // `navigator.webdriver` já nasce indefinido, então o stealth continua
     // valendo sem precisarmos injetar nada.
-    let start_url = account_browser_start_url(group_id);
-    let (child, _) = spawn_chrome(&binary, &profile, &start_url, false, stealth).await?;
+    let (child, _) = spawn_chrome(&binary, &profile, ROBLOX_HOME_URL, false, stealth).await?;
     let pid = child.id();
     chromium.track(user_id, child);
     if private {
         wipe_profile_when_closed(app.clone(), user_id, pid, profile);
     }
     Ok(())
-}
-
-/// O botão "Join Community" da página do grupo. Pela classe, não pelo texto: o
-/// texto segue o idioma da conta no Roblox. Conferido em 13/10/2026 (a página
-/// tem dois, o do topo e o da versão estreita; os dois entram).
-const GROUP_JOIN_BUTTON_SELECTOR: &str = ".actions-btn-container .actions-btn";
-
-/// Clica no botão de entrar, se houver. `true` = clicou.
-fn group_join_click_script() -> String {
-    format!(
-        "(() => {{ const b = document.querySelector({:?}); if (!b) return false; b.click(); return true; }})()",
-        GROUP_JOIN_BUTTON_SELECTOR
-    )
-}
-
-/// Os nomes do item "Seguir" do menu do perfil, nos idiomas do Roblox. O item
-/// é achado **pelo texto exato** (o menu não tem atributo estável — conferido em
-/// 14/10/2026): o mesmo menu tem "Bloquear usuário" e "Denunciar abuso", e
-/// clicar no item errado não pode acontecer. Nome que não está aqui = a janela
-/// aparece e a pessoa clica.
-const PROFILE_FOLLOW_LABELS: &[&str] = &[
-    "follow", "seguir", "folgen", "suivre", "segui", "volgen", "obserwuj", "takip et", "フォロー",
-    "팔로우", "关注", "關注", "ติดตาม", "theo dõi", "ikuti", "подписаться",
-];
-
-/// O botão de ícone do cabeçalho do perfil que abre o menu de contexto
-/// (ao lado de "Adicionar amigo").
-const PROFILE_MENU_BUTTON_SELECTOR: &str = "main button.foundation-web-icon-button, #content button.foundation-web-icon-button";
-
-fn profile_menu_click_script() -> String {
-    format!(
-        "(() => {{ const b = document.querySelector({:?}); if (!b) return false; b.click(); return true; }})()",
-        PROFILE_MENU_BUTTON_SELECTOR
-    )
-}
-
-fn profile_follow_click_script() -> String {
-    let labels = serde_json::to_string(PROFILE_FOLLOW_LABELS).unwrap_or_else(|_| "[]".into());
-    format!(
-        "(() => {{ const labels = {}; const item = Array.from(document.querySelectorAll('[role=menu] [role=menuitem]')).find(e => labels.includes((e.innerText || '').trim().toLowerCase())); if (!item) return false; item.click(); return true; }})()",
-        labels
-    )
-}
-
-/// Página de perfil de um usuário (só id numérico).
-fn profile_url(target_user_id: i64) -> String {
-    format!("https://www.roblox.com/users/{}/profile", target_user_id)
-}
-
-/// O navegador da conta aberto numa página do site para fazer **pelo site** o
-/// que a API recusa: entrar num grupo, seguir um usuário.
-///
-/// Por que o site e não a API: medido em 13/10/2026 com contas de teste, o
-/// `POST groups/v1/groups/<id>/users` feito pelo app recebe sempre um desafio
-/// (`rblx-challenge-type: rostile`, quebra-cabeça visível), enquanto o clique
-/// em "Join Community" no navegador da mesma conta entra na hora. O app não
-/// resolve desafio nenhum: ele só clica no botão do site, como a pessoa faria;
-/// se o Roblox mostrar um quebra-cabeça, a janela aparece para a pessoa.
-///
-/// A janela nasce **minimizada** (a entrada funciona assim — medido) e só
-/// aparece com `show`. Diferente do "Open in browser", aqui a porta de debug
-/// (só na loopback) fica aberta enquanto a entrada dura: é ela que deixa clicar
-/// no botão e fechar a janela no fim.
-pub(crate) struct AccountPageBrowser {
-    child: std::process::Child,
-    cdp: CdpClient,
-    window_id: Option<i64>,
-    /// Navegador anônimo: o perfil que some ao fechar.
-    wipe_on_close: Option<PathBuf>,
-}
-
-impl AccountPageBrowser {
-    /// Na página do grupo.
-    pub(crate) async fn open(app: &AppHandle, user_id: i64, raw_token: &str, group_id: i64) -> Result<Self, String> {
-        Self::open_url(app, user_id, raw_token, &account_browser_start_url(Some(group_id))).await
-    }
-
-    /// No perfil de `target_user_id`.
-    pub(crate) async fn open_profile(
-        app: &AppHandle,
-        user_id: i64,
-        raw_token: &str,
-        target_user_id: i64,
-    ) -> Result<Self, String> {
-        Self::open_url(app, user_id, raw_token, &profile_url(target_user_id)).await
-    }
-
-    async fn open_url(app: &AppHandle, user_id: i64, raw_token: &str, url: &str) -> Result<Self, String> {
-        let token = normalize_security_token(raw_token);
-        if token.is_empty() {
-            return Err("Account has no .ROBLOSECURITY token".into());
-        }
-        let settings = app.state::<SettingsStore>();
-        let stealth = settings.get_bool("Login", "StealthMode");
-        let (binary, _) = resolve_browser_binary(app, Some(&manual_binary_path(&settings))).await?;
-        let profile = ChromiumManager::account_profile(app, user_id)?;
-        // Mesmo perfil do "Open in browser": a janela antiga dessa conta sai
-        // antes (dois Chromium no mesmo perfil brigam pelo lock).
-        app.state::<ChromiumManager>().kill(user_id);
-        let private = !keeps_browser_data(&settings);
-        if private {
-            let _ = wipe_profile_dir(&profile);
-        }
-
-        let (child, port) = spawn_chrome(&binary, &profile, "about:blank", true, stealth).await?;
-        let Some(port) = port else {
-            kill_untracked(child);
-            return Err("Could not attach to the browser".into());
-        };
-        let cdp = match CdpClient::connect(port).await {
-            Ok(cdp) => cdp,
-            Err(e) => {
-                kill_untracked(child);
-                return Err(e);
-            }
-        };
-        let mut browser = Self {
-            child,
-            cdp,
-            window_id: None,
-            wipe_on_close: private.then(|| profile.clone()),
-        };
-        if let Ok(window) = browser.cdp.send("Browser.getWindowForTarget", serde_json::json!({})).await {
-            browser.window_id = window.get("windowId").and_then(|v| v.as_i64());
-        }
-        browser.set_window_state("minimized").await;
-        if let Err(e) = plant_account_cookie(&mut browser.cdp, &token, stealth).await {
-            browser.close().await;
-            return Err(e);
-        }
-        if let Err(e) = browser.cdp.navigate(url).await {
-            browser.close().await;
-            return Err(e);
-        }
-        Ok(browser)
-    }
-
-    async fn set_window_state(&mut self, state: &str) {
-        if let Some(id) = self.window_id {
-            let _ = self
-                .cdp
-                .send(
-                    "Browser.setWindowBounds",
-                    serde_json::json!({ "windowId": id, "bounds": { "windowState": state } }),
-                )
-                .await;
-        }
-    }
-
-    /// Espera o botão de entrar e clica. `Ok(false)` = o botão não apareceu
-    /// (a conta já está no grupo, ou a página não carregou).
-    pub(crate) async fn click_join(&mut self) -> Result<bool, String> {
-        // ~20 s: a página do grupo é pesada e a janela está minimizada.
-        if !self.cdp.wait_for_selector(GROUP_JOIN_BUTTON_SELECTOR, 66).await {
-            return Ok(false);
-        }
-        Ok(self.cdp.eval(&group_join_click_script()).await? == serde_json::Value::Bool(true))
-    }
-
-    /// Abre o menu do perfil e clica em "Seguir". `Ok(false)` = não achou o
-    /// botão do menu ou o item com um dos nomes conhecidos (a conta já segue,
-    /// o idioma não está na lista, ou a página mudou).
-    pub(crate) async fn click_follow(&mut self) -> Result<bool, String> {
-        if !self.cdp.wait_for_selector(PROFILE_MENU_BUTTON_SELECTOR, 66).await {
-            return Ok(false);
-        }
-        if self.cdp.eval(&profile_menu_click_script()).await? != serde_json::Value::Bool(true) {
-            return Ok(false);
-        }
-        if !self.cdp.wait_for_selector("[role=menu] [role=menuitem]", 20).await {
-            return Ok(false);
-        }
-        Ok(self.cdp.eval(&profile_follow_click_script()).await? == serde_json::Value::Bool(true))
-    }
-
-    /// Mostra a janela: o Roblox pediu algo que só a pessoa resolve.
-    pub(crate) async fn show(&mut self) {
-        self.set_window_state("normal").await;
-        let _ = self.cdp.send("Page.bringToFront", serde_json::json!({})).await;
-    }
-
-    /// A pessoa fechou a janela?
-    pub(crate) fn is_closed(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(Some(_)))
-    }
-
-    pub(crate) async fn close(mut self) {
-        let _ = self.cdp.close_browser().await;
-        if !wait_for_exit(&mut self.child, BROWSER_EXIT_TIMEOUT).await {
-            let _ = self.child.kill();
-        }
-        let _ = self.child.wait();
-        if let Some(profile) = self.wipe_on_close.take() {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let _ = wipe_profile_dir(&profile);
-        }
-    }
 }
 
 /// Grava o cookie da conta no perfil, com validade, para que ele sobreviva ao

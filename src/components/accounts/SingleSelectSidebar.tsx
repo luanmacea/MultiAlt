@@ -5,7 +5,6 @@ import { useStore } from "../../store";
 import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { usePrompt } from "../../hooks/usePrompt";
 import { SidebarSection } from "./SidebarSection";
-import { AccountLaunchOverrides } from "./AccountLaunchOverrides";
 import { AccountHistory } from "./AccountHistory";
 import { ClientHealthNote } from "../session/ClientHealthNote";
 import { Select } from "../ui/Select";
@@ -90,17 +89,9 @@ export function SingleSelectSidebar() {
       store.addToast(tr("Invalid group ID"));
       return;
     }
-    // A entrada é pelo navegador da conta (minimizado; aparece se o Roblox
-    // pedir algo) — a mesma da página Groups.
     try {
-      const status = await invoke<string>("join_group", { userId: account.UserID, groupId });
-      store.addToast(
-        status === "pending"
-          ? tr("Join request sent to group {{groupId}}", { groupId })
-          : status === "alreadyMember"
-            ? tr("Already in group {{groupId}}", { groupId })
-            : tr("Joined group {{groupId}}", { groupId })
-      );
+      await invoke("join_group", { userId: account.UserID, groupId });
+      store.addToast(tr("Joined group {{groupId}}", { groupId }));
     } catch (e) {
       store.addToast(tr("Join group failed: {{error}}", { error: String(e) }));
     }
@@ -286,9 +277,8 @@ export function SingleSelectSidebar() {
         </div>
       </div>
 
-      {/* Scrollable content. Ordem: o uso diário primeiro (ferramentas,
-          exceções de launch), as notas depois e o histórico — que é
-          longo — por último, recolhível. */}
+      {/* Scrollable content. Ordem: o uso diário primeiro (ferramentas), as
+          notas depois e o histórico — que é longo — por último, recolhível. */}
       <div ref={scrollRef} data-testid="account-sidebar-scroll" className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         <SidebarSection title={t("Tools")}>
           <p className="text-[11px] theme-muted mb-1.5">{t("Account utilities and quick actions")}</p>
@@ -319,10 +309,6 @@ export function SingleSelectSidebar() {
             </button>
           </div>
         </SidebarSection>
-
-        {/* A reconexão automática não mora aqui: é coisa de muitas contas e fica
-            na página Session (padrão no resumo, uma chave por conta em "Em jogo"). */}
-        <AccountLaunchOverrides account={account} />
 
         {/* A versão gravada aqui é a global (Settings > Versions, chave
             Versions.DefaultVersion) — não existe versão por conta. A seção

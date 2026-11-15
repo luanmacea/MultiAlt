@@ -149,13 +149,6 @@ export interface PlatformCapabilities {
   supportsBotting: boolean;
   supportsUpdater: boolean;
   supportsClientSettings: boolean;
-  /** Volume ao vivo por cliente: só com a feature `live-audio` no binário. */
-  supportsLiveAudio: boolean;
-  /**
-   * Teto de memória que libera RAM antes de fechar o cliente: só com a feature
-   * `memory-trim` no binário (nas duas edições).
-   */
-  supportsMemoryTrim: boolean;
   reasons: string[];
   warnings: string[];
 }
@@ -566,26 +559,6 @@ export interface CurrentSession {
   privateServer: boolean | null;
 }
 
-/** Memória e limite de um cliente que o app abriu (`ClientMemoryView`, memory_ceiling.rs). */
-export interface ClientMemory {
-  /**
-   * Memória privada agora, em MB — o número da coluna "Memória" do Gerenciador
-   * de Tarefas (`get_process_memory_mb`); `null` se não deu para ler. Relida a
-   * cada 2 s no backend e a cada 2,5 s pela store.
-   */
-  memoryMb: number | null;
-  /** O limite que vale agora; `null` = sem limite. */
-  limitMb: number | null;
-  /** Acima do limite nesta passada. */
-  over: boolean;
-  /**
-   * Quando o app pediu ao Windows para liberar pela última vez (neste cliente).
-   * Fica depois de a memória cair: abaixo do limite, a tela explica que ela
-   * fica mais baixa até o jogo precisar de novo.
-   */
-  trimmedAtMs: number | null;
-}
-
 export interface ClientHealth {
   pid: number;
   /** O log foi achado: a queda vem dele, e não do título da janela. */
@@ -669,60 +642,6 @@ export interface LaunchQueuePayload {
   active: boolean;
   placeId: number;
   jobId: string;
-}
-
-/**
- * Vinculação de amizades em andamento (Make Friends), no Painel de Sessão.
- *
- * Mesmo desenho da fila de launch: o backend guarda o estado e emite
- * `friend-link-state` com o retrato **completo** a cada mudança; a tela só
- * substitui. Antes o progresso era `{phase, done, total}` guardado em `useState`
- * de dois componentes — a tela que remontava no meio perdia tudo, e na fase de
- * envio o `done` contava **pares**, não contas.
- */
-export type FriendLinkAccountState = "pending" | "processing" | "done" | "failed";
-
-export interface FriendLinkAccountEntry {
-  userId: number;
-  state: FriendLinkAccountState;
-  /** Mensagem quando `state === "failed"`. */
-  error: string | null;
-}
-
-export interface FriendLinkState {
-  /** `true` enquanto a operação roda. */
-  active: boolean;
-  phase: "idle" | "checking" | "linking" | "verifying" | "done";
-  /** Contas que já terminaram (concluídas ou com erro). */
-  processed: number;
-  total: number;
-  accounts: FriendLinkAccountEntry[];
-  mode: string;
-  /** Conta principal no modo `star`. */
-  mainUserId: number | null;
-}
-
-/**
- * Lote "Follow a user" (Actions): várias contas seguem um mesmo usuário, que
- * não precisa estar no app. Mesmo desenho do Make Friends: o backend emite
- * `follow-user-state` com o retrato completo a cada mudança.
- */
-/** `browser`: a janela do navegador da conta apareceu e espera a pessoa. */
-export type FollowUserAccountState = "pending" | "processing" | "browser" | "followed" | "already" | "failed";
-
-export interface FollowUserAccountEntry {
-  userId: number;
-  state: FollowUserAccountState;
-  error: string | null;
-}
-
-export interface FollowUserState {
-  active: boolean;
-  processed: number;
-  total: number;
-  accounts: FollowUserAccountEntry[];
-  targetUserId: number | null;
-  targetName: string | null;
 }
 
 // ── Escolha de servidor ──────────────────────────────────────────────────────
@@ -891,159 +810,6 @@ export interface ServerScanUpdate {
 }
 
 /**
- * Exceções de launch de **uma conta só**, por cima do perfil global.
- *
- * Ficam em `Account.Fields` (o mesmo lugar de `RobloxVersion`), e o backend as
- * lê em `account_client_overrides` (`commands/launch_shared.rs`) no instante em
- * que aquela conta vai abrir. Campo vazio quer dizer "herda o global" — não
- * "zero": um FPS vazio não é FPS 0.
- *
- * `volume` aqui é a escala que aparece na tela, 0 a 10, igual ao controle de
- * dentro do jogo; no `Fields` ele é gravado como fração de 0 a 1, que é o que o
- * `GlobalBasicSettings_13.xml` guarda.
- */
-export interface AccountLaunchOverrides {
-  enabled: boolean;
-  maxFps: string;
-  volume: string;
-  /** `""` herda, `"auto"` é a qualidade automática, `"1"`–`"10"` é nível fixo. */
-  graphics: string;
-  /** `""` herda, `"true"` tela cheia, `"false"` em janela. */
-  fullscreen: string;
-  /** `""` herda, `"true"` minimiza ao abrir, `"false"` não minimiza. */
-  startMinimized: string;
-  windowWidth: string;
-  windowHeight: string;
-}
-
-/** Chaves de `Account.Fields` usadas pelas exceções (as mesmas do Rust). */
-export const ACCOUNT_OVERRIDE_FIELDS = {
-  enabled: "ClientOverridesEnabled",
-  maxFps: "ClientOverrideMaxFPS",
-  volume: "ClientOverrideVolume",
-  graphics: "ClientOverrideGraphics",
-  fullscreen: "ClientOverrideFullscreen",
-  startMinimized: "ClientOverrideStartMinimized",
-  windowWidth: "ClientOverrideWindowWidth",
-  windowHeight: "ClientOverrideWindowHeight",
-} as const;
-
-export const EMPTY_ACCOUNT_LAUNCH_OVERRIDES: AccountLaunchOverrides = {
-  enabled: false,
-  maxFps: "",
-  volume: "",
-  graphics: "",
-  fullscreen: "",
-  startMinimized: "",
-  windowWidth: "",
-  windowHeight: "",
-};
-
-function overrideBool(raw: string | undefined): string {
-  const v = (raw ?? "").trim().toLowerCase();
-  return v === "true" || v === "false" ? v : "";
-}
-
-export function readAccountLaunchOverrides(
-  fields: Record<string, string> | undefined
-): AccountLaunchOverrides {
-  const f = fields ?? {};
-  const volumeFraction = parseFloat((f[ACCOUNT_OVERRIDE_FIELDS.volume] ?? "").trim());
-  return {
-    enabled: overrideBool(f[ACCOUNT_OVERRIDE_FIELDS.enabled]) === "true",
-    maxFps: (f[ACCOUNT_OVERRIDE_FIELDS.maxFps] ?? "").trim(),
-    // Fração → escala da tela. `1` virando `10` é o esperado: o XML guarda o
-    // volume cheio como 1.0.
-    volume: Number.isFinite(volumeFraction)
-      ? String(Math.round(volumeFraction * 100) / 10)
-      : "",
-    graphics: (f[ACCOUNT_OVERRIDE_FIELDS.graphics] ?? "").trim().toLowerCase(),
-    fullscreen: overrideBool(f[ACCOUNT_OVERRIDE_FIELDS.fullscreen]),
-    startMinimized: overrideBool(f[ACCOUNT_OVERRIDE_FIELDS.startMinimized]),
-    windowWidth: (f[ACCOUNT_OVERRIDE_FIELDS.windowWidth] ?? "").trim(),
-    windowHeight: (f[ACCOUNT_OVERRIDE_FIELDS.windowHeight] ?? "").trim(),
-  };
-}
-
-/**
- * Devolve um `Fields` novo com as exceções gravadas. Campo vazio **apaga** a
- * chave em vez de gravar `""`, para o arquivo de contas não juntar entulho de
- * configuração que ninguém usa.
- */
-export function writeAccountLaunchOverrides(
-  fields: Record<string, string> | undefined,
-  overrides: AccountLaunchOverrides
-): Record<string, string> {
-  const out = { ...(fields ?? {}) };
-
-  const set = (key: string, value: string) => {
-    if (value === "") delete out[key];
-    else out[key] = value;
-  };
-
-  set(ACCOUNT_OVERRIDE_FIELDS.enabled, overrides.enabled ? "true" : "");
-  set(ACCOUNT_OVERRIDE_FIELDS.maxFps, overrides.maxFps.trim());
-  const volume = parseFloat(overrides.volume.trim());
-  set(
-    ACCOUNT_OVERRIDE_FIELDS.volume,
-    Number.isFinite(volume) ? (Math.min(Math.max(volume, 0), 10) / 10).toFixed(3) : ""
-  );
-  set(ACCOUNT_OVERRIDE_FIELDS.graphics, overrides.graphics);
-  set(ACCOUNT_OVERRIDE_FIELDS.fullscreen, overrides.fullscreen);
-  set(ACCOUNT_OVERRIDE_FIELDS.startMinimized, overrides.startMinimized);
-  set(ACCOUNT_OVERRIDE_FIELDS.windowWidth, overrides.windowWidth.trim());
-  set(ACCOUNT_OVERRIDE_FIELDS.windowHeight, overrides.windowHeight.trim());
-
-  return out;
-}
-
-/**
- * Preset de launch: "estas contas → este jogo/servidor", com horário opcional
- * de abrir e de fechar. Espelha `data::launch_presets::LaunchPreset` (camelCase).
- * Ver docs/features/presets.md.
- */
-export interface PresetSchedule {
-  openEnabled: boolean;
-  /** `HH:MM`, 24 h, hora local. */
-  openAt: string;
-  /** Dias de abrir: 0 = segunda … 6 = domingo. Fechar vale todo dia. */
-  days: number[];
-  closeEnabled: boolean;
-  closeAt: string;
-}
-
-export interface LaunchPreset {
-  /** Vazio num preset novo: o backend gera. */
-  id: string;
-  name: string;
-  /** Contas fixas. Vazio num preset de grupo. */
-  userIds: number[];
-  /**
-   * Grupo de contas (ideia 42): com ele, as contas saem do grupo a cada launch
-   * (quem está nele agora, na ordem da lista). Ausente/nulo = contas fixas.
-   */
-  group?: string | null;
-  placeId: number;
-  /** Vazio = servidor público; Job ID; ou `vip:<código>` de um VIP dos favoritos. */
-  jobId: string;
-  gameName?: string | null;
-  vipName?: string | null;
-  arrangeGrid: boolean;
-  schedule?: PresetSchedule | null;
-  createdAt?: number;
-}
-
-/** `get_launch_presets`: o preset e o que a tela mostra ao lado dele. */
-export interface LaunchPresetView extends LaunchPreset {
-  nextOpenAt: number | null;
-  nextCloseAt: number | null;
-  /** Clientes que as execuções deste preset abriram e que seguem abertos. */
-  openClients: number;
-  /** As contas desses clientes — o "fechar" pergunta antes nomeando cada uma. */
-  openUserIds: number[];
-}
-
-/**
  * Uma sessão do histórico (ideia 6): de quando a conta entrou num jogo até
  * como terminou. Espelha `data::session_history::SessionRecord`.
  */
@@ -1068,17 +834,4 @@ export interface SessionRecord {
   reason: ClientDropReason | null;
   code: number | null;
   message: string | null;
-}
-
-/** Evento `launch-preset`: resultado de abrir/fechar (pelo horário ou à mão). */
-export interface LaunchPresetEvent {
-  presetId: string;
-  name: string;
-  action: "open" | "close";
-  scheduled: boolean;
-  /** De onde veio: botão da tela, horário ou menu da bandeja. */
-  source?: "button" | "schedule" | "tray";
-  ok: boolean;
-  count: number;
-  error: string | null;
 }

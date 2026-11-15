@@ -14,7 +14,6 @@ import { VaultKeyBanner } from "./components/layout/VaultKeyBanner";
 import { LockOverlay } from "./components/layout/LockOverlay";
 import { EmergencyStopAlert } from "./components/afk-mode/EmergencyStopAlert";
 import { useInactivityLock } from "./hooks/useInactivityLock";
-import { useTrayPresetLaunch } from "./hooks/useTrayPresetLaunch";
 import { inactivityLockActive, normalizeLockMinutes } from "./utils/inactivityLock";
 import { Toolbar } from "./components/layout/Toolbar";
 import { AccountList } from "./components/accounts/AccountList";
@@ -28,8 +27,6 @@ import { ServerListDialog } from "./components/server-list/ServerListDialog";
 import { ImportDialog } from "./components/dialogs/ImportDialog";
 import { AccountFieldsDialog } from "./components/dialogs/AccountFieldsDialog";
 import { AccountUtilsDialog } from "./components/dialogs/AccountUtilsDialog";
-import { BulkCredentialsDialog } from "./components/dialogs/BulkCredentialsDialog";
-import { AccountCheckResultsDialog } from "./components/dialogs/AccountCheckResultsDialog";
 import { TermsCheckDialog } from "./components/dialogs/TermsCheckDialog";
 import { ActionResultsDialog } from "./components/dialogs/ActionResultsDialog";
 import { MissingAssetsDialog } from "./components/dialogs/MissingAssetsDialog";
@@ -39,7 +36,6 @@ import { GeneratorDialog } from "./components/dialogs/GeneratorDialog";
 import { VersionsDialog } from "./components/dialogs/VersionsDialog";
 import { DiagnosticsDialog } from "./components/dialogs/DiagnosticsDialog";
 import { QuickLoginDialog } from "./components/dialogs/QuickLoginDialog";
-import { PresetsDialog } from "./components/presets/PresetsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { MultiRobloxConfirm } from "./components/MultiRobloxConfirm";
 import { OutdatedVersionConfirm } from "./components/OutdatedVersionConfirm";
@@ -47,7 +43,6 @@ import { WrongAccountQueueConfirm } from "./components/WrongAccountQueueConfirm"
 import { SessionPage } from "./components/pages/SessionPage";
 import { ConsolePage } from "./components/pages/ConsolePage";
 import { AfkPage } from "./components/pages/AfkPage";
-import { GroupsPage } from "./components/pages/GroupsPage";
 import { ScriptsPage } from "./components/pages/ScriptsPage";
 import { ThemePage } from "./components/pages/ThemePage";
 import { NexusPage } from "./components/pages/NexusPage";
@@ -79,8 +74,6 @@ function AppContent() {
     store.importDialogOpen ||
     store.accountFieldsOpen ||
     store.accountUtilsOpen ||
-    store.bulkCredentialsOpen ||
-    !!store.accountCheckReport ||
     !!store.termsDialogIds ||
     !!store.actionReport ||
     !!store.missingAssets ||
@@ -90,7 +83,6 @@ function AppContent() {
     store.diagnosticsOpen ||
     store.browserCheckOpen ||
     store.quickLoginOpen ||
-    store.presetsDialog !== null ||
     store.firstRunWalkthroughOpen ||
     !!store.modal;
   const page = store.activePage;
@@ -117,10 +109,6 @@ function AppContent() {
     store.appLocked,
     store.lockApp
   );
-
-  // Launch preset da bandeja: traz a janela à frente e roda o launch normal
-  // (com a pergunta de conta online), ou avisa que é preciso destrancar.
-  useTrayPresetLaunch();
 
   // Botões laterais do mouse (Voltar/Avançar) e Alt+setas, como no navegador:
   // Voltar fecha o que está aberto por cima ou volta à página anterior. Fora da
@@ -279,7 +267,6 @@ function AppContent() {
           <SessionPage active={page === "session"} onLeave={leavePage} />
           <ConsolePage active={page === "console"} onLeave={leavePage} />
           <AfkPage active={page === "afk"} onLeave={leavePage} />
-          <GroupsPage active={page === "groups"} onLeave={leavePage} />
           <ScriptsPage active={page === "scripts"} onLeave={leavePage} />
           <ThemePage active={page === "theme"} onLeave={leavePage} />
           {ENABLE_NEXUS && <NexusPage active={page === "nexus"} onLeave={leavePage} />}
@@ -351,16 +338,6 @@ function AppContent() {
         onClose={() => store.setAccountUtilsOpen(false)}
       />
 
-      <BulkCredentialsDialog
-        open={store.bulkCredentialsOpen}
-        onClose={() => store.setBulkCredentialsOpen(false)}
-      />
-
-      <AccountCheckResultsDialog
-        open={!!store.accountCheckReport}
-        onClose={() => store.setAccountCheckReport(null)}
-      />
-
       <TermsCheckDialog open={!!store.termsDialogIds} onClose={() => store.setTermsDialogIds(null)} />
 
       <ActionResultsDialog open={!!store.actionReport} onClose={() => store.setActionReport(null)} />
@@ -387,8 +364,6 @@ function AppContent() {
       />
 
       <QuickLoginDialog open={store.quickLoginOpen} onClose={() => store.setQuickLoginOpen(false)} />
-
-      <PresetsDialog />
 
       <IsolationProgressOverlay />
 

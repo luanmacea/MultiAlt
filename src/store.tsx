@@ -17,8 +17,6 @@ import type {
   ThumbnailData,
   ParsedGroup,
   PlatformCapabilities,
-  FriendLinkState,
-  FollowUserState,
   LaunchOutcome,
   LaunchQueuePayload,
   ModerationStatus,
@@ -30,14 +28,10 @@ import type {
   UnidentifiedClient,
   ClientDrop,
   ClientHealth,
-  ClientMemory,
   AutoReconnectEntry,
   AutoReconnectPayload,
   ClosedClient,
   VaultKeyWarning,
-  LaunchPreset,
-  LaunchPresetEvent,
-  LaunchPresetView,
 } from "./types";
 import { playAfkBeep, playAfkWarningBeep } from "./utils/afkBeep";
 import { acceptFailureText, termsStateOf } from "./utils/terms";
@@ -111,7 +105,6 @@ export type AppPage =
   | "session"
   | "console"
   | "afk"
-  | "groups"
   | "scripts"
   | "theme"
   | "nexus"
@@ -151,7 +144,6 @@ import {
   clientHealthEvent,
   type AwayEvent,
 } from "./utils/awayDigest";
-import { type AccountCheckSummary } from "./utils/accountCheck";
 import {
   failureRow,
   patchRow,
@@ -171,7 +163,6 @@ import {
   getUpdaterSkipVersionKey,
 } from "./updaterChannels";
 import { addRecentJob, recordRecentGame } from "./components/server-list/types";
-import { presetAccountIds } from "./utils/presets";
 
 interface PresenceEntry {
   userId?: number;
@@ -188,8 +179,6 @@ interface RunningInstanceEntry {
   adopted?: boolean;
   /** Queda lida do log (`commands/client_health.rs`). */
   health?: ClientHealth | null;
-  /** Memória e limite (`commands/memory_ceiling.rs`); só cliente do app. */
-  memory?: ClientMemory | null;
 }
 
 interface OptimizationWarningPayload {
@@ -425,7 +414,7 @@ export interface GeneratorStartConfig {
   maxAccounts: number;
 }
 
-// Mora em utils/ para os módulos puros (presets) usarem sem carregar o store.
+// Mora em utils/ para os módulos puros usarem sem carregar o store.
 export { parsePrivateServerCode } from "./utils/privateServerCode";
 import { parsePrivateServerCode } from "./utils/privateServerCode";
 
@@ -558,23 +547,12 @@ export interface StoreValue {
   presenceByUserId: Map<number, number>;
   /**
    * Moderação lida nesta sessão (banida/advertida/encerrada), por conta. Vem do
-   * evento `account-moderation`: consulta no painel, "conferir contas" e a
-   * checagem antes do launch. Só em memória.
+   * evento `account-moderation`: consulta no painel e a checagem antes do
+   * launch. Só em memória.
    */
   moderationByUserId: Map<number, ModerationStatus>;
   /** Consulta a moderação de uma conta agora (sem refresh de sessão). */
   checkModeration: (userId: number) => Promise<ModerationStatus | null>;
-  /**
-   * "Check accounts": sessão e moderação de cada conta, só leitura e com ritmo
-   * limitado (`check_accounts`). Termina abrindo a janela de resultados
-   * (`accountCheckReport`), com uma conta ou com várias.
-   */
-  checkAccounts: (userIds: number[]) => Promise<AccountCheckSummary | null>;
-  /** Progresso do "Check accounts" em andamento; `null` quando parado. */
-  accountCheckProgress: { done: number; total: number } | null;
-  /** Resultado do último "Check accounts" em lote; não nulo = a janela de resultados está aberta. */
-  accountCheckReport: { results: AccountCheckSummary["results"]; at: number } | null;
-  setAccountCheckReport: (report: { results: AccountCheckSummary["results"]; at: number } | null) => void;
   /**
    * Acordos pendentes ("Acordos atualizados") lidos nesta sessão, por conta.
    * Só em memória; `checkTerms` e o evento `account-terms` alimentam.
@@ -605,11 +583,6 @@ export interface StoreValue {
   unidentifiedClients: UnidentifiedClient[];
   /** Queda (com motivo) de cada conta em jogo, lida do log do Roblox. */
   clientHealth: Map<number, ClientHealth>;
-  /**
-   * Memória e limite de cada cliente que o app abriu (teto de memória, só com
-   * a feature `memory-trim`). Atualizado no mesmo polling de 2,5 s.
-   */
-  clientMemory: Map<number, ClientMemory>;
   /** Diz ao app de quem é um cliente não identificado (não fecha nada). */
   identifyExternalClient: (pid: number, userId: number) => Promise<boolean>;
   /** Traz para a frente a janela de um cliente pelo PID. */
@@ -617,17 +590,6 @@ export interface StoreValue {
 
   joinServer: (userId: number, target?: LaunchTarget) => Promise<LaunchAttempt>;
   launchMultiple: (userIds: number[], target?: LaunchTarget) => Promise<void>;
-  /**
-   * Presets de launch (ideia 13). `presetsDialog` nulo = fechado; com `draft`
-   * nulo abre na lista, com rascunho abre no editor. `presetsRevision` sobe a
-   * cada resultado de preset (inclusive pelo horário) para a tela reler.
-   */
-  presetsDialog: { draft: LaunchPreset | null } | null;
-  openPresetsDialog: (draft?: LaunchPreset | null) => void;
-  closePresetsDialog: () => void;
-  presetsRevision: number;
-  /** Abre um preset pela fila normal. Devolve se começou. */
-  launchPreset: (preset: LaunchPresetView) => Promise<LaunchAttempt>;
   restartRobloxClients: (userIds: number[], options?: ActionReportOptions) => Promise<void>;
   focusRobloxClient: (userId: number) => Promise<boolean>;
   /** Fecha os clientes das contas informadas; devolve quantos foram fechados. */
@@ -638,15 +600,6 @@ export interface StoreValue {
   launchQueue: LaunchQueuePayload | null;
   launchPreparing: LaunchPreparing | null;
   setLaunchPreparing: (value: LaunchPreparing | null) => void;
-  /**
-   * Make Friends em andamento: uma entrada por conta, com o estado de cada uma.
-   * Vem inteiro do backend (`friend-link-state`) — a tela que remonta no meio
-   * não perde o progresso, e os dois lugares que disparam a operação mostram a
-   * mesma coisa em vez de cada um manter o seu `useState`.
-   */
-  friendLinkState: FriendLinkState | null;
-  /** Lote "Follow a user" em andamento (evento `follow-user-state`). */
-  followUserState: FollowUserState | null;
   refreshLaunchQueue: () => Promise<void>;
   /** Tira UMA conta da fila. Nunca fecha um cliente já aberto. */
   cancelAccountLaunch: (userId: number) => Promise<boolean>;
@@ -859,8 +812,6 @@ export interface StoreValue {
 
   accountUtilsOpen: boolean;
   setAccountUtilsOpen: (open: boolean) => void;
-  bulkCredentialsOpen: boolean;
-  setBulkCredentialsOpen: (open: boolean) => void;
   accountFieldsOpen: boolean;
   setAccountFieldsOpen: (open: boolean) => void;
   importDialogOpen: boolean;
@@ -1031,8 +982,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [avatarUrls, setAvatarUrls] = useState<Map<number, string>>(new Map());
   const [presenceByUserId, setPresenceByUserId] = useState<Map<number, number>>(new Map());
   const [moderationByUserId, setModerationByUserId] = useState<Map<number, ModerationStatus>>(new Map());
-  const [accountCheckProgress, setAccountCheckProgress] = useState<{ done: number; total: number } | null>(null);
-  const [accountCheckReport, setAccountCheckReport] = useState<StoreValue["accountCheckReport"]>(null);
   const [actionReport, setActionReport] = useState<ActionReport | null>(null);
   const startActionReport = useCallback(
     (kind: ActionKind, title: string, userIds: number[], extra?: Partial<ActionReport>) => {
@@ -1067,7 +1016,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [adoptedClients, setAdoptedClients] = useState<Set<number>>(new Set());
   const [unidentifiedClients, setUnidentifiedClients] = useState<UnidentifiedClient[]>([]);
   const [clientHealth, setClientHealth] = useState<Map<number, ClientHealth>>(new Map());
-  const [clientMemory, setClientMemory] = useState<Map<number, ClientMemory>>(new Map());
   // O efeito do polling registra aqui o seu refresh, para identificar um
   // cliente refletir na hora em vez de esperar o próximo tique.
   const refreshRunningRef = useRef<() => Promise<void>>(async () => {});
@@ -1075,9 +1023,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [needsPassword, setNeedsPassword] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [appLocked, setAppLocked] = useState(false);
-  // O backend também precisa saber que a tela trancou: o launch pela bandeja
-  // roda nele e não passa pela sobreposição de bloqueio (que é só do frontend),
-  // então sem este aviso qualquer um no PC abriria um preset com o app trancado.
+  // O backend também precisa saber que a tela trancou: a sobreposição de
+  // bloqueio é só do frontend.
   const setBackendAppLocked = useCallback((locked: boolean) => {
     void invoke("set_app_locked", { locked }).catch(() => {});
   }, []);
@@ -1139,7 +1086,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const setScriptsOpen = useCallback((open: boolean) => togglePage("scripts", open), [togglePage]);
   const [serverListOpen, setServerListOpen] = useState(false);
   const [accountUtilsOpen, setAccountUtilsOpen] = useState(false);
-  const [bulkCredentialsOpen, setBulkCredentialsOpen] = useState(false);
   const [accountFieldsOpen, setAccountFieldsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importDialogTab, setImportDialogTab] = useState<"cookie" | "userpass" | "legacy">("cookie");
@@ -1188,15 +1134,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [browserCheckOpen, setBrowserCheckOpen] = useState(false);
   const [quickLoginOpen, setQuickLoginOpen] = useState(false);
-  const [presetsDialog, setPresetsDialog] = useState<{ draft: LaunchPreset | null } | null>(null);
-  const [presetsRevision, setPresetsRevision] = useState(0);
-  const openPresetsDialog = useCallback((draft?: LaunchPreset | null) => {
-    setPresetsDialog({ draft: draft ?? null });
-  }, []);
-  const closePresetsDialog = useCallback(() => setPresetsDialog(null), []);
   const [launchQueue, setLaunchQueue] = useState<LaunchQueuePayload | null>(null);
-  const [friendLinkState, setFriendLinkState] = useState<FriendLinkState | null>(null);
-  const [followUserState, setFollowUserState] = useState<FollowUserState | null>(null);
   const [autoReconnect, setAutoReconnect] = useState<AutoReconnectEntry[]>([]);
   // Retrato anterior, para avisar só na mudança (desistiu, parou, reconectou).
   const autoReconnectRef = useRef<AutoReconnectEntry[]>([]);
@@ -1811,26 +1749,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function checkAccounts(userIds: number[]): Promise<AccountCheckSummary | null> {
-    if (userIds.length === 0) return null;
-    setAccountCheckProgress({ done: 0, total: userIds.length });
-    try {
-      const summary = await invoke<AccountCheckSummary>("check_accounts", { userIds });
-      // `Valid` pode ter mudado no backend (401 = inválida, 200 = válida de novo).
-      await loadAccounts().catch(() => {});
-      // Sempre a janela de resultados, mesmo com uma conta só (pedido do dono,
-      // 26/10/2026): é o padrão das ações, e é nela que estão "Fazer login de
-      // novo" e o motivo de cada conta.
-      setAccountCheckReport({ results: summary.results, at: Date.now() });
-      return summary;
-    } catch (e) {
-      addToast(tr("Check failed: {{error}}", { error: String(e) }), "error");
-      return null;
-    } finally {
-      setAccountCheckProgress(null);
-    }
-  }
-
   async function refreshCookie(userId: number): Promise<boolean> {
     const ok = await invoke<boolean>("refresh_cookie", { userId });
     await loadAccounts();
@@ -2240,39 +2158,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       launchClearTimeoutRef.current = null;
     }, 7000);
     return "started";
-  }
-
-  /**
-   * Preset de launch: o backend abre pela mesma fila do `launch_multiple` e
-   * anota quais clientes esta execução abriu (é o que "fechar" usa). Aqui só o
-   * mesmo retorno visual do lote e os recentes.
-   */
-  async function launchPreset(preset: LaunchPresetView): Promise<LaunchAttempt> {
-    // Preset de grupo: quem está no grupo agora (o backend resolve igual).
-    const userIds = presetAccountIds(preset, accountsRef.current);
-    const total = userIds.length;
-    clearLaunchTimeout();
-    setLaunchProgress({ mode: "multi", current: 0, total, userId: userIds[0] ?? null });
-    const launchingLine = tr("Launching {{count}} accounts...", { count: total });
-    setActionStatusMessage(launchingLine, "info", 5000);
-    try {
-      await invoke<number>("launch_preset", { id: preset.id });
-      await loadAccounts();
-      void recordRecentGame(preset.placeId, userIds[0] ?? null, parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
-      setPresetsRevision((n) => n + 1);
-      return "started";
-    } catch (e) {
-      setJoiningAccounts(new Set());
-      setLaunchProgress(null);
-      if (isLaunchAlreadyActiveError(e)) {
-        withdrawActionStatus(launchingLine);
-        reportLaunchAlreadyActive();
-        return "refused";
-      }
-      setError(launchErrorText(e, tr));
-      setActionStatusMessage(tr("Launch failed: {{error}}", { error: launchErrorText(e, tr) }), "error", 5000);
-      return "failed";
-    }
   }
 
   async function launchMultiple(userIds: number[], target?: LaunchTarget) {
@@ -3426,23 +3311,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const name = accountLabel(acct, nameMaskingRef.current, userId);
         addToast(wrongAccountToast(name, loggedUserId, queueStopped === true, tr), "warn");
       }),
-      // Presets (ideia 13). O resultado de quem clicou já aparece onde o clique
-      // foi; o que vem do horário precisa de um toast, porque ninguém clicou. A
-      // bandeja não cai aqui: ela traz a janela à frente e roda o launch normal
-      // (evento `tray-launch-preset`), então o resultado aparece como o do botão.
-      listen<LaunchPresetEvent>("launch-preset", (e) => {
-        const p = e.payload;
-        setPresetsRevision((n) => n + 1);
-        if (!p.scheduled) return;
-        if (!p.ok) {
-          addToast(tr("Preset {{name}} failed: {{error}}", { name: p.name, error: p.error ?? "" }), "error");
-        } else if (p.action === "open") {
-          addToast(tr("Preset {{name}} opened {{count}} account(s) on schedule", { name: p.name, count: p.count }), "success");
-        } else {
-          addToast(tr("Preset {{name}} closed {{count}} window(s) on schedule", { name: p.name, count: p.count }), "info");
-        }
-      }),
-      // Moderação lida pelo backend (painel, "conferir contas", antes do launch).
+      // Moderação lida pelo backend (painel, antes do launch).
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
         if (e.payload?.status) rememberModeration(e.payload.userId, e.payload.status);
       }),
@@ -3470,12 +3339,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (typeof userId !== "number") return;
         const now = new Date().toISOString();
         setAccounts((prev) => prev.map((a) => (a.UserID === userId ? { ...a, LastUse: now } : a)));
-      }),
-      listen<{ done: number; total: number }>("account-check-progress", (e) => {
-        const { done, total } = e.payload ?? { done: 0, total: 0 };
-        // Só atualiza um check em andamento: um evento atrasado depois do fim
-        // não pode reacender o "Checking…".
-        setAccountCheckProgress((prev) => (prev ? { done, total } : prev));
       }),
       listen<{ userId: number; group?: string }>("account-moderated", (e) => {
         const userId = e.payload.userId;
@@ -3708,30 +3571,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .then((fn) => (disposed ? fn() : unsubs.push(fn)))
       .catch(() => {});
 
-    // Make Friends: mesmo par (retrato inicial + evento), pelo mesmo motivo.
-    invoke<FriendLinkState>("get_friend_link_state")
-      .then((payload) => {
-        if (!disposed) setFriendLinkState(payload ?? null);
-      })
-      .catch(() => {});
-    listen<FriendLinkState>("friend-link-state", (e) => {
-      setFriendLinkState(e.payload ?? null);
-    })
-      .then((fn) => (disposed ? fn() : unsubs.push(fn)))
-      .catch(() => {});
-
-    // Follow a user: mesmo par.
-    invoke<FollowUserState>("get_follow_user_state")
-      .then((payload) => {
-        if (!disposed) setFollowUserState(payload ?? null);
-      })
-      .catch(() => {});
-    listen<FollowUserState>("follow-user-state", (e) => {
-      setFollowUserState(e.payload ?? null);
-    })
-      .then((fn) => (disposed ? fn() : unsubs.push(fn)))
-      .catch(() => {});
-
     // Reconexão automática (commands/reconnect.rs): mesmo par. Avisa quando
     // uma conta desiste, para de vez ou volta ao jogo depois de relançada.
     // Só aceita a lista de verdade: um `[]` no lugar do objeto tem `.entries`
@@ -3805,21 +3644,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = new Set<number>();
         const adopted = new Set<number>();
         const health = new Map<number, ClientHealth>();
-        const memory = new Map<number, ClientMemory>();
         for (const row of rows) {
           const userId = row.userId ?? row.user_id;
           if (typeof userId === "number") {
             next.add(userId);
             if (row.adopted) adopted.add(userId);
             if (row.health) health.set(userId, row.health);
-            if (row.memory) memory.set(userId, row.memory);
           }
         }
         if (!cancelled) {
           setLaunchedByProgram(next);
           setAdoptedClients(adopted);
           setClientHealth(health);
-          setClientMemory(memory);
         }
       } catch {
       }
@@ -3952,15 +3788,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
       listen<{ userId: number; memoryMb: number }>("roblox-low-memory", (e) => {
         addToast(tr("Watcher: low memory {{memoryMb}}MB ({{userId}})", { memoryMb: e.payload.memoryMb, userId: e.payload.userId }));
-      }),
-      // Teto de memória (memory_ceiling.rs): continuou acima depois de liberar.
-      listen<{ userId: number; memoryMb: number; limitMb: number }>("roblox-memory-limit", (e) => {
-        addToast(
-          tr("Closed {{name}}: memory stayed over its limit after it was freed", {
-            name: accountLabel(accountsRef.current.find((a) => a.UserID === e.payload.userId), nameMaskingRef.current, e.payload.userId),
-          }),
-          "warn"
-        );
       }),
       listen<{ userId: number; expected: string }>("roblox-title-mismatch", (e) => {
         addToast(tr("Watcher: title mismatch for {{userId}} ({{expected}})", { userId: e.payload.userId, expected: e.payload.expected }));
@@ -4201,7 +4028,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     presenceByUserId,
     moderationByUserId,
     checkModeration,
-    checkAccounts,
     termsByUserId,
     checkTerms,
     checkTermsBatch,
@@ -4209,9 +4035,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     termsDialogIds,
     setTermsDialogIds,
     acceptTerms,
-    accountCheckProgress,
-    accountCheckReport,
-    setAccountCheckReport,
     actionReport,
     setActionReport,
     startActionReport,
@@ -4223,23 +4046,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     adoptedClients,
     unidentifiedClients,
     clientHealth,
-    clientMemory,
     identifyExternalClient,
     focusClientWindow,
     joinServer,
     launchMultiple,
-    presetsDialog,
-    openPresetsDialog,
-    closePresetsDialog,
-    presetsRevision,
-    launchPreset,
     restartRobloxClients,
     focusRobloxClient,
     closeRobloxClients,
     killAllRobloxProcesses,
     launchQueue,
-    friendLinkState,
-    followUserState,
     refreshLaunchQueue,
     cancelAccountLaunch,
     stopLaunchQueue,
@@ -4332,8 +4147,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setServerListOpen,
     accountUtilsOpen,
     setAccountUtilsOpen,
-    bulkCredentialsOpen,
-    setBulkCredentialsOpen,
     accountFieldsOpen,
     setAccountFieldsOpen,
     importDialogOpen,

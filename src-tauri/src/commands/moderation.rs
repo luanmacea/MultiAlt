@@ -1,5 +1,5 @@
-// Moderação da conta (banida / advertida / encerrada): consulta sob demanda,
-// "conferir contas" e checagem logo antes do launch. Ver
+// Moderação da conta (banida / advertida / encerrada): consulta sob demanda e
+// checagem logo antes do launch. Ver
 // `docs/features/accounts.md` ("Moderação antes do launch").
 //
 // Regras:

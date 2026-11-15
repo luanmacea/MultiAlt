@@ -1506,8 +1506,6 @@ pub(crate) fn start_client_health_monitor(app: tauri::AppHandle) {
             closed_clients_after_health_tick(&app);
             // PC acordado durante Modo AFK / Auto Rejoin / reconexão (keep_awake.rs).
             keep_awake_tick(&app);
-            // Teto de memória dos clientes do app (commands/memory_ceiling.rs).
-            memory_ceiling_tick(&app).await;
             // Multi Roblox também para quem abre pelo site ou pelo navegador.
             if app.state::<SettingsStore>().get_bool("General", "EnableMultiRbx") {
                 let now_ms = chrono::Utc::now().timestamp_millis();

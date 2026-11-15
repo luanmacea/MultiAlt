@@ -70,8 +70,6 @@ function AppliesBadge({ text }: { text: string }) {
  * Tamanho da janela e grade, numa seção própria acima do perfil (pedido do
  * dono, 26/10/2026: dentro do perfil "Normal" ficava difícil de achar). O
  * tamanho é do perfil escolhido acima; as opções da grade valem para todos.
- * Com "Best size for each monitor" ligado, largura, altura e "Allow smaller
- * windows" ficam desabilitados (não escondidos): a grade calcula a célula.
  */
 function WindowSizeSection({
   s,
@@ -92,12 +90,7 @@ function WindowSizeSection({
     "General",
     generalKey(profile, "OverrideClientWindowSize")
   );
-  const autoFit = isWindows && s.getBool("General", "GridAutoFit");
-  const sizeDisabledReason = autoFit
-    ? "Set automatically by Best size for each monitor"
-    : !windowSizeOverrideEnabled
-      ? "Requires Override Window Size"
-      : undefined;
+  const sizeDisabledReason = !windowSizeOverrideEnabled ? "Requires Override Window Size" : undefined;
 
   return (
     <div className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 px-4 py-4">
@@ -118,15 +111,6 @@ function WindowSizeSection({
         label="Override Window Size"
         description="Optional: start Roblox in windowed mode with this size"
       />
-      {isWindows ? (
-        // Uma chave só para todos os perfis, como as outras opções da grade.
-        <Toggle
-          checked={autoFit}
-          onChange={(v) => s.setBool("General", "GridAutoFit", v)}
-          label="Best size for each monitor"
-          description="When the grid arranges the windows, each one gets the largest landscape size that still fits every window on the grid monitors, with the gap. Turns off the width, height and smaller-windows options below."
-        />
-      ) : null}
       <NumberField
         value={s.getNumber("General", generalKey(profile, "ClientWindowWidth"), 1280)}
         onChange={(v) => s.setNumber("General", generalKey(profile, "ClientWindowWidth"), v)}
@@ -158,20 +142,15 @@ function WindowSizeSection({
             checked={s.get("General", "AutoArrangeGrid", "true") !== "false"}
             onChange={(v) => s.setBool("General", "AutoArrangeGrid", v)}
             label="Arrange in grid on launch"
-            description="Each new Roblox window takes the first free cell of the grid (Console page). Accounts with their own window size keep it."
+            description="Each new Roblox window takes the first free cell of the grid (Console page)."
           />
           {/* Ideia 22 (docs/features/performance.md): só nos clientes que o
               app abriu, no launch e no botão Arrange in grid. */}
           <Toggle
             checked={s.getBool("General", "GridAllowSmallWindows")}
             onChange={(v) => s.setBool("General", "GridAllowSmallWindows", v)}
-            disabled={autoFit}
             label="Allow smaller windows in the grid"
-            description={
-              autoFit
-                ? "Set automatically by Best size for each monitor"
-                : "Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen. Also applies to the Arrange in grid button."
-            }
+            description="Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen. Also applies to the Arrange in grid button."
           />
           <Toggle
             checked={s.getBool("General", "GridBorderless")}
@@ -693,65 +672,6 @@ function OptimizationProfileSection({
   );
 }
 
-/**
- * O que acontece com os clientes enquanto o usuário joga, valendo para todos
- * os perfis (uma chave só): ver docs/features/performance.md. Só clientes
- * que o app abriu — o aberto pelo site fica como está.
- */
-function WindowInUseSection({ s }: { s: UseSettingsReturn }) {
-  const t = useTr();
-  // O volume ao vivo usa COM de áudio e só existe no binário com a feature
-  // `live-audio` (nas duas edições, via `standard`): sem ela, nada de opção.
-  const capabilities = useStore().platformCapabilities;
-  const liveAudio = capabilities?.supportsLiveAudio === true;
-  // Teto de memória (commands/memory_ceiling.rs): só com a feature
-  // `memory-trim` (nas duas edições). Cada conta muda o seu na página Session.
-  const memoryTrim = capabilities?.supportsMemoryTrim === true;
-  return (
-    <div className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 px-4 py-4">
-      <div className="flex items-center justify-between gap-3">
-        <SectionLabel>{t("While you play")}</SectionLabel>
-        <AppliesBadge text={t("Applies right away")} />
-      </div>
-      <Toggle
-        checked={s.getBool("Optimization", "FollowFocus")}
-        onChange={(v) => s.setBool("Optimization", "FollowFocus", v)}
-        label="Free memory from the windows you're not using"
-        description="When you leave a Roblox window, it gives back to Windows the memory it isn't using. Every window keeps running normally. Only windows opened by MultiAlt; a new one gets 35 s to load first."
-      />
-      {liveAudio ? (
-        <Toggle
-          checked={s.getBool("Optimization", "MuteBackgroundClients")}
-          onChange={(v) => s.setBool("Optimization", "MuteBackgroundClients", v)}
-          label="Mute the Roblox windows you're not using"
-          description="Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them."
-        />
-      ) : null}
-      {memoryTrim ? (
-        <>
-          <NumberField
-            value={s.getNumber("Optimization", "MemoryLimit", 0)}
-            onChange={(v) => s.setNumber("Optimization", "MemoryLimit", v)}
-            label="Memory limit per client"
-            description="Measured like the Memory column in Task Manager. Above it, MultiAlt asks Windows to free the client's memory; after that it stays lower until the game needs it again. It asks again at most every 5 minutes, only if the client climbs back over. 0 = no limit. Each account can have its own on the Session page."
-            min={0}
-            max={65536}
-            suffix="MB"
-          />
-          {/* Opção própria (11/10/2026): antes era o "Close If Memory Low" do
-              Watcher, que liga também a regra de memória baixa. */}
-          <Toggle
-            checked={s.getBool("Optimization", "CloseOverMemoryLimit")}
-            onChange={(v) => s.setBool("Optimization", "CloseOverMemoryLimit", v)}
-            label="Close a client that stays over its limit"
-            description="If a client is still over its limit a minute after MultiAlt freed its memory, it is closed. Only that client, only windows MultiAlt opened. Off: MultiAlt only frees memory and never closes."
-          />
-        </>
-      ) : null}
-    </div>
-  );
-}
-
 interface ProfileOption {
   id: OptimizationProfileId;
   label: string;
@@ -823,10 +743,6 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
 
   return (
     <div className="space-y-4">
-      {/* Vale na hora: fica acima dos perfis (que valem no próximo launch),
-          para não separar o seletor de perfil das opções dele. */}
-      {isWindows ? <WindowInUseSection s={s} /> : null}
-
       <div className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 px-4 py-4">
         <SectionLabel>{t("Optimization Profiles")}</SectionLabel>
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -838,20 +754,6 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
             ? t("These settings apply only to Roblox processes launched by MultiAlt")
             : t("Windows-only process policies are unavailable on this platform")}
         </div>
-        {isWindows ? (
-          // Ideia 21: uma chave só, para todos os perfis. O backend anota o
-          // valor de antes da primeira mudança e devolve quando nenhum Roblox
-          // está aberto (platform/windows/settings_restore.rs).
-          <>
-            <Divider />
-            <Toggle
-              checked={s.getBool("General", "RestoreRobloxSettingsOnExit")}
-              onChange={(v) => s.setBool("General", "RestoreRobloxSettingsOnExit", v)}
-              label="Restore Roblox settings when no game is open"
-              description="Puts back your own FPS, volume, graphics, window and FastFlags as soon as no Roblox is open, after you close the game or MultiAlt, so the game you open from the website is not left with them."
-            />
-          </>
-        ) : null}
         {bottingEnabled ? (
           <>
             <Divider />

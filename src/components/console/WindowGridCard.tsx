@@ -212,7 +212,7 @@ export function WindowGridCard() {
           checked={autoArrange}
           onChange={(next) => void store.updateSetting("General", "AutoArrangeGrid", String(next))}
           label="Arrange in grid on launch"
-          description="Each new Roblox window takes the first free cell of the grid. Accounts with their own window size keep it."
+          description="Each new Roblox window takes the first free cell of the grid."
         />
       </div>
     </section>

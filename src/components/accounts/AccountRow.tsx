@@ -104,8 +104,7 @@ export function AccountRow({ account, variant = "row" }: { account: Account; var
       title: t("Roblox asked for a human check last time and it was not solved. Open the account and solve it in the game window."),
     });
   }
-  // Moderação lida do Roblox nesta sessão (painel, "Check accounts" ou antes do
-  // launch). Só aparece quando há algo: conta limpa não ganha selo.
+  // Moderação lida do Roblox nesta sessão (painel ou antes do launch). Só aparece quando há algo: conta limpa não ganha selo.
   const moderation = store.moderationByUserId?.get(account.UserID);
   const moderationKind = moderationBadge(moderation);
   if (moderation && moderationKind) {

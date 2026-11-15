@@ -21,7 +21,6 @@ export type TourId =
   | "session"
   | "console"
   | "afk"
-  | "groups"
   | "scripts"
   | "theme"
   | "settings"
@@ -184,7 +183,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "settings",
         title: "Keep accounts in game",
-        description: "Settings for every account: reconnect the ones that drop and the memory limit.",
+        description: "Settings for every account: reconnect the ones that drop.",
         targets: [tour("session-summary")],
       },
     ],
@@ -252,38 +251,6 @@ export const TOURS: Record<TourId, TourDefinition> = {
         title: "Auto Rejoin: who",
         description: "Tick the accounts, then click Start Auto Rejoin at the top. Stop Auto Rejoin keeps the games open.",
         targets: [inside("afk-page", "afk-rejoin-accounts"), inside("afk-page", "afk-rejoin-start")],
-      },
-    ],
-  },
-
-  groups: {
-    id: "groups",
-    label: "Groups",
-    root: tour("groups-page"),
-    steps: [
-      {
-        id: "search",
-        title: "Find a group",
-        description: "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.",
-        targets: [tour("groups-search")],
-      },
-      {
-        id: "pick",
-        title: "Pick the group",
-        description: "Click a card to choose it. The tag says if anyone can join or if the owner approves each request.",
-        targets: [tour("groups-results"), tour("groups-search")],
-      },
-      {
-        id: "accounts",
-        title: "Pick the accounts",
-        description: "Tick the accounts that should join (click anywhere on an account). The ones selected in your list come ticked.",
-        targets: [tour("groups-accounts")],
-      },
-      {
-        id: "join",
-        title: "Join",
-        description: "Click Join group. Accounts join one at a time. If Roblox asks an account to confirm something, use Open in browser on it, accept what Roblox shows, then Try again.",
-        targets: [tour("groups-join"), tour("groups-accounts")],
       },
     ],
   },

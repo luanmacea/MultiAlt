@@ -19,8 +19,6 @@ import { useTr } from "../../i18n/text";
 import {
   ACTION_OUTCOME_ORDER,
   countOutcomes,
-  rowsFromFollow,
-  rowsFromFriendLink,
   sortRows,
   type ActionKind,
   type ActionOutcome,
@@ -48,8 +46,8 @@ const TONES: Record<ActionOutcome, string> = {
 };
 
 /**
- * Resultado conta a conta das ações do menu "Actions" e do clique direito —
- * o mesmo desenho do "Check accounts": números que filtram, uma linha por
+ * Resultado conta a conta das ações do menu "Actions" e do clique direito:
+ * números que filtram, uma linha por
  * conta com o motivo, e o que dá para fazer com o que falhou. Sessão morta
  * vira "precisa de login" e oferece "Fazer login de novo". Ver
  * docs/features/accounts.md.
@@ -72,20 +70,7 @@ export function ActionResultsDialog({ open, onClose }: { open: boolean; onClose:
     if (!open) setFilter(null);
   }, [open]);
 
-  const loginDetail = t("Roblox ended this session. Sign in again to use the account.");
-  // Make Friends e Follow: as linhas vêm ao vivo do backend enquanto rodam.
-  const liveRows = useMemo(() => {
-    if (!report?.running) return null;
-    if (report.kind === "make-friends" && store.friendLinkState?.accounts.length) {
-      return rowsFromFriendLink(store.friendLinkState, loginDetail);
-    }
-    if (report.kind === "follow" && store.followUserState?.accounts.length) {
-      return rowsFromFollow(store.followUserState, loginDetail, t("Waiting for you in the browser window"));
-    }
-    return null;
-  }, [report, store.friendLinkState, store.followUserState, loginDetail, t]);
-
-  const allRows = useMemo(() => sortRows(liveRows ?? report?.rows ?? []), [liveRows, report]);
+  const allRows = useMemo(() => sortRows(report?.rows ?? []), [report]);
   const counts = useMemo(() => countOutcomes(allRows), [allRows]);
   const accountsById = useMemo(() => new Map(store.accounts.map((a) => [a.UserID, a])), [store.accounts]);
 
@@ -251,17 +236,13 @@ function okLabel(kind: ActionKind, outcome: ActionOutcome, t: ReturnType<typeof 
     case "skipped":
       return t("Skipped");
     case "already":
-      return kind === "follow" ? t("Already following") : t("Already done");
+      return t("Already done");
     default:
       switch (kind) {
         case "refresh-cookies":
           return t("Refreshed");
         case "copy-cookies":
           return t("Copied");
-        case "make-friends":
-          return t("Linked");
-        case "follow":
-          return t("Followed");
         case "move-group":
           return t("Moved");
         case "restart-clients":

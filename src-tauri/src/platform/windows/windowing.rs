@@ -111,6 +111,16 @@ pub fn root_window_at(x: i32, y: i32) -> HWND {
     unsafe { GetAncestor(hwnd, GA_ROOT) }
 }
 
+/// Os clientes que o app abriu: rastreados e não adotados.
+fn launched_client_pids() -> std::collections::HashSet<u32> {
+    tracker()
+        .get_all()
+        .into_iter()
+        .filter(|p| !p.adopted)
+        .map(|p| p.pid)
+        .collect()
+}
+
 /// O PID dono da janela, ou `None` para janela nula.
 pub fn window_pid(hwnd: HWND) -> Option<u32> {
     if hwnd.is_null() {
@@ -905,9 +915,9 @@ pub fn hold_window_rect(hwnd: HWND, rect: (i32, i32, i32, i32), allow_small: boo
 // primeira célula livre, e nenhuma janela já aberta se mexe — o usuário pode
 // estar jogando nela. Grade cheia: dá a volta e sobrepõe a partir da célula 0
 // (a menos ocupada, empate na de menor índice). O botão manual usa as mesmas
-// células, na ordem das janelas, e também dá a volta. Janelas de contas com
-// tamanho próprio (exceção de launch) ficam fora dos dois: nem são movidas,
-// nem contam como ocupando célula.
+// células, na ordem das janelas, e também dá a volta. Janelas em
+// `excluded_pids` ficam fora dos dois: nem são movidas, nem contam como
+// ocupando célula.
 
 #[derive(Clone, Serialize)]
 pub struct MonitorInfoDto {
@@ -1422,68 +1432,6 @@ fn cell_that_fits(
     None
 }
 
-/// Formatos aceitos no "melhor tamanho": deitado, de 4:3 a 16:9 — nem
-/// esticado para um lado, nem em pé.
-const AUTO_FIT_RATIOS: [(i64, i64); 4] = [(4, 3), (3, 2), (16, 10), (16, 9)];
-
-/// A maior célula, num dos `AUTO_FIT_RATIOS`, em que `count` janelas cabem nos
-/// `monitors` com o `gap` (fora as células cobertas por `blockers`). `None` sem
-/// nada a arrumar, sem monitor, ou se nem no piso (`MIN_SMALL_GRID_CELL`) cabem.
-///
-/// A melhor célula sempre encosta numa borda: ou a largura é a de `c` colunas
-/// num monitor, ou a altura é a de `r` linhas. Basta testar esses tamanhos, do
-/// maior para o menor, em vez de varrer pixel a pixel.
-fn best_fit_cell(
-    monitors: &[MonitorInfoDto],
-    gap: impl Into<GridGap>,
-    count: usize,
-    blockers: &[(i32, i32, i32, i32)],
-) -> Option<(i32, i32)> {
-    if count == 0 || monitors.is_empty() {
-        return None;
-    }
-    let gap: GridGap = gap.into();
-    let (g, f) = (gap.gap.max(0), gap.frame);
-    let fits = |c: (i32, i32)| -> bool {
-        grid_slots(monitors, c.0, c.1, gap)
-            .iter()
-            .filter(|s| !blockers.iter().any(|&b| slot_overlaps(s, c, b)))
-            .count()
-            >= count
-    };
-    let lines = count.min(MAX_GRID_SLOTS) as i32;
-    let mut best: Option<(i32, i32)> = None;
-    for &(a, b) in &AUTO_FIT_RATIOS {
-        let mut widths: Vec<i32> = Vec::new();
-        for m in monitors {
-            for n in 1..=lines {
-                // `n` colunas: gap + n*w + (n-1)*gap <= largura, com `w` a
-                // parte visível (a janela mais a borda invisível).
-                widths.push((m.width - n * g) / n + f.left + f.right);
-                // `n` linhas, convertidas em largura pelo formato.
-                let h = (m.height - n * g) / n + f.top + f.bottom;
-                widths.push(((h as i64 * a) / b) as i32);
-            }
-        }
-        widths.sort_unstable_by(|x, y| y.cmp(x));
-        widths.dedup();
-        for w in widths {
-            let h = ((w as i64 * b) / a) as i32;
-            if w < MIN_SMALL_GRID_CELL.0 || h < MIN_SMALL_GRID_CELL.1 {
-                break;
-            }
-            if fits((w, h)) {
-                let area = |c: (i32, i32)| c.0 as i64 * c.1 as i64;
-                if best.map_or(true, |cur| area((w, h)) > area(cur)) {
-                    best = Some((w, h));
-                }
-                break;
-            }
-        }
-    }
-    best
-}
-
 /// A célula para a janela nova: a menos ocupada, empate na de menor índice —
 /// ou seja, a primeira livre; com a grade cheia, dá a volta a partir da 0.
 /// `occupants`: retângulos `(x, y, w, h)` das janelas da grade já abertas; uma
@@ -1564,17 +1512,6 @@ pub struct GridWindowStyle {
     pub allow_small: bool,
     /// `General.GridBorderless`.
     pub borderless: bool,
-    /// `General.GridAutoFit`: a célula é a maior em que todas as janelas cabem
-    /// nos monitores escolhidos (`best_fit_cell`), não o tamanho configurado.
-    pub auto_fit: bool,
-}
-
-impl GridWindowStyle {
-    /// Célula menor que o mínimo do Roblox: pedida, ou implícita no "melhor
-    /// tamanho" (sem ela a conta dá células que o Roblox cresce de volta).
-    pub fn small_cells(&self) -> bool {
-        self.allow_small || self.auto_fit
-    }
 }
 
 /// Os flags do `SetWindowPos` da grade: nunca rouba o foco nem mexe na ordem;
@@ -1850,7 +1787,7 @@ pub struct GridRequest {
     /// Índices de 1 em diante; vazio = todos os monitores.
     pub monitor_indices: Vec<usize>,
     pub gap: i32,
-    /// PIDs fora da grade (contas com janela própria).
+    /// PIDs fora da grade.
     pub excluded_pids: std::collections::HashSet<u32>,
     /// Célula menor que o mínimo e sem moldura.
     pub style: GridWindowStyle,
@@ -1878,7 +1815,7 @@ pub fn place_in_grid(
     }
     // A grade só é chamada para clientes que o app abriu. A moldura sai antes
     // de medir: sem ela a janela inteira é área útil.
-    let small = request.style.small_cells();
+    let small = request.style.allow_small;
     let (current, client) = if request.style.borderless {
         make_borderless(hwnd, pid);
         match movable_window(hwnd) {
@@ -1920,38 +1857,6 @@ pub fn place_in_grid(
     let gap = GridGap { gap: request.gap, frame: grid_frame(request.style, probe) };
     let own = own_frame(hwnd, gap.frame);
     let occupant_wins: Vec<RobloxWin> = occupant_wins.into_iter().map(|w| cell_of_window(w, gap.frame)).collect();
-    if request.style.auto_fit {
-        let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
-        let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
-        let occupants: Vec<(i32, i32, i32, i32)> = occupant_wins.iter().map(rect).collect();
-        let blockers = visible_blockers(&blocker_wins.iter().map(rect).collect::<Vec<_>>(), gap.frame);
-        if let Some(best) = best_fit_cell(&monitors, gap, occupants.len() + 1, &blockers) {
-            // Uma janela a mais muda o melhor tamanho: rearruma todas nele.
-            // Com o tamanho igual, a nova só pega a primeira célula livre e
-            // ninguém se mexe.
-            if !occupant_wins.is_empty() && grid_cell_in_use(&occupant_wins) != Some(best) {
-                let _ = arrange_roblox_grid_locked(
-                    &request.monitor_indices,
-                    request.gap,
-                    size,
-                    &request.excluded_pids,
-                    request.style,
-                    false,
-                );
-                return match get_window_position(hwnd) {
-                    Some(r) => WindowEnforcement::Placed(r),
-                    None => WindowEnforcement::Skipped,
-                };
-            }
-            let slots = grid_slots(&monitors, best.0, best.1, gap);
-            let target = match pick_grid_slot(&slots, best, &occupants, &blockers) {
-                Some(i) => rect_in_cell((slots[i].x, slots[i].y, best.0, best.1), gap.frame, own),
-                None => (current.0, current.1, best.0, best.1),
-            };
-            remember_grid_cell(hwnd as isize, Some(target), false);
-            return move_to_with(hwnd, current, target, true);
-        }
-    }
     // Janela que já está no tamanho da grade (uma organização anterior a pegou,
     // quando várias contas abrem quase juntas) também vai sem o mínimo do
     // Roblox: medi-la de novo a fazia crescer até ele, por cima das outras
@@ -2086,7 +1991,7 @@ fn arrange_roblox_grid_locked(
         grid_windows(list_roblox_windows(), minimized)
             .into_iter()
             .partition(|w| excluded_pids.contains(&w.pid));
-    let mut small = style.small_cells();
+    let mut small = style.allow_small;
     let blockers: Vec<(i32, i32, i32, i32)> = excluded.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
     if wins.is_empty() {
         return Err("Nenhuma janela de Roblox aberta foi encontrada.".to_string());
@@ -2116,15 +2021,8 @@ fn arrange_roblox_grid_locked(
     let gap = GridGap { gap, frame: grid_frame(style, framed) };
     let wins: Vec<RobloxWin> = wins.into_iter().map(|w| cell_of_window(w, gap.frame)).collect();
     let blockers = visible_blockers(&blockers, gap.frame);
-    // "Melhor tamanho": a célula sai da conta, não do tamanho configurado.
-    let auto_cell = if style.auto_fit {
-        best_fit_cell(&monitors, gap, wins.len(), &blockers)
-    } else {
-        None
-    };
-    let (cell_w, cell_h) = match (auto_cell, size) {
-        (Some(best), _) => best,
-        (None, Some((tw, th))) => {
+    let (cell_w, cell_h) = match size {
+        Some((tw, th)) => {
             let first = probe.unwrap_or(wins[0]);
             let client = if probe.is_some() {
                 client_area_size(first.hwnd as HWND).unwrap_or((first.w, first.h))
@@ -2138,12 +2036,9 @@ fn arrange_roblox_grid_locked(
                 client,
             )
         }
-        (None, None) => most_common_size(&wins),
+        None => most_common_size(&wins),
     };
     let (cell_w, cell_h) = match probe {
-        // A célula do "melhor tamanho" já é a final: medir a janela aqui só
-        // traria o mínimo do Roblox de volta.
-        _ if auto_cell.is_some() => (cell_w, cell_h),
         Some(first) => grid_cell_size(
             (cell_w, cell_h),
             accepted_size(
@@ -2297,14 +2192,12 @@ fn read_process_memory_with(pid: u32, access: u32) -> Option<(Option<usize>, usi
 }
 
 /// Memória do processo em MB, **a mesma da coluna "Memória" do Gerenciador de
-/// Tarefas**: o working set privado (`PrivateWorkingSetSize`). É o número da
-/// linha "Em jogo" da página Session, o que o teto de memória compara com o
-/// limite e o que o "Close If Memory Low" do Watcher compara com o mínimo.
+/// Tarefas**: o working set privado (`PrivateWorkingSetSize`). É o que o
+/// "Close If Memory Low" do Watcher compara com o mínimo.
 ///
 /// Até 11/10/2026 era o `WorkingSetSize` (working set inteiro, com as páginas
 /// compartilhadas e a memória de vídeo mapeada): num cliente Roblox dava ~4 GB
-/// com o Gerenciador mostrando ~1,2 GB, quase não mexia (a parte compartilhada é
-/// estável) e ficava acima do limite logo depois de cada liberação.
+/// com o Gerenciador mostrando ~1,2 GB.
 ///
 /// Sem a memória privada (Windows anterior ao 10 1809), cai para o working set
 /// inteiro — maior que o do Gerenciador, mas é o que dá para ler sem percorrer

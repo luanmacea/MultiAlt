@@ -247,17 +247,7 @@ async fn launch_account_for_cycle(
         )
     };
 
-    // Exceções da conta valem no Botting também: a conta principal continua
-    // sendo a mesma conta, esteja ela numa fila de launch ou num ciclo de bot.
     let account_snapshot = app.state::<AccountStore>().get_all().ok();
-    let account_overrides = account_snapshot
-        .as_ref()
-        .and_then(|list| list.iter().find(|a| a.user_id == user_id))
-        .and_then(|a| account_client_overrides(&a.fields));
-    let start_minimized = account_overrides
-        .as_ref()
-        .and_then(|o| o.start_minimized)
-        .unwrap_or(start_minimized);
 
     // Versão do catálogo que a conta usa — a mesma resolução que
     // `commands/launch.rs` já faz para o launch avulso e para a fila (Task 3
@@ -356,7 +346,6 @@ async fn launch_account_for_cycle(
         patch_client_settings_for_launch(
             &settings,
             launch_profile,
-            account_overrides.as_ref(),
             Some(&client_dir),
         )
     };
@@ -433,11 +422,7 @@ async fn launch_account_for_cycle(
         app,
         pid,
         client_window_plan(ClientWindowInputs {
-            fullscreen: resolved_window.fullscreen,
             window_size: resolved_window.window_size,
-            keeps_own_window: account_overrides
-                .as_ref()
-                .is_some_and(|o| o.keeps_own_window()),
             start_minimized,
             auto_arrange_grid,
             saved_rect: None,

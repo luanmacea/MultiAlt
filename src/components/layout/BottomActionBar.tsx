@@ -1,46 +1,27 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
-import { usePrompt, useConfirm } from "../../hooks/usePrompt";
+import { usePrompt } from "../../hooks/usePrompt";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
 import { copyAccountSecret } from "../../utils/copySecret";
 import { collectGroupNames, groupLabel } from "../../types";
 import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
-import { failureRow, rowsFromFollow, rowsFromFriendLink } from "../../utils/actionReport";
-import type { FollowUserState, FriendLinkState } from "../../types";
-import { ChevronDown, FileCheck, Gamepad2, Settings2, ShieldCheck, UserCheck, Users } from "lucide-react";
-
-/**
- * Faixa aceita para o delay entre pedidos de amizade, em segundos. É a mesma
- * do backend (`resolve_friend_delay_ms` limita a 500–60000 ms): um campo que
- * mostra 0,1 s enquanto o backend usa 0,5 s estaria mentindo.
- */
-const FRIEND_DELAY_MIN_S = 0.5;
-const FRIEND_DELAY_MAX_S = 60;
-const FRIEND_DELAY_DEFAULT_S = 2.5;
+import { ChevronDown, FileCheck, Gamepad2, Settings2 } from "lucide-react";
 
 export function BottomActionBar() {
   const t = useTr();
   const store = useStore();
   const prompt = usePrompt();
-  const confirm = useConfirm();
   const confirmCopyCredential = useCopyCredentialWarning();
 
   const [actionsOpen, setActionsOpen] = useState(false);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
-  const [friendMenuOpen, setFriendMenuOpen] = useState(false);
-  const [friendBusy, setFriendBusy] = useState(false);
-  const [followMenuOpen, setFollowMenuOpen] = useState(false);
-  const [followBusy, setFollowBusy] = useState(false);
-  const [followQuery, setFollowQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
 
   const count = store.selectedIds.size;
   const isSingle = count === 1;
   const accounts = store.selectedAccounts;
-  const checkProgress = store.accountCheckProgress;
 
   const bottingActive = store.bottingStatus?.active === true;
   const bottingEnabled = store.settings?.General?.BottingEnabled === "true";
@@ -76,164 +57,16 @@ export function BottomActionBar() {
 
   // Close dropdown when clicking outside
   useEffect(() => {
-    if (!actionsOpen && !groupMenuOpen && !friendMenuOpen && !followMenuOpen) return;
+    if (!actionsOpen && !groupMenuOpen) return;
     function handler(e: MouseEvent) {
       if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
         setActionsOpen(false);
         setGroupMenuOpen(false);
-        setFriendMenuOpen(false);
-        setFollowMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [actionsOpen, groupMenuOpen, friendMenuOpen, followMenuOpen]);
-
-  async function handleMakeFriends(mode: "mesh" | "star", mainUserId: number | null) {
-    setFriendMenuOpen(false);
-    setActionsOpen(false);
-    if (count < 2) {
-      store.addToast(t("Select at least 2 accounts."));
-      return;
-    }
-    const reqCount = mode === "mesh" ? count * (count - 1) : Math.max(0, count - 1) * 2;
-    if (
-      reqCount > 30 &&
-      !(await confirm(
-        tr(
-          "This will send {{n}} friend requests (~{{min}} min). Roblox may rate-limit new accounts. Continue?",
-          { n: reqCount, min: Math.ceil((reqCount * 2.5) / 60) }
-        )
-      ))
-    ) {
-      return;
-    }
-    setFriendBusy(true);
-    const ids = accounts.map((a) => a.UserID);
-    store.startActionReport("make-friends", t("Make friends"), ids);
-    try {
-      const res = await invoke<{
-        pairsTotal: number;
-        alreadyFriends: number;
-        verifiedOk: number;
-        failed: number;
-      }>("make_selected_friends", {
-        userIds: ids,
-        mode,
-        mainUserId: mode === "star" ? mainUserId : null,
-        delayMs: friendDelayMs(),
-      });
-      const final = await invoke<FriendLinkState>("get_friend_link_state").catch(() => null);
-      store.finishActionReport({
-        ...(final?.accounts.length ? { rows: rowsFromFriendLink(final, loginDetail()) } : {}),
-        summary: tr("Friends linked: {{ok}} formed, {{already}} already, {{fail}} failed (of {{total}} pairs)", {
-          ok: res.verifiedOk,
-          already: res.alreadyFriends,
-          fail: res.failed,
-          total: res.pairsTotal,
-        }),
-      });
-    } catch (e) {
-      store.finishActionReport({
-        rows: ids.map((userId) => failureRow(userId, e, loginDetail())),
-        summary: tr("Friend linking failed: {{error}}", { error: String(e) }),
-      });
-    } finally {
-      setFriendBusy(false);
-    }
-  }
-
-  /**
-   * "Follow a user": as contas selecionadas seguem um alvo — digitado (nome,
-   * ID ou link do perfil; não precisa estar no app) ou escolhido na lista de
-   * contas. O alvo nunca segue a si mesmo: o backend o tira da seleção.
-   */
-  async function runFollow(target: { id: number; name: string; label: string }) {
-    setFollowMenuOpen(false);
-    setActionsOpen(false);
-    setFollowBusy(true);
-    const followerIds = accounts.map((a) => a.UserID).filter((id) => id !== target.id);
-    store.startActionReport("follow", tr("Follow {{name}}", { name: target.label }), followerIds);
-    try {
-      const res = await invoke<{
-        total: number;
-        followed: number;
-        alreadyFollowing: number;
-        failed: number;
-        skippedTarget: boolean;
-      }>("follow_user_with_accounts", {
-        userIds: accounts.map((a) => a.UserID),
-        targetUserId: target.id,
-        targetName: target.name,
-        delayMs: friendDelayMs(),
-      });
-      const final = await invoke<FollowUserState>("get_follow_user_state").catch(() => null);
-      const rows = final?.accounts.length
-        ? rowsFromFollow(final, loginDetail(), t("Waiting for you in the browser window"))
-        : [];
-      if (res.skippedTarget) {
-        rows.push({
-          userId: target.id,
-          outcome: "skipped",
-          detail: t("This is the account being followed: an account can't follow itself."),
-        });
-      }
-      store.finishActionReport({
-        ...(rows.length ? { rows } : {}),
-        summary: tr("Follow {{name}}: {{ok}} followed, {{already}} already following, {{fail}} failed", {
-          name: target.label,
-          ok: res.followed,
-          already: res.alreadyFollowing,
-          fail: res.failed,
-        }),
-      });
-      setFollowQuery("");
-    } catch (e) {
-      store.finishActionReport({
-        rows: followerIds.map((userId) => failureRow(userId, e, loginDetail())),
-        summary: tr("Follow failed: {{error}}", { error: String(e) }),
-      });
-    } finally {
-      setFollowBusy(false);
-    }
-  }
-
-  /** Alvo digitado: confere no Roblox quem é e confirma antes de disparar. */
-  async function handleFollowTyped() {
-    const query = followQuery.trim();
-    if (!query) return;
-    let user: { id: number; name: string; displayName: string };
-    try {
-      user = await invoke<{ id: number; name: string; displayName: string }>("resolve_follow_target", { query });
-    } catch (e) {
-      store.addToast(tr("User not found: {{error}}", { error: String(e) }));
-      return;
-    }
-    const followers = accounts.filter((a) => a.UserID !== user.id).length;
-    if (followers === 0) {
-      store.addToast(t("Select at least one account other than the one being followed."));
-      return;
-    }
-    const label =
-      user.displayName && user.displayName !== user.name ? `${user.displayName} (@${user.name})` : `@${user.name}`;
-    if (
-      !(await confirm(
-        tr("{{count}} account(s) will follow {{name}} (ID {{id}}). Continue?", {
-          count: followers,
-          name: label,
-          id: user.id,
-        })
-      ))
-    ) {
-      return;
-    }
-    await runFollow({ id: user.id, name: user.name, label });
-  }
-
-  /** A mensagem das linhas de sessão morta (com "Fazer login de novo" na janela). */
-  function loginDetail() {
-    return t("Roblox ended this session. Sign in again to use the account.");
-  }
+  }, [actionsOpen, groupMenuOpen]);
 
   // Relato do dono (25/10/2026): com sessões inválidas, "nada acontecia" — o
   // erro de cada conta era engolido e só um toast de contagem passava.
@@ -245,11 +78,6 @@ export function BottomActionBar() {
     } finally {
       setRefreshing(false);
     }
-  }
-
-  async function handleCheckAccounts() {
-    setActionsOpen(false);
-    await store.checkAccounts(accounts.map((a) => a.UserID));
   }
 
   async function handleCheckTerms() {
@@ -370,82 +198,6 @@ export function BottomActionBar() {
    */
   const displayName = singleAccount ? accountLabel(singleAccount, store) : null;
 
-  /**
-   * Progresso do Make Friends vindo da store (evento `friend-link-state`).
-   * Conta **contas**, não pares: "2 de 3" com 3 pares não dizia quantas contas
-   * já tinham terminado. O estado morava aqui num `useState` + listener
-   * duplicado na sidebar; agora os dois leem a mesma fonte.
-   */
-  /**
-   * Segundos entre pedidos de amizade. O ritmo é o que decide se o Roblox
-   * aplica rate limit (ou pede captcha) no lote inteiro, e o controle existia
-   * só na barra lateral de multi-seleção — que ninguém conseguia abrir e foi
-   * apagada, deixando o valor editável apenas pelo INI.
-   *
-   * Guardado em `Friends.RequestDelayMs` (o mesmo que o backend já consultava
-   * quando o pedido vem sem delay explícito): ajustar uma vez basta.
-   */
-  const savedDelayMs = Number(store.settings?.Friends?.RequestDelayMs);
-  const savedDelaySeconds =
-    Number.isFinite(savedDelayMs) && savedDelayMs > 0 ? savedDelayMs / 1000 : FRIEND_DELAY_DEFAULT_S;
-  const [friendDelay, setFriendDelay] = useState(String(savedDelaySeconds));
-
-  // A tela pode abrir antes de as settings chegarem; quando chegam, o campo
-  // acompanha — desde que o usuário ainda não tenha digitado nada nele.
-  const delayTouchedRef = useRef(false);
-  useEffect(() => {
-    if (!delayTouchedRef.current) setFriendDelay(String(savedDelaySeconds));
-  }, [savedDelaySeconds]);
-
-  /** Fecha a edição: limita à faixa que o backend respeita e persiste. */
-  function commitFriendDelay() {
-    const parsed = parseFloat(friendDelay.replace(",", "."));
-    const seconds = Number.isFinite(parsed)
-      ? Math.min(Math.max(parsed, FRIEND_DELAY_MIN_S), FRIEND_DELAY_MAX_S)
-      : savedDelaySeconds;
-    setFriendDelay(String(seconds));
-    delayTouchedRef.current = false;
-    const ms = Math.round(seconds * 1000);
-    if (ms === Math.round(savedDelaySeconds * 1000)) return;
-    invoke("update_setting", { section: "Friends", key: "RequestDelayMs", value: String(ms) })
-      .then(() => store.reloadSettings())
-      .catch((e) => store.addToast(tr("Could not save: {{error}}", { error: String(e) })));
-  }
-
-  /** O que vai no `invoke`: o campo manda, já limitado. */
-  function friendDelayMs(): number {
-    const parsed = parseFloat(friendDelay.replace(",", "."));
-    const seconds = Number.isFinite(parsed)
-      ? Math.min(Math.max(parsed, FRIEND_DELAY_MIN_S), FRIEND_DELAY_MAX_S)
-      : savedDelaySeconds;
-    return Math.round(seconds * 1000);
-  }
-
-  const friendLink = store.friendLinkState;
-  const friendPhaseLabel =
-    friendLink && friendLink.active && friendLink.total > 0
-      ? t("Friends {{done}}/{{total}}", {
-          done: friendLink.processed,
-          total: friendLink.total,
-        })
-      : t("Linking friends...");
-
-  const followRun = store.followUserState;
-  const followPhaseLabel =
-    followRun && followRun.active && followRun.total > 0
-      ? t("Following {{done}}/{{total}}", { done: followRun.processed, total: followRun.total })
-      : t("Following...");
-  // A lista de contas filtra pelo que foi digitado: digitar o nome de uma
-  // conta do app já a mostra para escolher, sem ir ao Roblox.
-  const followQueryLower = followQuery.trim().replace(/^@/, "").toLowerCase();
-  const followPickable = store.accounts.filter(
-    (a) =>
-      !followQueryLower ||
-      a.Username.toLowerCase().includes(followQueryLower) ||
-      (a.Alias || "").toLowerCase().includes(followQueryLower) ||
-      String(a.UserID) === followQueryLower
-  );
-
   return (
     <div className="theme-border border-t shrink-0 flex items-center gap-3 px-4 h-14 bg-[var(--app-bg)]">
       {/* Selection info */}
@@ -497,15 +249,7 @@ export function BottomActionBar() {
           onClick={() => { setActionsOpen((v) => !v); setGroupMenuOpen(false); }}
           className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg border theme-border theme-btn-ghost"
         >
-          {friendBusy
-            ? friendPhaseLabel
-            : followBusy
-              ? followPhaseLabel
-              : refreshing
-              ? t("Refreshing...")
-              : checkProgress
-                ? t("Checking {{done}}/{{total}}...", checkProgress)
-                : t("Actions")}
+          {refreshing ? t("Refreshing...") : t("Actions")}
           <ChevronDown size={11} strokeWidth={2} className={`transition-transform ${actionsOpen ? "rotate-180" : ""}`} />
         </button>
 
@@ -521,24 +265,6 @@ export function BottomActionBar() {
               className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-center gap-2"
             >
               🔄 {refreshing ? t("Refreshing...") : t("Refresh Cookies ({{count}})", { count })}
-            </button>
-
-            {/* Ideia 9. Fica ao lado do Refresh Cookies, mas é o oposto dele:
-                só lê, e não desloga ninguém — a segunda linha diz isso. */}
-            <button
-              onClick={handleCheckAccounts}
-              disabled={!!checkProgress}
-              className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-start gap-2"
-            >
-              <ShieldCheck size={13} strokeWidth={1.5} className="mt-0.5 shrink-0" />
-              <span className="min-w-0">
-                {checkProgress
-                  ? t("Checking {{done}}/{{total}}...", checkProgress)
-                  : t("Check Accounts ({{count}})", { count })}
-                <span className="block text-[11px] theme-muted leading-snug">
-                  {t("Session and ban status. Read-only: it doesn't sign anything out.")}
-                </span>
-              </span>
             </button>
 
             {/* Acordos atualizados (Termos / Privacidade): só lê; o aceite é na janela. */}
@@ -562,172 +288,6 @@ export function BottomActionBar() {
             >
               📋 {t("Copy All Cookies")}
             </button>
-
-            {/* Make Friends submenu */}
-            {count >= 2 && (
-              <div className="relative">
-                <button
-                  onClick={() => setFriendMenuOpen((v) => !v)}
-                  disabled={friendBusy}
-                  className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-center justify-between gap-2"
-                >
-                  <span className="flex items-center gap-2">
-                    <Users size={13} strokeWidth={1.5} />
-                    {friendBusy ? friendPhaseLabel : t("Make Friends ({{count}})", { count })}
-                  </span>
-                  <ChevronDown size={10} className={`theme-muted transition-transform ${friendMenuOpen ? "-rotate-90" : "rotate-90"}`} />
-                </button>
-                {friendMenuOpen && (
-                  <div className="theme-panel theme-border absolute bottom-0 right-full mr-1 border rounded-xl shadow-2xl z-40 py-1 w-56 animate-scale-in max-h-72 overflow-y-auto">
-                    {/* Rótulo em cima: lado a lado com o campo, ele quebrava em
-                        três linhas dentro do menu (medido na tela). */}
-                    <label className="flex flex-col gap-1 px-3 py-1.5 text-[12px] theme-muted">
-                      <span>{t("Delay between requests (s)")}</span>
-                      <input
-                        type="number"
-                        min={FRIEND_DELAY_MIN_S}
-                        max={FRIEND_DELAY_MAX_S}
-                        step={0.5}
-                        value={friendDelay}
-                        onChange={(e) => {
-                          delayTouchedRef.current = true;
-                          setFriendDelay(e.target.value);
-                        }}
-                        onBlur={commitFriendDelay}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitFriendDelay();
-                        }}
-                        title={t("Roblox rate-limits new accounts. Slower is safer.")}
-                        className="sidebar-input w-full text-[12px] tabular-nums"
-                      />
-                    </label>
-                    <div className="theme-border h-px border-t my-1" />
-                    <button
-                      onClick={() => handleMakeFriends("mesh", null)}
-                      className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)]"
-                    >
-                      🕸 {t("Mesh - all friend all ({{n}} req)", { n: count * (count - 1) })}
-                    </button>
-                    <div className="theme-border h-px border-t my-1" />
-                    <div className="px-3 py-1 text-[11px] theme-muted uppercase tracking-widest font-semibold">
-                      {t("Star - pick main")}
-                    </div>
-                    {accounts.map((a) => (
-                      <button
-                        key={a.UserID}
-                        onClick={() => handleMakeFriends("star", a.UserID)}
-                        className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] truncate"
-                      >
-                        ⭐ {accountLabel(a, store)}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Follow a user submenu */}
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setFollowMenuOpen((v) => !v);
-                  setFriendMenuOpen(false);
-                  setGroupMenuOpen(false);
-                }}
-                disabled={followBusy}
-                className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-center justify-between gap-2"
-              >
-                <span className="flex items-center gap-2">
-                  <UserCheck size={13} strokeWidth={1.5} />
-                  {followBusy ? followPhaseLabel : t("Follow a user ({{count}})", { count })}
-                </span>
-                <ChevronDown size={10} className={`theme-muted transition-transform ${followMenuOpen ? "-rotate-90" : "rotate-90"}`} />
-              </button>
-              {followMenuOpen && (
-                <div
-                  data-testid="follow-menu"
-                  className="theme-panel theme-border absolute bottom-0 right-full mr-1 border rounded-xl shadow-2xl z-40 py-1 w-72 animate-scale-in"
-                >
-                  <div className="flex flex-col gap-1 px-3 py-1.5 text-[12px] theme-muted">
-                    <label htmlFor="follow-target-input">{t("Who should the selected accounts follow?")}</label>
-                    <div className="flex gap-1.5">
-                      <input
-                        id="follow-target-input"
-                        autoFocus
-                        value={followQuery}
-                        onChange={(e) => setFollowQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key !== "Enter") return;
-                          // Sem isso o mesmo Enter chegava ao "Confirm" da
-                          // confirmação (que abre com foco) e a aceitava
-                          // sozinho — visto no harness.
-                          e.preventDefault();
-                          void handleFollowTyped();
-                        }}
-                        placeholder={t("Username, user ID or profile link")}
-                        className="sidebar-input flex-1 min-w-0 text-[12px]"
-                      />
-                      <button
-                        onClick={() => void handleFollowTyped()}
-                        disabled={!followQuery.trim()}
-                        className="shrink-0 px-2.5 rounded-md bg-[var(--accent-color)] text-white text-[12px] font-medium hover:opacity-90 disabled:opacity-40"
-                      >
-                        {t("Follow")}
-                      </button>
-                    </div>
-                    <span className="text-[11px] leading-snug">
-                      {t("The account doesn't need to be in MultiAlt.")}
-                    </span>
-                  </div>
-                  <label className="flex flex-col gap-1 px-3 py-1.5 text-[12px] theme-muted">
-                    <span>{t("Delay between requests (s)")}</span>
-                    <input
-                      type="number"
-                      min={FRIEND_DELAY_MIN_S}
-                      max={FRIEND_DELAY_MAX_S}
-                      step={0.5}
-                      value={friendDelay}
-                      onChange={(e) => {
-                        delayTouchedRef.current = true;
-                        setFriendDelay(e.target.value);
-                      }}
-                      onBlur={commitFriendDelay}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") commitFriendDelay();
-                      }}
-                      title={t("Roblox rate-limits new accounts. Slower is safer.")}
-                      className="sidebar-input w-full text-[12px] tabular-nums"
-                    />
-                  </label>
-                  <div className="theme-border h-px border-t my-1" />
-                  <div className="px-3 py-1 text-[11px] theme-muted uppercase tracking-widest font-semibold">
-                    {t("Or pick an account")}
-                  </div>
-                  <div className="max-h-48 overflow-y-auto">
-                    {followPickable.length === 0 ? (
-                      <div className="px-3 py-1.5 text-[12px] theme-muted">{t("No account matches.")}</div>
-                    ) : (
-                      followPickable.map((a) => {
-                        // Única selecionada é ela mesma: não sobra quem siga.
-                        const onlySelf = accounts.every((s) => s.UserID === a.UserID);
-                        const label = accountLabel(a, store);
-                        return (
-                          <button
-                            key={a.UserID}
-                            onClick={() => void runFollow({ id: a.UserID, name: a.Username, label })}
-                            disabled={onlySelf}
-                            title={onlySelf ? t("An account can't follow itself.") : undefined}
-                            className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-40 truncate"
-                          >
-                            👤 {label}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
 
             {/* Move to Group submenu */}
             <div className="relative">
@@ -802,13 +362,6 @@ export function BottomActionBar() {
                 </div>
               </>
             )}
-
-            <button
-              onClick={() => { setActionsOpen(false); store.setBulkCredentialsOpen(true); }}
-              className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] flex items-center gap-2"
-            >
-              🔑 {t("Change password / email...")}
-            </button>
 
             <button
               onClick={() => { setActionsOpen(false); store.killAllRobloxProcesses({ report: true }); }}

@@ -70,9 +70,8 @@ pub(crate) fn launch_error_means_dead_session(error: &str) -> bool {
 }
 
 /// Sessão morta descoberta ao abrir: marca a conta inválida (a bolinha vermelha
-/// da lista, como o "Conferir contas") e avisa a tela (`account-session-dead`).
-/// Antes só o "Conferir contas" marcava, e a conta que falhava ao abrir
-/// continuava parecendo boa (26/10/2026). Nada além do `Valid` muda.
+/// da lista) e avisa a tela (`account-session-dead`). Antes a conta que falhava
+/// ao abrir continuava parecendo boa (26/10/2026). Nada além do `Valid` muda.
 pub(crate) fn mark_account_session_dead(store: &AccountStore, app: &tauri::AppHandle, user_id: i64, error: &str) {
     if !launch_error_means_dead_session(error) {
         return;
@@ -82,164 +81,38 @@ pub(crate) fn mark_account_session_dead(store: &AccountStore, app: &tauri::AppHa
     }
 }
 
-/// Quais grupos de campos de uma abertura vieram da exceção da conta (e não do
-/// perfil global). É o que o registro de exceções do lado Windows guarda para
-/// desfazer na próxima conta sem exceção (`OverrideLedger`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct AccountSourced {
-    pub fps: bool,
-    pub volume: bool,
-    pub graphics: bool,
-    /// Tela cheia e/ou tamanho de janela.
-    pub window: bool,
-}
-
 #[derive(Clone, Default)]
 struct WindowsClientOverrides {
     max_fps: Option<u32>,
     master_volume: Option<f32>,
     graphics: Option<GraphicsQuality>,
-    /// `Some(true)` abre em tela cheia, `Some(false)` em janela, `None` deixa
-    /// como o Roblox tiver gravado.
-    fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
     fast_flags: Option<serde_json::Map<String, serde_json::Value>>,
-    /// O que veio da exceção da conta.
-    from_account: AccountSourced,
 }
 
-/// Nível de qualidade gráfica pedido ao cliente. Existe como enum porque
-/// "automático" **não é** um nível: é o Roblox decidindo sozinho, gravado num
-/// campo diferente do XML. Passar `0` como se fosse um nível fazia o valor
-/// cair no `clamp(1, 10)` e virar 1 — a pior qualidade, não a automática.
+/// Nível de qualidade gráfica pedido ao cliente.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GraphicsQuality {
-    Automatic,
     /// Nível fixo de 1 a 10 (o `clamp` é feito na escrita do XML).
     Level(u32),
-}
-
-/// Exceções de cliente de **uma conta só**, por cima do perfil global.
-///
-/// Ficam em `Account.fields` (portanto no `AccountData.json`, junto de
-/// `RobloxVersion`), e são aplicadas no instante em que aquela conta vai abrir.
-///
-/// Ressalva que precisa ficar escrita: `ClientAppSettings.json` é por pasta de
-/// versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows —
-/// os dois são **globais**. "Por conta" funciona porque a fila de launch é
-/// sequencial e o patch roda imediatamente antes de cada spawn; não é
-/// isolamento de verdade. Um cliente aberto ainda pode reescrever o XML antes
-/// de o novo o ler — por isso o tamanho da janela é conferido pelo PID depois
-/// do spawn (`spawn_client_window_enforcement`).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct AccountClientOverrides {
-    pub max_fps: Option<u32>,
-    pub master_volume: Option<f32>,
-    pub graphics: Option<GraphicsQuality>,
-    pub fullscreen: Option<bool>,
-    pub window_size: Option<(u32, u32)>,
-    pub start_minimized: Option<bool>,
-}
-
-/// Chave de `Account.fields` que liga as exceções. Sem ela em `"true"`, os
-/// outros campos são ignorados — dá para guardar uma configuração desligada.
-pub(crate) const ACCOUNT_OVERRIDES_ENABLED_FIELD: &str = "ClientOverridesEnabled";
-
-fn field_str<'a>(fields: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
-    fields
-        .get(key)
-        .map(|v| v.trim())
-        .filter(|v| !v.is_empty())
-}
-
-fn field_bool(fields: &HashMap<String, String>, key: &str) -> Option<bool> {
-    match field_str(fields, key)?.to_ascii_lowercase().as_str() {
-        "true" | "1" => Some(true),
-        "false" | "0" => Some(false),
-        _ => None,
-    }
-}
-
-fn field_u32(fields: &HashMap<String, String>, key: &str) -> Option<u32> {
-    field_str(fields, key)?.parse::<u32>().ok().filter(|v| *v > 0)
-}
-
-/// Lê as exceções de uma conta. `None` quando o interruptor está desligado ou
-/// quando nenhum campo tem valor útil — assim o resto do launch continua
-/// falando "esta conta não tem exceção" em vez de aplicar um struct vazio.
-pub(crate) fn account_client_overrides(
-    fields: &HashMap<String, String>,
-) -> Option<AccountClientOverrides> {
-    if field_bool(fields, ACCOUNT_OVERRIDES_ENABLED_FIELD) != Some(true) {
-        return None;
-    }
-
-    let graphics = field_str(fields, "ClientOverrideGraphics").and_then(|raw| {
-        if raw.eq_ignore_ascii_case("auto") || raw.eq_ignore_ascii_case("automatic") {
-            Some(GraphicsQuality::Automatic)
-        } else {
-            raw.parse::<u32>()
-                .ok()
-                .filter(|lvl| (1..=10).contains(lvl))
-                .map(GraphicsQuality::Level)
-        }
-    });
-
-    let master_volume = field_str(fields, "ClientOverrideVolume")
-        .and_then(|raw| raw.parse::<f32>().ok())
-        .filter(|v| v.is_finite())
-        .map(|v| v.clamp(0.0, 1.0));
-
-    let width = field_u32(fields, "ClientOverrideWindowWidth");
-    let height = field_u32(fields, "ClientOverrideWindowHeight");
-    // Meia janela não é janela: largura sem altura é configuração incompleta,
-    // e aplicar só uma das duas deixaria o cliente num tamanho que ninguém
-    // pediu.
-    let window_size = match (width, height) {
-        (Some(w), Some(h)) => Some((w, h)),
-        _ => None,
-    };
-
-    let overrides = AccountClientOverrides {
-        max_fps: field_u32(fields, "ClientOverrideMaxFPS"),
-        master_volume,
-        graphics,
-        fullscreen: field_bool(fields, "ClientOverrideFullscreen"),
-        window_size,
-        start_minimized: field_bool(fields, "ClientOverrideStartMinimized"),
-    };
-
-    if overrides == AccountClientOverrides::default() {
-        return None;
-    }
-    Some(overrides)
 }
 
 // ── a janela do cliente, conferida pelo PID ──────────────────────────────
 //
 // O `StartScreenSize` do `GlobalBasicSettings_13.xml` é **um arquivo para todos
 // os clientes**. O patch roda logo antes do spawn, mas um cliente já aberto
-// (a conta principal com a exceção dela, por exemplo) pode reescrever o XML
-// entre o patch e o instante em que o cliente novo o lê — e a alt abria com o
-// tamanho da principal (03/10/2026). O XML continua sendo gravado (é o que faz
-// o cliente já nascer no tamanho certo na maioria das vezes), mas quem garante
-// é a conferência depois do spawn: achada a janela do PID novo, ela recebe o
-// tamanho resolvido para ESTA conta.
+// pode reescrever o XML entre o patch e o instante em que o cliente novo o lê.
+// O XML continua sendo gravado (é o que faz o cliente já nascer no tamanho
+// certo na maioria das vezes), mas quem garante é a conferência depois do
+// spawn: achada a janela do PID novo, ela recebe o tamanho resolvido.
 
 /// O que o launch resolveu para a janela desta conta — a mesma coisa que foi
 /// gravada no XML.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ClientWindowInputs {
-    /// `Some(true)` = tela cheia (exceção da conta); `Some(false)` = em janela
-    /// (exceção, ou o valor do jogador que o registro das exceções pôs de volta
-    /// depois da tela cheia de outra conta).
-    pub fullscreen: Option<bool>,
-    /// O tamanho gravado no `StartScreenSize` (exceção da conta, senão o
-    /// perfil global com `OverrideClientWindowSize`).
+    /// O tamanho gravado no `StartScreenSize` (o perfil global com
+    /// `OverrideClientWindowSize`).
     pub window_size: Option<(u32, u32)>,
-    /// A conta tem janela própria (exceção com tamanho ou tela cheia) — fica
-    /// fora da grade (`account_keeps_own_window`).
-    pub keeps_own_window: bool,
     pub start_minimized: bool,
     /// `General.AutoArrangeGrid`.
     pub auto_arrange_grid: bool,
@@ -257,9 +130,9 @@ pub(crate) struct ClientWindowPlan {
     pub grid: bool,
     /// Posição (e tamanho, se `size` não vier) a restaurar.
     pub saved_rect: Option<(i32, i32, i32, i32)>,
-    /// A conta abre em janela (tamanho no plano, ou `Fullscreen=false`
-    /// resolvido): se a janela aparecer em tela cheia, essa tela cheia veio do
-    /// XML regravado por outro cliente, e é tirada — uma vez.
+    /// A conta abre em janela (tamanho no plano): se a janela aparecer em tela
+    /// cheia, essa tela cheia veio do XML regravado por outro cliente, e é
+    /// tirada — uma vez.
     pub leave_fullscreen: bool,
     /// A janela vai para a grade: se nascer maximizada, volta ao normal — uma
     /// vez (`should_leave_maximized`).
@@ -277,14 +150,12 @@ impl ClientWindowPlan {
 const MIN_CLIENT_WINDOW: (u32, u32) = (320, 240);
 
 pub(crate) fn client_window_plan(inputs: ClientWindowInputs) -> ClientWindowPlan {
-    // Tela cheia e começar minimizado são pedidos do usuário que mexer na
-    // janela desfaria.
-    if inputs.start_minimized || inputs.fullscreen == Some(true) {
+    // Começar minimizado é pedido do usuário que mexer na janela desfaria.
+    if inputs.start_minimized {
         return ClientWindowPlan::default();
     }
-    // Conta com janela própria fica fora da grade, com o tamanho e a posição
-    // dela; para as outras, a grade vence a posição salva pelo Watcher.
-    let grid = inputs.auto_arrange_grid && !inputs.keeps_own_window;
+    // A grade vence a posição salva pelo Watcher.
+    let grid = inputs.auto_arrange_grid;
     ClientWindowPlan {
         size: inputs
             .window_size
@@ -292,48 +163,13 @@ pub(crate) fn client_window_plan(inputs: ClientWindowInputs) -> ClientWindowPlan
         grid,
         saved_rect: if grid { None } else { inputs.saved_rect },
         // Com tamanho no plano a conta é "em janela" por definição (o XML
-        // grava `Fullscreen=false` junto do `StartScreenSize`). Sem tamanho e
-        // sem `Some(false)`, a tela cheia é preferência do próprio jogador —
-        // mesmo com a grade (`an_alt_with_nothing_resolved_keeps_the_players_own_fullscreen`).
-        leave_fullscreen: inputs.window_size.is_some() || inputs.fullscreen == Some(false),
+        // grava `Fullscreen=false` junto do `StartScreenSize`). Sem tamanho, a
+        // tela cheia é preferência do próprio jogador — mesmo com a grade.
+        leave_fullscreen: inputs.window_size.is_some(),
         // Maximizada não é modo de jogo: é como a janela foi fechada da última
         // vez (quem joga maximizado pelo site). Com a grade, volta ao normal.
         leave_maximized: grid,
     }
-}
-
-/// A conta tem uma janela que é dela: exceção de launch com tamanho próprio
-/// ou com tela cheia. Essas ficam fora da grade (automática e manual) — a
-/// grade encolheria a conta principal ao tamanho das alts.
-pub(crate) fn account_keeps_own_window(fields: &HashMap<String, String>) -> bool {
-    account_client_overrides(fields)
-        .map(|o| o.keeps_own_window())
-        .unwrap_or(false)
-}
-
-impl AccountClientOverrides {
-    /// Ver `account_keeps_own_window`.
-    pub(crate) fn keeps_own_window(&self) -> bool {
-        self.window_size.is_some() || self.fullscreen == Some(true)
-    }
-}
-
-/// Os PIDs rastreados cujas contas têm janela própria. `tracked` são pares
-/// `(user_id, pid)`; conta que não está mais na lista entra na grade.
-pub(crate) fn pids_keeping_own_window(
-    tracked: &[(i64, u32)],
-    fields_by_user: &HashMap<i64, HashMap<String, String>>,
-) -> HashSet<u32> {
-    tracked
-        .iter()
-        .filter(|(user_id, _)| {
-            fields_by_user
-                .get(user_id)
-                .map(account_keeps_own_window)
-                .unwrap_or(false)
-        })
-        .map(|(_, pid)| *pid)
-        .collect()
 }
 
 /// `General.AutoArrangeGrid`, ligado por padrão (também quando a chave sumiu
@@ -371,7 +207,6 @@ pub(crate) fn grid_window_style(settings: &SettingsStore) -> platform::windows::
     platform::windows::GridWindowStyle {
         allow_small: settings.get_bool("General", "GridAllowSmallWindows"),
         borderless: settings.get_bool("General", "GridBorderless"),
-        auto_fit: settings.get_bool("General", "GridAutoFit"),
     }
 }
 
@@ -408,29 +243,10 @@ pub(crate) fn global_window_size(
     (w > 0 && h > 0).then_some((w as u32, h as u32))
 }
 
-/// Os PIDs dos clientes rastreados cujas contas têm janela própria — os que a
-/// grade não pode mexer nem contar como ocupando célula.
-#[cfg(target_os = "windows")]
-pub(crate) fn grid_excluded_pids(accounts: &AccountStore) -> HashSet<u32> {
-    let tracked: Vec<(i64, u32)> = platform::windows::tracker()
-        .get_all()
-        .into_iter()
-        .map(|p| (p.user_id, p.pid))
-        .collect();
-    let fields_by_user: HashMap<i64, HashMap<String, String>> = accounts
-        .get_all()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|a| (a.user_id, a.fields))
-        .collect();
-    pids_keeping_own_window(&tracked, &fields_by_user)
-}
-
 /// O que o patch resolveu para a janela, devolvido para a conferência depois
 /// do spawn.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ResolvedClientWindow {
-    pub fullscreen: Option<bool>,
     pub window_size: Option<(u32, u32)>,
 }
 
@@ -516,7 +332,7 @@ pub(crate) fn spawn_client_window_enforcement(
                 }
             }
             let outcome = match chosen {
-                Some(rect) => windows::hold_window_rect(hwnd, rect, grid_style.small_cells()),
+                Some(rect) => windows::hold_window_rect(hwnd, rect, grid_style.allow_small),
                 None if plan.grid => {
                     let request = {
                         let settings = app.state::<SettingsStore>();
@@ -524,7 +340,7 @@ pub(crate) fn spawn_client_window_enforcement(
                         windows::GridRequest {
                             monitor_indices,
                             gap,
-                            excluded_pids: grid_excluded_pids(app.state::<AccountStore>().inner()),
+                            excluded_pids: HashSet::new(),
                             style: grid_style,
                         }
                     };
@@ -609,7 +425,6 @@ fn windows_client_overrides(
     settings: &SettingsStore,
     allow_fps_override: bool,
     profile: LaunchClientProfile,
-    account: Option<&AccountClientOverrides>,
 ) -> WindowsClientOverrides {
     let unlock_fps_key = profile_key(
         profile,
@@ -708,51 +523,13 @@ fn windows_client_overrides(
         None
     };
 
-    // A conta entra **por cima**: cada campo que ela define substitui o global,
-    // e o que ela deixa vazio continua vindo do perfil. O FPS respeita o
-    // `allow_fps_override` igual ao global — quando o usuário aponta um
-    // ClientAppSettings.json próprio, ninguém mexe no FPS dele, nem a exceção.
-    let mut resolved = WindowsClientOverrides {
+    WindowsClientOverrides {
         max_fps,
         master_volume,
         graphics,
-        fullscreen: None,
         window_size,
         fast_flags,
-        from_account: AccountSourced::default(),
-    };
-
-    if let Some(acc) = account {
-        if allow_fps_override {
-            if let Some(fps) = acc.max_fps {
-                resolved.max_fps = Some(fps);
-                resolved.from_account.fps = true;
-            }
-        }
-        if let Some(volume) = acc.master_volume {
-            resolved.master_volume = Some(volume);
-            resolved.from_account.volume = true;
-        }
-        if let Some(graphics) = acc.graphics {
-            resolved.graphics = Some(graphics);
-            resolved.from_account.graphics = true;
-        }
-        resolved.from_account.window = acc.fullscreen.is_some() || acc.window_size.is_some();
-        if let Some(fullscreen) = acc.fullscreen {
-            resolved.fullscreen = Some(fullscreen);
-            // Tela cheia com um tamanho de janela ao lado é contraditório: o XML
-            // grava `Fullscreen=false` junto de `StartScreenSize`. Quem pediu
-            // tela cheia e não pediu tamanho fica só com a tela cheia.
-            if fullscreen && acc.window_size.is_none() {
-                resolved.window_size = None;
-            }
-        }
-        if let Some(size) = acc.window_size {
-            resolved.window_size = Some(size);
-        }
     }
-
-    resolved
 }
 
 /// `base_path`: pasta da versão do Roblox que vai realmente abrir (`None` =
@@ -765,7 +542,6 @@ fn windows_client_overrides(
 pub(crate) fn patch_client_settings_for_launch(
     settings: &SettingsStore,
     profile: LaunchClientProfile,
-    account: Option<&AccountClientOverrides>,
     base_path: Option<&str>,
 ) -> ResolvedClientWindow {
     use platform::windows;
@@ -774,11 +550,6 @@ pub(crate) fn patch_client_settings_for_launch(
     let custom_settings = custom_client_settings_path(settings, effective_profile);
     let custom_settings = custom_settings.trim();
     let mut custom_applied = false;
-    // Ideia 21: o que estava nos arquivos do Roblox antes desta escrita fica
-    // anotado (settings_restore.rs) — sempre, mesmo com a devolução desligada:
-    // ligá-la depois tem de devolver o valor do usuário, não o do app.
-    let restore_snapshot = windows::snapshot_roblox_settings(windows::roblox_settings_files(base_path));
-
     // Legacy behavior: custom settings file overrides FPS unlock when valid.
     if !custom_settings.is_empty()
         && std::path::Path::new(custom_settings).exists()
@@ -787,29 +558,19 @@ pub(crate) fn patch_client_settings_for_launch(
         custom_applied = true;
     }
 
-    let mut overrides =
-        windows_client_overrides(settings, !custom_applied, effective_profile, account);
+    let mut overrides = windows_client_overrides(settings, !custom_applied, effective_profile);
     if custom_applied {
         overrides.fast_flags = None;
     }
-    let fullscreen_from_ledger = windows::apply_runtime_client_settings(
+    let _ = windows::apply_runtime_client_settings(
         base_path,
         overrides.max_fps,
         overrides.master_volume,
         overrides.graphics,
-        overrides.fullscreen,
         overrides.window_size,
         overrides.fast_flags.as_ref(),
-        overrides.from_account,
-    )
-    .ok()
-    .flatten();
-    windows::record_roblox_settings_change(restore_snapshot);
+    );
     ResolvedClientWindow {
-        // Sem pedido desta conta nem do perfil global, vale o que o registro
-        // pôs de volta depois da exceção de outra conta (a tela cheia da
-        // principal, 03/10/2026) — é ele que diz "esta alt é em janela".
-        fullscreen: overrides.fullscreen.or(fullscreen_from_ledger),
         window_size: overrides.window_size,
     }
 }
@@ -842,7 +603,6 @@ fn fps_unlock_target(settings: &SettingsStore, profile: LaunchClientProfile) -> 
 fn patch_client_settings_for_launch(
     settings: &SettingsStore,
     profile: LaunchClientProfile,
-    account: Option<&AccountClientOverrides>,
     base_path: Option<&str>,
 ) {
     use platform::macos;
@@ -862,12 +622,7 @@ fn patch_client_settings_for_launch(
         return;
     }
 
-    // No macOS só o FPS é aplicável hoje; as outras exceções por conta dependem
-    // do `GlobalBasicSettings_13.xml`, que é do lado Windows.
-    let fps = account
-        .and_then(|a| a.max_fps)
-        .or_else(|| fps_unlock_target(settings, profile));
-    if let Some(fps) = fps {
+    if let Some(fps) = fps_unlock_target(settings, profile) {
         let _ = macos::apply_fps_unlock(fps);
     }
 }
@@ -1022,14 +777,7 @@ pub(crate) async fn apply_windows_post_launch_profile(
     pid: u32,
 ) {
     let effective_profile = effective_launch_profile(settings, profile);
-    // A otimização que segue o foco tira daqui a política de fundo deste
-    // cliente e o estado a devolver quando ela desliga.
-    platform::windows::remember_launch_profile(pid, effective_profile);
-    let follow_focus = platform::windows::focus_follow_enabled(settings);
-    let optimization_profile = platform::windows::launch_profile_under_focus_follow(
-        platform::windows::load_optimization_profile(settings, effective_profile),
-        follow_focus,
-    );
+    let optimization_profile = platform::windows::load_optimization_profile(settings, effective_profile);
     let has_process_policy = optimization_profile.process.enabled;
     let has_job_limits = optimization_profile.experimental.enable_job_cpu_limit
         || optimization_profile.experimental.enable_job_memory_limit;
@@ -1043,13 +791,7 @@ pub(crate) async fn apply_windows_post_launch_profile(
         .await;
     }
 
-    let applied = platform::windows::apply_optimization_to_pid(pid, &optimization_profile);
-    if follow_focus {
-        // O Job acabou de nascer com o teto ligado: o laço reaplica a
-        // velocidade (o cliente novo está na carência, sem teto).
-        platform::windows::focus_follow_forget_applied(pid);
-    }
-    if let Err(err) = applied {
+    if let Err(err) = platform::windows::apply_optimization_to_pid(pid, &optimization_profile) {
         eprintln!("Failed to apply Windows optimization to pid {}: {}", pid, err);
         if let Some(app) = app {
             let _ = app.emit(

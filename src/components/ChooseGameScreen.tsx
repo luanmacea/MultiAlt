@@ -15,7 +15,7 @@ import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
-import { ArrowLeft, User, Link2, AlertTriangle, X, Bookmark, Eye, Hourglass } from "lucide-react";
+import { ArrowLeft, User, Link2, AlertTriangle, X, Eye, Hourglass } from "lucide-react";
 import {
   cancelWaitForPlayer,
   startWaitForPlayer,
@@ -23,7 +23,6 @@ import {
   useWaitWatch,
 } from "./follow/waitForPlayerWatch";
 import { WAIT_POLL_INTERVAL_MS } from "../utils/waitForPlayer";
-import { newPresetDraft } from "../utils/presets";
 import type { LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
 import { isLaunchAlreadyActiveError, launchErrorText } from "../utils/robloxErrors";
@@ -820,18 +819,9 @@ export function ChooseGameScreen() {
                 : t("{{count}} accounts will be launched together", { count: accounts.length })}
             </p>
           </div>
-          {/* Guarda estas contas (e o jogo do campo, se houver) como preset. */}
-          <button
-            onClick={() =>
-              store.openPresetsDialog(newPresetDraft(userIds, parseInt(store.placeId) || 0))
-            }
-            className="ml-auto flex items-center gap-1.5 text-[12px] theme-muted hover:text-[var(--panel-fg)] px-2.5 py-1.5 rounded-md theme-btn-ghost border theme-border transition-colors"
-            title={t("Save these accounts and a game as a preset, to launch them later in one click")}
-          >
-            <Bookmark size={13} strokeWidth={1.5} />
-            {t("Save as preset")}
-          </button>
-          <TourButton tour="choose-game" />
+          <div className="ml-auto">
+            <TourButton tour="choose-game" />
+          </div>
         </div>
 
         {/* Account chips */}

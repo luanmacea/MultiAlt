@@ -11,7 +11,6 @@ import {
   RotateCw,
   SquareStop,
   UserCheck,
-  UserPlus,
   UserX,
   X,
 } from "lucide-react";
@@ -24,8 +23,6 @@ import { accountLabel } from "../../utils/accountName";
 import { ClientHealthNote, WrongAccountNote } from "./ClientHealthNote";
 import { ClosedClientsSection } from "./ClosedClientsSection";
 import { ReconnectBulkChip, ReconnectChip } from "./ReconnectChip";
-import { MemoryBulkChip, MemoryChip, type MemoryLimitValue } from "./MemoryLimitControl";
-import { MEMORY_LIMIT_SETTING, fieldsWithMemoryLimit, memoryLimitChoice } from "../../utils/memoryLimit";
 import {
   autoReconnectLabel,
   fieldsWithReconnect,
@@ -47,8 +44,6 @@ import type {
   AutoReconnectEntry,
   ClientHealth,
   CurrentSession,
-  FriendLinkAccountState,
-  FollowUserAccountState,
   LaunchQueueEntry,
   LaunchQueueState,
   UnidentifiedClient,
@@ -93,77 +88,6 @@ const STATE_STYLES: Record<LaunchQueueState, { dot: string; text: string }> = {
   failed: { dot: "bg-red-500", text: "text-red-400" },
   cancelled: { dot: "bg-zinc-600", text: "theme-muted" },
 };
-
-/**
- * Estados de uma conta no Make Friends. Cores iguais às da fila: a bolinha quer
- * dizer a mesma coisa nas duas listas do painel.
- */
-const FRIEND_STATE_STYLES: Record<FriendLinkAccountState, { dot: string; text: string }> = {
-  pending: { dot: "bg-[var(--panel-muted)]", text: "theme-muted" },
-  processing: { dot: "bg-[var(--accent-color)] animate-pulse", text: "text-[var(--accent-color)]" },
-  done: { dot: "bg-emerald-500", text: "text-emerald-400" },
-  failed: { dot: "bg-red-500", text: "text-red-400" },
-};
-
-function friendStateLabel(state: FriendLinkAccountState, t: Translate): string {
-  switch (state) {
-    case "pending":
-      return t("Waiting");
-    case "processing":
-      return t("Processing");
-    case "done":
-      return t("Linked");
-    case "failed":
-      return t("Failed");
-    default:
-      return state;
-  }
-}
-
-/** Estados de uma conta no "Follow a user" — cores iguais às do Make Friends. */
-const FOLLOW_STATE_STYLES: Record<FollowUserAccountState, { dot: string; text: string }> = {
-  pending: FRIEND_STATE_STYLES.pending,
-  processing: FRIEND_STATE_STYLES.processing,
-  browser: { dot: "bg-amber-400 animate-pulse", text: "text-amber-300" },
-  followed: FRIEND_STATE_STYLES.done,
-  already: { dot: "bg-emerald-500/60", text: "theme-muted" },
-  failed: FRIEND_STATE_STYLES.failed,
-};
-
-function followStateLabel(state: FollowUserAccountState, t: Translate): string {
-  switch (state) {
-    case "pending":
-      return t("Waiting");
-    case "processing":
-      return t("Processing");
-    case "browser":
-      return t("Finish in the browser");
-    case "followed":
-      return t("Followed");
-    case "already":
-      return t("Already following");
-    case "failed":
-      return t("Failed");
-    default:
-      return state;
-  }
-}
-
-/** O que a operação está fazendo agora — as três fases custam tempo diferente. */
-function friendPhaseLabel(phase: string, t: Translate): string {
-  switch (phase) {
-    case "checking":
-      return t("Checking who is already friends");
-    case "linking":
-      return t("Sending friend requests");
-    case "verifying":
-      return t("Verifying the friendships");
-    case "done":
-      return t("Finished");
-    default:
-      return "";
-  }
-}
 
 /**
  * Por que o cliente aberto fora do app não foi reconhecido sozinho. `name` é o
@@ -294,13 +218,6 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   const pending = entries.filter(isPending);
   // Fila com mais de um jogo: cada linha diz o seu.
   const queueMixesGames = new Set(entries.map((entry) => entry.placeId).filter((id) => !!id)).size > 1;
-  // Só aparece depois que houve um Make Friends: uma seção vazia permanente
-  // roubaria altura de um painel que já tem teto de 45% na aba Console.
-  const friendLink = store.friendLinkState;
-  const showFriendLink = !!friendLink && friendLink.total > 0;
-  // "Follow a user": mesma regra — só depois de um lote.
-  const followRun = store.followUserState;
-  const showFollow = !!followRun && followRun.total > 0;
 
   // Contas com cliente rodando agora, na ordem da lista de contas (estável
   // entre polls). IDs sem conta correspondente ainda aparecem, pelo ID.
@@ -347,36 +264,6 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   const sessions = useCurrentSessions(isWindows, runningIds.join(","));
   const reconnectingIds = activeReconnectIds(store.autoReconnect);
   const [reconnectSaving, setReconnectSaving] = useState(false);
-
-  // Teto de memória (commands/memory_ceiling.rs): só com a feature
-  // `memory-trim` no binário, e só nos clientes que o app abriu. O campo
-  // `MemoryLimit` da conta manda; sem ele, `Optimization.MemoryLimit`.
-  const memoryTrim = isWindows && store.platformCapabilities?.supportsMemoryTrim === true;
-  const memoryDefaultRaw = store.settings?.[MEMORY_LIMIT_SETTING.section]?.[MEMORY_LIMIT_SETTING.key];
-  const memoryDefaultMb = memoryLimitChoice(undefined, memoryDefaultRaw).defaultMb;
-  const [memorySaving, setMemorySaving] = useState(false);
-  const memoryBulkIds = selected.filter((id) => !store.adoptedClients.has(id));
-
-  /**
-   * Grava o limite (`null` = volta ao padrão) no `Fields.MemoryLimit` de cada
-   * conta, uma por vez. Vale na próxima passada do backend (2 s), sem relançar
-   * e sem fechar nada.
-   */
-  async function saveMemoryLimit(userIds: number[], value: MemoryLimitValue) {
-    const targets = store.accounts.filter((a) => userIds.includes(a.UserID));
-    if (targets.length === 0) return;
-    setError(null);
-    setMemorySaving(true);
-    try {
-      for (const account of targets) {
-        await store.updateAccount({ ...account, Fields: fieldsWithMemoryLimit(account.Fields, value) });
-      }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setMemorySaving(false);
-    }
-  }
 
   function nameFor(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
@@ -797,11 +684,6 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
     const health = store.clientHealth?.get(userId);
     const name = nameFor(userId);
     const choice = isWindows ? choiceFor(userId) : null;
-    const account = store.accounts.find((a) => a.UserID === userId);
-    const memoryChoice =
-      memoryTrim && account && !store.adoptedClients.has(userId)
-        ? memoryLimitChoice(account.Fields, memoryDefaultRaw)
-        : null;
     return (
       <li
         key={userId}
@@ -849,15 +731,6 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           {session && context === "full" && <CurrentSessionLine session={session} server={health?.server} />}
         </span>
         <span className="flex items-center gap-1 shrink-0">
-          {memoryChoice && (
-            <MemoryChip
-              name={name}
-              choice={memoryChoice}
-              memory={store.clientMemory?.get(userId)}
-              disabled={memorySaving}
-              onChange={(value) => void saveMemoryLimit([userId], value)}
-            />
-          )}
           {choice && (
             <ReconnectChip
               name={name}
@@ -1014,111 +887,6 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           </ul>
         )}
       </section>
-
-      {/* ── Make Friends ───────────────────────────────────────────────── */}
-      {showFriendLink && friendLink && (
-        <section
-          data-testid="friend-link-panel"
-          className="rounded-lg border theme-border bg-[var(--panel-soft)]"
-        >
-          <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
-            <div className="flex items-baseline gap-2 min-w-0">
-              <h2 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5">
-                <UserPlus size={13} strokeWidth={1.5} aria-hidden="true" />
-                {t("Make Friends")}
-              </h2>
-              <span className="text-[12px] theme-muted truncate">
-                {t("{{done}} / {{total}} accounts processed", {
-                  done: friendLink.processed,
-                  total: friendLink.total,
-                })}
-              </span>
-            </div>
-            <span className="text-[12px] theme-muted shrink-0 truncate">
-              {friendPhaseLabel(friendLink.phase, t)}
-            </span>
-          </header>
-
-          <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
-            {friendLink.accounts.map((entry) => {
-              const style = FRIEND_STATE_STYLES[entry.state] ?? FRIEND_STATE_STYLES.pending;
-              return (
-                <li
-                  key={entry.userId}
-                  data-testid={`friend-link-${entry.userId}`}
-                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
-                >
-                  <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                  <span className="text-[var(--panel-fg)] truncate max-w-[40%]">
-                    {nameFor(entry.userId)}
-                  </span>
-                  {friendLink.mainUserId === entry.userId && (
-                    <span className="shrink-0 theme-muted">{t("main")}</span>
-                  )}
-                  <span className={`shrink-0 ${style.text}`}>
-                    {friendStateLabel(entry.state, t)}
-                  </span>
-                  {entry.error && (
-                    <span className="text-red-400 truncate" title={entry.error}>
-                      {entry.error}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {/* ── Follow a user ──────────────────────────────────────────────── */}
-      {showFollow && followRun && (
-        <section data-testid="follow-user-panel" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
-          <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
-            <div className="flex items-baseline gap-2 min-w-0">
-              <h2 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5 shrink-0">
-                <UserCheck size={13} strokeWidth={1.5} aria-hidden="true" />
-                {t("Follow")}
-              </h2>
-              <span className="text-[12px] text-[var(--panel-fg)] truncate">
-                {followRun.targetUserId !== null &&
-                store.accounts.some((a) => a.UserID === followRun.targetUserId)
-                  ? nameFor(followRun.targetUserId)
-                  : followRun.targetName
-                    ? `@${followRun.targetName}`
-                    : followRun.targetUserId ?? ""}
-              </span>
-            </div>
-            <span className="text-[12px] theme-muted shrink-0">
-              {t("{{done}} / {{total}} accounts processed", {
-                done: followRun.processed,
-                total: followRun.total,
-              })}
-            </span>
-          </header>
-
-          <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
-            {followRun.accounts.map((entry) => {
-              const style = FOLLOW_STATE_STYLES[entry.state] ?? FOLLOW_STATE_STYLES.pending;
-              return (
-                <li
-                  key={entry.userId}
-                  data-testid={`follow-user-${entry.userId}`}
-                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
-                >
-                  <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                  <span className="text-[var(--panel-fg)] truncate max-w-[40%]">{nameFor(entry.userId)}</span>
-                  <span className={`shrink-0 ${style.text}`}>{followStateLabel(entry.state, t)}</span>
-                  {entry.error && (
-                    <span className="text-red-400 truncate" title={entry.error}>
-                      {entry.error}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
 
       {/* ── Reconectando ───────────────────────────────────────────────── */}
       {reconnectApart.length > 0 && (
@@ -1491,8 +1259,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
 
         {/* Lote das contas marcadas, preso ao pé do cartão: aparecer não
             empurra as linhas (a faixa de antes entrava entre o cabeçalho e a
-            lista). Reconexão e teto de memória nos mesmos menus das linhas; o
-            teto pula os clientes abertos pelo site. */}
+            lista). Reconexão no mesmo menu das linhas. */}
         {selected.length > 0 && (
           <div
             data-testid="session-bulk-bar"
@@ -1516,14 +1283,6 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   globalDefault={reconnectDefault}
                   disabled={reconnectSaving}
                   onChange={(value) => void saveReconnect(selected, value)}
-                />
-              )}
-              {memoryTrim && memoryBulkIds.length > 0 && (
-                <MemoryBulkChip
-                  count={memoryBulkIds.length}
-                  defaultMb={memoryDefaultMb}
-                  disabled={memorySaving}
-                  onChange={(value) => void saveMemoryLimit(memoryBulkIds, value)}
                 />
               )}
               <button

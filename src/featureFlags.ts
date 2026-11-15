@@ -40,15 +40,3 @@ export const ENABLE_ACCOUNT_GENERATOR = parseBooleanEnv(
  * abaixo para `true`. Ver docs/features/ui-layout.md.
  */
 export const ENABLE_HELP_BUTTON = parseBooleanEnv(import.meta.env.VITE_ENABLE_HELP_BUTTON, false);
-
-/**
- * Página "Groups" da barra lateral. Ficou escondida de 08/10 a 13/10/2026: a
- * entrada pela API esbarrava sempre num quebra-cabeça do Roblox, e no
- * navegador da conta o botão de entrar ficava atrás do aviso de termos novos.
- * Desde 13/10/2026 a entrada é pelo navegador da própria conta (medido com
- * contas de teste: entra sem pedir nada), e a página voltou.
- *
- * Para esconder de novo: compile com `VITE_ENABLE_GROUPS=false` ou troque o
- * padrão abaixo para `false`. Ver docs/features/groups.md.
- */
-export const ENABLE_GROUPS = parseBooleanEnv(import.meta.env.VITE_ENABLE_GROUPS, true);

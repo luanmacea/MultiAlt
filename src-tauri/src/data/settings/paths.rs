@@ -22,7 +22,6 @@ pub const DATA_FILES: &[&str] = &[
     // Favoritos (com os links dos servidores VIP), jogos e servidores recentes.
     // Moravam só no `localStorage` do WebView e ficavam fora do backup.
     "RAMGameLists.json",
-    // Presets de launch (contas → jogo/servidor) e os horários deles.
     "RAMLaunchPresets.json",
     // Histórico de sessões por conta (uma linha JSON por evento, 90 dias).
     "RAMSessionHistory.jsonl",
@@ -170,11 +169,6 @@ pub fn get_scripts_path() -> PathBuf {
 /// Favoritos, jogos recentes e servidores recentes (`data/game_lists.rs`).
 pub fn get_game_lists_path() -> PathBuf {
     get_runtime_data_dir().join("RAMGameLists.json")
-}
-
-/// Presets de launch (`data/launch_presets.rs`).
-pub fn get_launch_presets_path() -> PathBuf {
-    get_runtime_data_dir().join("RAMLaunchPresets.json")
 }
 
 /// Histórico de sessões (`data/session_history.rs`).

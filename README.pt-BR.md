@@ -46,7 +46,6 @@ Baixe só deste repositório. Os arquivos `zz-…sig` da [página da release](ht
 | Grupos e ordem | Arrastar e soltar, grupos, ordem manual que sobrevive a fechar o app, alias de até 240 caracteres, descrição, campos livres |
 | Status ao vivo | Quem está online, em jogo ou no Studio, qual sessão expirou e quais contas estão paradas há 20+ dias |
 | Utilitários da conta | Display name, privacidade, trocar senha/e-mail, PIN, encerrar outras sessões, bloqueios, outfits, avatar por JSON, código do Quick Login |
-| Make Friends | Faz todas as contas virarem amigas entre si (mesh) ou de uma conta (star), com intervalo configurável |
 | Modo streamer | Esconde os nomes de usuário na lista para gravar ou fazer live |
 | Backups | Cria, lista e restaura backups de contas, settings, scripts e temas de dentro do app |
 

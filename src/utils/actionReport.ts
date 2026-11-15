@@ -1,9 +1,6 @@
-import type { FollowUserState, FriendLinkState } from "../types";
-
 /**
  * Resultado por conta das ações do menu "Actions" (e do clique direito). Antes
- * só "Check accounts" mostrava conta por conta; o resto dava um toast de
- * contagem — ou nada, e o motivo das falhas se perdia (o "Refresh cookies"
+ * as ações davam um toast de contagem — ou nada, e o motivo das falhas se perdia (o "Refresh cookies"
  * engolia o erro e não dizia que a sessão tinha morrido). Ver
  * docs/features/accounts.md.
  */
@@ -12,8 +9,6 @@ export type ActionOutcome = "pending" | "running" | "ok" | "already" | "skipped"
 export type ActionKind =
   | "refresh-cookies"
   | "copy-cookies"
-  | "make-friends"
-  | "follow"
   | "move-group"
   | "restart-clients"
   | "add-auto-rejoin"
@@ -103,46 +98,6 @@ export function countOutcomes(rows: ActionReportRow[]): Record<ActionOutcome, nu
 export function sortRows(rows: ActionReportRow[]): ActionReportRow[] {
   const rank = (o: ActionOutcome) => ACTION_OUTCOME_ORDER.indexOf(o);
   return [...rows].sort((a, b) => rank(a.outcome) - rank(b.outcome));
-}
-
-/** Linhas do "Make Friends" a partir do estado ao vivo do backend. */
-export function rowsFromFriendLink(state: FriendLinkState, loginDetail: string): ActionReportRow[] {
-  return state.accounts.map((entry) => {
-    switch (entry.state) {
-      case "done":
-        return { userId: entry.userId, outcome: "ok" as const };
-      case "failed":
-        return failureRow(entry.userId, entry.error, loginDetail);
-      case "processing":
-        return { userId: entry.userId, outcome: "running" as const };
-      default:
-        return { userId: entry.userId, outcome: "pending" as const };
-    }
-  });
-}
-
-/** Linhas do "Follow a user" a partir do estado ao vivo do backend. */
-export function rowsFromFollow(
-  state: FollowUserState,
-  loginDetail: string,
-  browserDetail: string
-): ActionReportRow[] {
-  return state.accounts.map((entry) => {
-    switch (entry.state) {
-      case "followed":
-        return { userId: entry.userId, outcome: "ok" as const };
-      case "already":
-        return { userId: entry.userId, outcome: "already" as const };
-      case "failed":
-        return failureRow(entry.userId, entry.error, loginDetail);
-      case "browser":
-        return { userId: entry.userId, outcome: "running" as const, detail: browserDetail };
-      case "processing":
-        return { userId: entry.userId, outcome: "running" as const };
-      default:
-        return { userId: entry.userId, outcome: "pending" as const };
-    }
-  });
 }
 
 /**

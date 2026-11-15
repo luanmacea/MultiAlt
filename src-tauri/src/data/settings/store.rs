@@ -124,11 +124,6 @@ impl SettingsStore {
                 Some("Grid cells may be smaller than Roblox's minimum window (only clients MultiAlt launched)"),
             ),
             (
-                "GridAutoFit",
-                "false",
-                Some("Grid cells take the largest landscape size that fits every window on the grid monitors (replaces the window size and GridAllowSmallWindows)"),
-            ),
-            (
                 "GridBorderless",
                 "false",
                 Some("Grid windows lose their title bar and border; turning it off gives them back"),
@@ -343,11 +338,6 @@ impl SettingsStore {
             ("BottingBotJobCpuLimitPercent", "20"),
             ("BottingBotEnableJobMemoryLimit", "false"),
             ("BottingBotJobMemoryLimitMb", "1536"),
-            // Otimizacao que segue o foco (docs/features/performance.md):
-            // opcional, desligada por padrao.
-            ("FollowFocus", "false"),
-            // Fundo mudo (feature `live-audio`; sem ela a chave e ignorada).
-            ("MuteBackgroundClients", "false"),
         ];
 
         let optimization = ini.section("Optimization");

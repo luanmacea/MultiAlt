@@ -1,7 +1,6 @@
 pub mod accounts;
 pub mod crypto;
 pub mod game_lists;
-pub mod launch_presets;
 pub mod scripts;
 pub mod session_history;
 pub mod settings;

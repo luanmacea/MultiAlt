@@ -6,7 +6,7 @@
 //! `t(key, params)`; `message` leva a mesma frase em inglês já montada, para
 //! quem não traduz (relatório de problema, ouvintes antigos do evento).
 //!
-//! Texto vindo de fora (erro do Roblox, do Windows, nome de preset) entra como
+//! Texto vindo de fora (erro do Roblox, do Windows) entra como
 //! **parâmetro**, nunca dentro da frase: a frase em volta é traduzida, o texto
 //! de fora fica como veio. Regras e a trava que as vigia: `docs/features/console.md`.
 

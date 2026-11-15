@@ -5,15 +5,13 @@ import { SessionPanel } from "../session/SessionPanel";
 import { PageShell } from "./PageShell";
 import { Toggle } from "../ui/Toggle";
 import { isWindowsPlatform } from "../../utils/platform";
-import { MemoryDefaultSelect } from "../session/MemoryLimitControl";
-import { MEMORY_LIMIT_SETTING, memoryLimitChoice } from "../../utils/memoryLimit";
 import { AwayDigestCard } from "../session/AwayDigest";
 
 /**
  * Página Session, o centro de quem joga com muitas contas: primeiro, em
  * qualquer largura, a faixa de números e as listas da sessão (Entrando, Em
  * jogo, agrupado por jogo e servidor); depois os cartões de ajuste — quem
- * mantém as contas no jogo, gravações e teto de memória. Abaixo de 1280 px os
+ * mantém as contas no jogo e gravações. Abaixo de 1280 px os
  * cartões vão para baixo das listas (em duas colunas), para a lista ter a
  * largura; acima, ficam numa coluna ao lado. A página rola inteira: as listas
  * não têm rolagem própria aqui (`contained={false}`).
@@ -32,12 +30,6 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
 
   const isWindows = isWindowsPlatform(store.platformCapabilities);
   const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
-  // Teto de memória: só com a feature `memory-trim` (nas duas edições).
-  const memoryTrim = isWindows && store.platformCapabilities?.supportsMemoryTrim === true;
-  const memoryDefaultMb = memoryLimitChoice(
-    undefined,
-    store.settings?.[MEMORY_LIMIT_SETTING.section]?.[MEMORY_LIMIT_SETTING.key]
-  ).defaultMb;
   const bottingOn = store.bottingStatus?.active === true;
   const afkOn = store.afkStatus?.active === true;
   // Reconexão automática em andamento (commands/reconnect.rs).
@@ -115,38 +107,6 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
               {t("Open AFK Mode")}
             </button>
           </section>
-
-          {/* O mesmo `Optimization.MemoryLimit` de Settings › Optimization.
-              Cada conta muda o seu na lista "Em jogo" (SessionPanel). */}
-          {memoryTrim && (
-            <section className="rounded-xl border theme-border px-4 py-3">
-              <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Memory limit")}</h2>
-              <p className="mt-1.5 text-[12px] leading-snug text-[var(--panel-muted)]">
-                {t(
-                  "A client over this limit: MultiAlt asks Windows to free its memory first. Only windows MultiAlt opened; each account can change it in the In game list."
-                )}
-              </p>
-              <div className="mt-2">
-                <MemoryDefaultSelect
-                  valueMb={memoryDefaultMb}
-                  onChange={(mb) =>
-                    void store.updateSetting(MEMORY_LIMIT_SETTING.section, MEMORY_LIMIT_SETTING.key, String(mb))
-                  }
-                />
-              </div>
-              <div className="mt-1">
-                <Toggle
-                  checked={store.settings?.Optimization?.CloseOverMemoryLimit === "true"}
-                  onChange={(v) =>
-                    void store.updateSetting("Optimization", "CloseOverMemoryLimit", v ? "true" : "false")
-                  }
-                  label="Close a client that stays over its limit"
-                  description="If a client is still over its limit a minute after MultiAlt freed its memory, it is closed. Only that client, only windows MultiAlt opened. Off: MultiAlt only frees memory and never closes."
-                />
-              </div>
-            </section>
-          )}
-
         </aside>
       </div>
     </PageShell>

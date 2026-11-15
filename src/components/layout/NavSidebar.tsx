@@ -13,13 +13,12 @@ import {
   Star,
   TerminalSquare,
   Users,
-  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore, type AppPage } from "../../store";
 import { useTr } from "../../i18n/text";
-import { ENABLE_GROUPS, ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
+import { ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
 import { Tooltip } from "../ui/Tooltip";
 import { StarPromptCard, openRepoForStar } from "./StarPromptCard";
 
@@ -85,7 +84,6 @@ const navGroups = (): NavItemDef[][] => [
     { page: "afk", label: "AFK Mode", icon: Keyboard, tour: "nav-afk" },
   ],
   [
-    ...(ENABLE_GROUPS ? [{ page: "groups" as const, label: "Groups", icon: UsersRound }] : []),
     { page: "scripts", label: "Scripts", icon: TerminalSquare },
     { page: "theme", label: "Theme", icon: Palette },
     ...(ENABLE_NEXUS ? [{ page: "nexus" as const, label: "Nexus", icon: Layers }] : []),
